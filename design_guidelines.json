@@ -1,0 +1,112 @@
+{
+  "theme_strategy": "Hybrid Theme: Organic & Earthy (Public) + Swiss/High-Contrast Functional (Internal CRM). Toggle between public site and admin dashboard context.",
+  "typography": {
+    "headings_public": "Playfair Display",
+    "headings_crm": "Outfit",
+    "body": "Outfit",
+    "scale": {
+      "h1": "text-5xl sm:text-6xl tracking-tight leading-none",
+      "h2": "text-3xl sm:text-4xl tracking-tight",
+      "h3": "text-xl sm:text-2xl",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm tracking-[0.2em] uppercase"
+    },
+    "instructions": "Import Playfair Display and Outfit from Google Fonts. Do not use Inter or Roboto for headings."
+  },
+  "colors": {
+    "public": {
+      "background": "#FAF9F6",
+      "foreground": "#1C2321",
+      "primary": "#2A5B46",
+      "primary_foreground": "#FFFFFF",
+      "accent": "#C86A4C",
+      "accent_foreground": "#FFFFFF",
+      "muted": "#EBE8E0",
+      "border": "#D1D5DB"
+    },
+    "internal_crm": {
+      "background": "#F3F4F6",
+      "foreground": "#111827",
+      "surface": "#FFFFFF",
+      "primary": "#0F172A",
+      "primary_foreground": "#FFFFFF",
+      "accent": "#2563EB",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444",
+      "border": "#E5E7EB"
+    }
+  },
+  "layouts": {
+    "public": "Bento grids with generous spacing (gap-8 to gap-12). Asymmetrical layouts for feature sections. Large hero with bg-black/30 overlay to ensure text contrast.",
+    "internal_crm": "Dense F-Pattern layout. Fixed dark sidebar (w-64). Main content area with grid-cols-4 and gap-4. Kanban boards utilizing full height for pipelines."
+  },
+  "components": {
+    "public_cards": "No visible borders, subtle drop shadows (shadow-lg), large image to text ratio (70:30). Organic feel.",
+    "crm_cards": "1px solid border (border-border), no shadow, tight padding (p-4). Flat and objective.",
+    "buttons": "Pill-shaped (rounded-full) for public marketing. Sharp/slight rounded (rounded-md) for CRM. Add hover state with slight translate-y and text color change.",
+    "status_chips": "Small, rounded-full, distinct background colors (red/amber/green) with dark text for high contrast readability in CRM.",
+    "navigation": "Public: Sticky glassmorphism header (backdrop-blur-xl bg-white/70). CRM: Solid dark left sidebar."
+  },
+  "motion": {
+    "public": "Smooth scrolling, staggered fade-in up for property listings, subtle image zoom on hover.",
+    "internal_crm": "Minimalist micro-interactions. Instant feedback. Subtle background color shift on hover for table rows."
+  },
+  "visual_enhancers": {
+    "public": "Subtle noise texture overlay. High-quality tropical architecture photography. Earthy, warm lighting.",
+    "internal_crm": "Data-dense sparklines, clear status indicators, modified F-pattern for data scanning."
+  },
+  "image_urls": [
+    {
+      "category": "hero_public",
+      "url": "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg",
+      "description": "Tropical modern house exterior with lush landscaping, perfect for the main hero."
+    },
+    {
+      "category": "property_featured_1",
+      "url": "https://images.pexels.com/photos/12081268/pexels-photo-12081268.jpeg",
+      "description": "Modern tropical house facade with wooden accents."
+    },
+    {
+      "category": "property_featured_2",
+      "url": "https://images.pexels.com/photos/23669334/pexels-photo-23669334.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Luxury apartment building with balconies and plants."
+    },
+    {
+      "category": "property_featured_3",
+      "url": "https://images.unsplash.com/photo-1760067537639-0fb475c87657",
+      "description": "Spacious modern living room with large windows."
+    },
+    {
+      "category": "agent_portrait",
+      "url": "https://images.pexels.com/photos/7578866/pexels-photo-7578866.jpeg",
+      "description": "Smiling real estate agent with a for sale sign."
+    }
+  ],
+  "accessibility": {
+    "contrast": "Ensure minimum 4.5:1 ratio for all text. Use dark text on status chips in CRM.",
+    "focus": "Clear focus rings on all inputs (focus:ring-2 focus:ring-primary).",
+    "motion": "Respect prefers-reduced-motion."
+  },
+  "instructions_to_main_agent": [
+    "Build the public site and CRM as distinct routing areas (e.g. / for public, /admin for CRM).",
+    "Use Playfair Display for public headings and Outfit for CRM headings. Outfit for all body text. Import these from Google Fonts.",
+    "Public site should feel airy and luxurious with gap-8 to gap-12, while CRM should be dense with gap-4.",
+    "Ensure all interactive elements have data-testid attributes.",
+    "Use lucide-react for CRM icons and public site icons.",
+    "Use recharts for CRM dashboard visualizations.",
+    "Never use fully transparent backgrounds for the public header; use backdrop-blur-xl bg-white/70 or bg-white/90.",
+    "Implement a Kanban board for the Sales/Leasing pipeline in the CRM.",
+    "Update tailwind.config.js to include the specific color tokens defined in the guidelines.",
+    "Do not use Inter, Roboto, Lato, or Open Sans. Do not use Space Grotesk."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not use universal transitions (transition: all). Target specific properties.",
+    "Do not center align app container text globally.",
+    "Use sonner for toast notifications.",
+    "Avoid AI emojis in UI.",
+    "Ensure high contrast on hover states.",
+    "Always provide a data-testid attribute for key interactive elements in kebab-case format.",
+    "Use pre-existing components from src/components/ui when applicable."
+  ]
+}
