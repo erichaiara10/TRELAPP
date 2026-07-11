@@ -336,20 +336,22 @@ def _build_property_query(filters: dict) -> dict:
         query.update(part)
     return query
 
+class PropertyFilters(BaseModel):
+    listing_type: Optional[str] = None
+    property_type: Optional[str] = None
+    location: Optional[str] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    bedrooms: Optional[int] = None
+    featured: Optional[bool] = None
+    status: Optional[str] = "active"
+    q: Optional[str] = None
+    limit: int = 60
+
 @api.get("/properties")
-async def list_properties(
-    listing_type: Optional[str] = None, property_type: Optional[str] = None,
-    location: Optional[str] = None, min_price: Optional[float] = None,
-    max_price: Optional[float] = None, bedrooms: Optional[int] = None,
-    featured: Optional[bool] = None, status: Optional[str] = "active",
-    q: Optional[str] = None, limit: int = 60,
-):
-    query = _build_property_query({
-        "listing_type": listing_type, "property_type": property_type, "location": location,
-        "min_price": min_price, "max_price": max_price, "bedrooms": bedrooms,
-        "featured": featured, "status": status, "q": q,
-    })
-    return await db.properties.find(query, {"_id":0}).sort("created_at",-1).to_list(limit)
+async def list_properties(filters: PropertyFilters = Depends()):
+    query = _build_property_query(filters.model_dump(exclude={"limit"}))
+    return await db.properties.find(query, {"_id": 0}).sort("created_at", -1).to_list(filters.limit)
 
 @api.get("/properties/{pid}")
 async def get_property(pid: str):
