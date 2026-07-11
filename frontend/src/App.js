@@ -1,56 +1,83 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { Toaster } from "@/components/ui/sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import PublicLayout from "@/components/PublicLayout";
+import AdminLayout from "@/components/AdminLayout";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+import Home from "@/pages/public/Home";
+import Search from "@/pages/public/Search";
+import PropertyDetail from "@/pages/public/PropertyDetail";
+import Sell from "@/pages/public/Sell";
+import Wanted from "@/pages/public/Wanted";
+import Management from "@/pages/public/Management";
+import Corporate from "@/pages/public/Corporate";
+import About from "@/pages/public/About";
+import Contact from "@/pages/public/Contact";
+import Legal from "@/pages/public/Legal";
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+import Login from "@/pages/admin/Login";
+import Dashboard from "@/pages/admin/Dashboard";
+import Properties from "@/pages/admin/Properties";
+import Customers from "@/pages/admin/Customers";
+import Leads from "@/pages/admin/Leads";
+import Requirements from "@/pages/admin/Requirements";
+import Matching from "@/pages/admin/Matching";
+import Inspections from "@/pages/admin/Inspections";
+import Tasks from "@/pages/admin/Tasks";
+import Pipeline from "@/pages/admin/Pipeline";
+import Users from "@/pages/admin/Users";
+import Content from "@/pages/admin/Content";
+import Reports from "@/pages/admin/Reports";
 
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+function Protected({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
+  if (!user) return <Navigate to="/admin/login" replace />;
+  return children;
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/buy" element={<Search mode="sale" />} />
+            <Route path="/rent" element={<Search mode="rent" />} />
+            <Route path="/property/:id" element={<PropertyDetail />} />
+            <Route path="/sell" element={<Sell />} />
+            <Route path="/wanted" element={<Wanted />} />
+            <Route path="/management" element={<Management />} />
+            <Route path="/corporate" element={<Corporate />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/privacy" element={<Legal kind="privacy" />} />
+            <Route path="/terms" element={<Legal kind="terms" />} />
+          </Route>
+
+          <Route path="/admin/login" element={<Login />} />
+          <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
+            <Route index element={<Dashboard />} />
+            <Route path="properties" element={<Properties />} />
+            <Route path="customers" element={<Customers />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="requirements" element={<Requirements />} />
+            <Route path="matching" element={<Matching />} />
+            <Route path="inspections" element={<Inspections />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="users" element={<Users />} />
+            <Route path="content" element={<Content />} />
+            <Route path="reports" element={<Reports />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        <Toaster richColors position="top-right" />
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}

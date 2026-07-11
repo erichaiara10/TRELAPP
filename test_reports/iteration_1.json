@@ -1,0 +1,42 @@
+{
+  "summary": "Full E2E test of PNG Realty MVP. 23/23 backend pytest tests pass; frontend home/buy/detail/admin flows verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/auth/me", "issue": "Backend prefers cookie over Bearer header (server.py:45-49). Login sets access_token cookie AND returns token, so a shared requests.Session sees the wrong identity when tokens are swapped. Frontend uses Bearer only (localStorage png_token) so is unaffected, but API consumers can be confused. Consider prefer-Bearer-over-cookie or make cookie opt-in."},
+      {"endpoint": "GET /api/matching/{id}", "issue": "Returns {requirement, matches} object; test spec said 'returns matches sorted by score'. Matches are correctly sorted by score desc (verified 90,75,55,45,30,15). Frontend may need to read .matches."},
+      {"endpoint": "GET/PUT /api/content/site", "issue": "Response shape is {key, value:{...}} not flat. PUT accepts a flat body but GET wraps it. Frontend must read from .value. Works but inconsistent."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminLogin", "issue": "Sign in button is not type='submit'; pressing Enter in password field does not submit the form", "selector": "button:has-text('Sign in')", "priority": "LOW"},
+      {"component": "index.html <title>", "issue": "Browser tab title is 'Emergent | Fullstack App' instead of 'PNG Realty'", "selector": "head > title", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Matching admin page (Matching.jsx)", "issues": ["React hydration warning: <span> inside <option>. Coming from dev-tool wrapping of option text; consider ensuring options render plain string children."]},
+      {"screen": "Property detail gallery", "issues": ["Seed properties have only 1-2 images so gallery shows repeated placeholder — cosmetic, seed-data limitation."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "OPTIONAL: Set <title>PNG Realty | Papua New Guinea Real Estate</title> in public/index.html.",
+    "OPTIONAL: Change Sign in button to type='submit' inside a <form onSubmit> so Enter key works.",
+    "OPTIONAL: Standardize /api/content/site response as flat object (or document {key,value} shape).",
+    "OPTIONAL: In get_current_user, prefer Authorization header over cookie for stateless API consistency."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 667 lines — consider splitting into routers/models modules if it grows further.",
+    "Requirement/property matching endpoint returns wrapper object; other list endpoints return arrays. Inconsistent envelope.",
+    "public/leads creates a new Customer each time even for repeat email — no de-duplication (may inflate customer count).",
+    "CORS uses allow_origins=* with credentials=false; login also sets a cookie though — cookie flow only works same-origin. Documented behavior only."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% for tested flows (home, buy list+filter, detail, admin login, 11 admin routes, logout)"},
+  "test_credentials": "admin@pngrealty.pg / Admin@123 (system_admin), sales@pngrealty.pg / Password@123 (sales_agent) — both verified working.",
+  "seed_data_creation": "Public forms created TEST_Seller, TEST_Wanted, TEST_Inspector leads/customers and 1 TEST requirement via public API during pytest runs (not cleaned up).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests are in /app/backend/tests/backend_test.py — run with `python -m pytest backend/tests/backend_test.py -v -o addopts=''` (pytest.ini enables xdist which conflicts if plugin missing). All endpoints healthy. Frontend uses REACT_APP_BACKEND_URL and Bearer-token auth (localStorage png_token). Admin login page: use get_by_role('button', name='Sign in'); button is NOT type=submit."
+}
