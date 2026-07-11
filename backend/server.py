@@ -301,14 +301,7 @@ async def delete_user(uid: str, user: dict = Depends(require_roles("system_admin
     return {"ok": True}
 
 # ---- Properties ----
-@api.get("/properties")
-async def list_properties(
-    listing_type: Optional[str] = None, property_type: Optional[str] = None,
-    location: Optional[str] = None, min_price: Optional[float] = None,
-    max_price: Optional[float] = None, bedrooms: Optional[int] = None,
-    featured: Optional[bool] = None, status: Optional[str] = "active",
-    q: Optional[str] = None, limit: int = 60,
-):
+def _build_property_query(listing_type, property_type, location, min_price, max_price, bedrooms, featured, status, q):
     query = {}
     if listing_type: query["listing_type"] = listing_type
     if property_type: query["property_type"] = property_type
@@ -324,6 +317,17 @@ async def list_properties(
     if q:
         query["$or"] = [{"title":{"$regex":q,"$options":"i"}},{"description":{"$regex":q,"$options":"i"}},
                         {"suburb":{"$regex":q,"$options":"i"}},{"location":{"$regex":q,"$options":"i"}}]
+    return query
+
+@api.get("/properties")
+async def list_properties(
+    listing_type: Optional[str] = None, property_type: Optional[str] = None,
+    location: Optional[str] = None, min_price: Optional[float] = None,
+    max_price: Optional[float] = None, bedrooms: Optional[int] = None,
+    featured: Optional[bool] = None, status: Optional[str] = "active",
+    q: Optional[str] = None, limit: int = 60,
+):
+    query = _build_property_query(listing_type, property_type, location, min_price, max_price, bedrooms, featured, status, q)
     return await db.properties.find(query, {"_id":0}).sort("created_at",-1).to_list(limit)
 
 @api.get("/properties/{pid}")
@@ -501,22 +505,41 @@ async def delete_task(tid: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 # ---- Matching ----
-def score_match(req: dict, prop: dict) -> int:
-    score = 0
-    if req.get("intent") == "buy" and prop.get("listing_type") == "sale": score += 20
-    if req.get("intent") == "rent" and prop.get("listing_type") == "rent": score += 20
-    if req.get("intent") == "either": score += 10
-    if req.get("property_type") and req["property_type"] == prop.get("property_type"): score += 20
+def _score_intent(req: dict, prop: dict) -> int:
+    intent, ltype = req.get("intent"), prop.get("listing_type")
+    if intent == "buy" and ltype == "sale": return 20
+    if intent == "rent" and ltype == "rent": return 20
+    if intent == "either": return 10
+    return 0
+
+def _score_type(req: dict, prop: dict) -> int:
+    if req.get("property_type") and req["property_type"] == prop.get("property_type"): return 20
+    return 0
+
+def _score_price(req: dict, prop: dict) -> int:
     price = prop.get("price", 0)
     lo, hi = req.get("min_price") or 0, req.get("max_price") or 0
-    if hi and price <= hi: score += 15
-    if not hi: score += 5
-    if lo and price >= lo: score += 5
-    if (prop.get("bedrooms") or 0) >= (req.get("min_bedrooms") or 0): score += 15
+    s = 0
+    if hi and price <= hi: s += 15
+    if not hi: s += 5
+    if lo and price >= lo: s += 5
+    return s
+
+def _score_bedrooms(req: dict, prop: dict) -> int:
+    if (prop.get("bedrooms") or 0) >= (req.get("min_bedrooms") or 0): return 15
+    return 0
+
+def _score_location(req: dict, prop: dict) -> int:
     locs = req.get("locations") or []
-    if not locs or prop.get("location") in locs or prop.get("suburb") in locs: score += 15
-    if prop.get("status") != "active": score -= 40
-    return max(0, score)
+    if not locs or prop.get("location") in locs or prop.get("suburb") in locs: return 15
+    return 0
+
+def score_match(req: dict, prop: dict) -> int:
+    if prop.get("status") != "active":
+        return 0
+    total = _score_intent(req, prop) + _score_type(req, prop) + _score_price(req, prop) \
+        + _score_bedrooms(req, prop) + _score_location(req, prop)
+    return max(0, total)
 
 @api.get("/matching/{requirement_id}")
 async def match_requirement(requirement_id: str, user: dict = Depends(get_current_user)):
@@ -596,9 +619,24 @@ DEMO_USERS = [
     {"email":"marketing@pngrealty.pg","name":"Peter Amet","role":"marketing_officer"},
 ]
 
-@app.on_event("startup")
-async def on_startup():
-    await db.users.create_index("email", unique=True)
+DEFAULT_CONTENT = {
+    "site": {"agency_name":"PNG Realty","tagline":"Homes rooted in the heart of Papua New Guinea",
+             "phone":"+675 7100 0000","whatsapp":"6757100000","email":"hello@pngrealty.pg",
+             "address":"Level 4, Deloitte Tower, Port Moresby, NCD"},
+    "about": {"heading":"About PNG Realty","body":"We are a locally-owned Papua New Guinea real estate agency helping families, investors and corporates find the right home, tenant or asset. Our team combines deep local knowledge with modern, transparent processes."},
+    "why": {"heading":"Why choose us","items":[
+        {"title":"Local expertise","body":"Born and raised in PNG — we know every suburb, security landscape, and school catchment."},
+        {"title":"Verified listings","body":"Every property is checked by our team before it goes live."},
+        {"title":"Corporate ready","body":"We handle expat relocations, corporate leases and portfolio management end-to-end."},
+    ]},
+}
+
+SAMPLE_REQUIREMENTS = [
+    {"customer_name":"Family of 5","intent":"buy","property_type":"house","min_price":600000,"max_price":900000,"min_bedrooms":3,"locations":["Port Moresby"],"notes":"Prefers Gordons or Waigani, secure compound"},
+    {"customer_name":"Mining Corporate","intent":"rent","property_type":"apartment","min_price":5000,"max_price":8000,"min_bedrooms":2,"locations":["Port Moresby"],"notes":"Executive housing for FIFO staff","is_corporate":True},
+]
+
+async def _seed_users():
     admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
     for u in DEMO_USERS:
         exists = await db.users.find_one({"email": u["email"]})
@@ -608,29 +646,23 @@ async def on_startup():
                 "role": u["role"], "phone": None, "password_hash": hash_password(pwd), "created_at": now_iso()})
         elif not verify_password(pwd, exists.get("password_hash","")):
             await db.users.update_one({"email": u["email"]}, {"$set": {"password_hash": hash_password(pwd)}})
+
+async def _seed_properties():
     if await db.properties.count_documents({}) == 0:
         for p in DEMO_PROPERTIES:
             await db.properties.insert_one(Property(**p).model_dump())
-    default_content = {
-        "site": {"agency_name":"PNG Realty","tagline":"Homes rooted in the heart of Papua New Guinea",
-                 "phone":"+675 7100 0000","whatsapp":"6757100000","email":"hello@pngrealty.pg",
-                 "address":"Level 4, Deloitte Tower, Port Moresby, NCD"},
-        "about": {"heading":"About PNG Realty","body":"We are a locally-owned Papua New Guinea real estate agency helping families, investors and corporates find the right home, tenant or asset. Our team combines deep local knowledge with modern, transparent processes."},
-        "why": {"heading":"Why choose us","items":[
-            {"title":"Local expertise","body":"Born and raised in PNG — we know every suburb, security landscape, and school catchment."},
-            {"title":"Verified listings","body":"Every property is checked by our team before it goes live."},
-            {"title":"Corporate ready","body":"We handle expat relocations, corporate leases and portfolio management end-to-end."},
-        ]},
-    }
-    for k, v in default_content.items():
+
+async def _seed_content():
+    for k, v in DEFAULT_CONTENT.items():
         await db.content.update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v}}, upsert=True)
+
+async def _seed_requirements():
     if await db.requirements.count_documents({}) == 0:
-        samples = [
-            {"customer_name":"Family of 5","intent":"buy","property_type":"house","min_price":600000,"max_price":900000,"min_bedrooms":3,"locations":["Port Moresby"],"notes":"Prefers Gordons or Waigani, secure compound"},
-            {"customer_name":"Mining Corporate","intent":"rent","property_type":"apartment","min_price":5000,"max_price":8000,"min_bedrooms":2,"locations":["Port Moresby"],"notes":"Executive housing for FIFO staff","is_corporate":True},
-        ]
-        for s in samples:
+        for s in SAMPLE_REQUIREMENTS:
             await db.requirements.insert_one(Requirement(**s).model_dump())
+
+def _write_test_credentials():
+    admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
     try:
         creds_dir = Path("/app/memory")
         creds_dir.mkdir(parents=True, exist_ok=True)
@@ -654,6 +686,15 @@ async def on_startup():
 """)
     except Exception as e:
         logger.warning(f"Could not write test credentials: {e}")
+
+@app.on_event("startup")
+async def on_startup():
+    await db.users.create_index("email", unique=True)
+    await _seed_users()
+    await _seed_properties()
+    await _seed_content()
+    await _seed_requirements()
+    _write_test_credentials()
     logger.info("Startup seeding complete")
 
 app.include_router(api)

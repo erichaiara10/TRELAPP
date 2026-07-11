@@ -2,19 +2,9 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import StatsGrid from "@/components/admin/StatsGrid";
 
 const BAR_RADIUS = [4, 4, 0, 0];
-
-const Stat = ({ label, value, hint, to }) => {
-  const Wrap = to ? Link : "div";
-  return (
-    <Wrap to={to} className="bg-white rounded-lg border border-border p-4 hover:shadow-sm block" data-testid={`stat-${label.toLowerCase().replace(/\s+/g,'-')}`}>
-      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="text-3xl font-semibold mt-1">{value}</div>
-      {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
-    </Wrap>
-  );
-};
 
 export default function Dashboard() {
   const [summary, setSummary] = useState({});
@@ -30,17 +20,9 @@ export default function Dashboard() {
     <div>
       <h1 className="text-2xl font-semibold" data-testid="dashboard-title">Dashboard</h1>
       <p className="text-sm text-muted-foreground">Overview of today&apos;s operations.</p>
-      <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Stat label="Active properties" value={summary.properties_active ?? "–"} to="/admin/properties" />
-        <Stat label="New leads" value={summary.leads_new ?? "–"} to="/admin/leads" />
-        <Stat label="Open inspections" value={summary.inspections_open ?? "–"} to="/admin/inspections" />
-        <Stat label="Open tasks" value={summary.tasks_open ?? "–"} to="/admin/tasks" />
-        <Stat label="Customers" value={summary.customers ?? "–"} to="/admin/customers" />
-        <Stat label="Active requirements" value={summary.requirements_active ?? "–"} to="/admin/requirements" />
-        <Stat label="Sold" value={summary.properties_sold ?? "–"} />
-        <Stat label="Leased" value={summary.properties_leased ?? "–"} />
+      <div className="mt-6">
+        <StatsGrid summary={summary} />
       </div>
-
       <div className="mt-8 grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-lg border border-border p-4">
           <div className="text-sm font-medium">Leads by source</div>
