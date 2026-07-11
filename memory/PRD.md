@@ -15,6 +15,12 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Brand assets & SEO (rebranded to TREL)
+- Logo, favicon, OG/social share image, og:description, agency_name, short_name, tagline, phone, WhatsApp, email, address — all editable via `/admin/content`
+- URL fields render a live preview in the admin form
+- `BrandingHead` component applies favicon + OG tags + document title dynamically from site content on every route (also baked into `index.html` for first-paint SEO)
+- Startup migration backfills favicon_url / og_image_url / og_description on existing DBs
+
 ### Public website
 - Home (hero with dual-tab search, featured properties, why-us, wanted preview, CTA)
 - Buy / Rent search with filters (type, location, price range, bedrooms, keyword)

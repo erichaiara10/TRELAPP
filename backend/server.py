@@ -666,6 +666,9 @@ DEFAULT_CONTENT = {
     "site": {"agency_name":"Triumph Real Estate Limited","short_name":"TREL",
              "tagline":"We Care To Share",
              "logo_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+             "favicon_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+             "og_image_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+             "og_description":"Triumph Real Estate Limited — verified homes, apartments, land and commercial properties across Papua New Guinea. We Care To Share.",
              "phone":"+675 76281552","whatsapp":"+675 8138 3302","email":"sales101.trel@gmail.com",
              "address":"Rm 12, NDB Business Incubation Centre, Kunai Street, Hohola. P.O. Box 1061, Vision City, National Capital District, PNG"},
     "about": {"heading":"About Triumph Real Estate Limited","body":"Triumph Real Estate Limited (TREL) is a Papua New Guinea-owned real estate agency helping families, investors and corporates find the right home, tenant or asset. We combine deep local knowledge with modern, transparent processes — because we care to share."},
@@ -714,6 +717,14 @@ async def _seed_content():
         current_logo = (site or {}).get("value", {}).get("logo_url", "")
         if "TREL%20Letter%20Head" in current_logo or "TREL Letter Head" in current_logo:
             await db.content.update_one({"key": "site"}, {"$set": {"value.logo_url": DEFAULT_CONTENT["site"]["logo_url"]}})
+        # Add favicon_url / og_image_url / og_description if missing (backfill for older records)
+        cur_val = (site or {}).get("value", {}) if site else {}
+        backfill = {}
+        for k in ("favicon_url", "og_image_url", "og_description"):
+            if not cur_val.get(k):
+                backfill[f"value.{k}"] = DEFAULT_CONTENT["site"][k]
+        if backfill:
+            await db.content.update_one({"key": "site"}, {"$set": backfill})
     about = await db.content.find_one({"key": "about"}, {"_id": 0})
     if about and about.get("value", {}).get("heading", "").endswith("PNG Realty"):
         await db.content.update_one({"key": "about"}, {"$set": {"value": DEFAULT_CONTENT["about"]}})

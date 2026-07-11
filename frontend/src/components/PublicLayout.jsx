@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { api } from "@/lib/api";
 import PublicHeader from "@/components/public/PublicHeader";
 import PublicFooter from "@/components/public/PublicFooter";
+import BrandingHead from "@/components/BrandingHead";
 
 const DEFAULT_SITE = {
   agency_name: "Triumph Real Estate Limited",
@@ -26,6 +27,7 @@ export default function PublicLayout() {
 
   return (
     <div className="min-h-screen flex flex-col bg-sand-50 text-ink-900">
+      <BrandingHead site={site} />
       <PublicHeader site={site} />
       <main className="flex-1"><Outlet /></main>
       <PublicFooter site={site} />
