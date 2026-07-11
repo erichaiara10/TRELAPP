@@ -1,0 +1,19 @@
+{
+  "summary": "Iteration 6 regression: Verified LISTING_TYPES module constant refactor in PropertyModalFields.jsx. Admin login, /admin/properties → New modal opens, Listing type dropdown renders Sale/Rent options correctly, selecting 'rent' and creating a property persists and shows in table as 'Rent · House'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": ["Non-blocking: a stray empty-title 'Sale · House / PGK 0' row exists in properties table (from prior iteration test data). Consider cleanup, but out of scope for iteration 6."],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped", "frontend": "100%"},
+  "test_credentials": "admin@pngrealty.pg / Admin@123 (worked)",
+  "seed_data_creation": "Created 'TEST Rental Listing QA' property with listing_type=rent",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 6 trivial refactor verified. LISTING_TYPES constant works via SelectField, both string and {value,label} option shapes supported."
+}

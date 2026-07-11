@@ -7,6 +7,7 @@ const TEXT_FIELDS = [
 ];
 const PROPERTY_TYPES = ["house","apartment","townhouse","land","commercial"];
 const STATUSES = ["draft","active","under_offer","sold","leased","withdrawn"];
+const LISTING_TYPES = [{ value: "sale", label: "Sale" }, { value: "rent", label: "Rent" }];
 
 function toArray(value) {
   if (Array.isArray(value)) return value;
@@ -52,7 +53,7 @@ export default function PropertyModalFields({ modal, setModal }) {
         <TextField key={k} label={l} testId={`property-${k}-input`} value={modal[k]} onChange={set(k)} />
       ))}
       <SelectField label="Listing type" testId="property-listing-type" value={modal.listing_type} onChange={set("listing_type")}
-        options={[{ value: "sale", label: "Sale" }, { value: "rent", label: "Rent" }]} />
+        options={LISTING_TYPES} />
       <SelectField label="Property type" testId="property-type" value={modal.property_type} onChange={set("property_type")} options={PROPERTY_TYPES} />
       <SelectField label="Status" testId="property-status" value={modal.status} onChange={set("status")} options={STATUSES} />
       <label className="block col-span-2">
