@@ -43,7 +43,7 @@ export default function Login() {
               <span className="text-xs uppercase tracking-widest text-muted-foreground">Password</span>
               <input required type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} data-testid="login-password" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5" />
             </label>
-            <button disabled={loading} data-testid="login-submit" className="w-full py-2.5 rounded-md bg-[#0F172A] text-white hover:bg-black disabled:opacity-60">
+            <button type="submit" disabled={loading} data-testid="login-submit" className="w-full py-2.5 rounded-md bg-[#0F172A] text-white hover:bg-black disabled:opacity-60">
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </div>
