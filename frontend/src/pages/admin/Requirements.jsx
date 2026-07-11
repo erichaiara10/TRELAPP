@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 
+const reqState = (id) => ({ requirement_id: id });
+
 export default function Requirements() {
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/requirements").then((r) => setItems(r.data)); }, []);
@@ -22,7 +24,7 @@ export default function Requirements() {
             <div className="text-sm text-ink-700 mt-1">Budget: {(r.min_price||0).toLocaleString()} – {(r.max_price||0).toLocaleString()} PGK · {r.min_bedrooms}+ beds</div>
             <div className="text-xs text-muted-foreground mt-1">{(r.locations||[]).join(", ") || "Any location"}</div>
             <div className="text-sm text-ink-700 mt-2">{r.notes}</div>
-            <Link to="/admin/matching" state={{ requirement_id: r.id }} className="mt-3 inline-block text-sm text-pine-500 hover:underline" data-testid={`match-btn-${r.id}`}>Run matching →</Link>
+            <Link to="/admin/matching" state={reqState(r.id)} className="mt-3 inline-block text-sm text-pine-500 hover:underline" data-testid={`match-btn-${r.id}`}>Run matching →</Link>
           </div>
         ))}
       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { api } from "@/lib/api";
 import { BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts";
 
@@ -11,6 +11,11 @@ export default function Reports() {
     api.get("/reports/summary").then((r) => setSummary(r.data));
     api.get("/reports/leads_by_source").then((r) => setSources(r.data));
   }, []);
+  const portfolio = useMemo(() => ([
+    { name: "Active", value: summary.properties_active || 0 },
+    { name: "Sold", value: summary.properties_sold || 0 },
+    { name: "Leased", value: summary.properties_leased || 0 },
+  ]), [summary]);
   return (
     <div>
       <h1 className="text-2xl font-semibold">Reports</h1>
@@ -28,11 +33,7 @@ export default function Reports() {
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={[
-                  { name: "Active", value: summary.properties_active || 0 },
-                  { name: "Sold", value: summary.properties_sold || 0 },
-                  { name: "Leased", value: summary.properties_leased || 0 },
-                ]} dataKey="value" outerRadius={90} label>
+                <Pie data={portfolio} dataKey="value" outerRadius={90} label>
                   {[0,1,2].map((i) => <Cell key={i} fill={COLORS[i]} />)}
                 </Pie>
                 <Legend /><Tooltip />

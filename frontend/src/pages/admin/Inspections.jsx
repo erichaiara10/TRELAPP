@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -6,8 +6,8 @@ const STATUSES = ["requested","scheduled","completed","cancelled"];
 
 export default function Inspections() {
   const [items, setItems] = useState([]);
-  const load = () => api.get("/inspections").then((r) => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/inspections").then((r) => setItems(r.data)), []);
+  useEffect(() => { load(); }, [load]);
   const setStatus = async (id, status) => { await api.put(`/inspections/${id}`, { status }); toast.success("Updated"); load(); };
   const setFeedback = async (id, feedback) => { await api.put(`/inspections/${id}`, { feedback }); toast.success("Feedback saved"); };
 

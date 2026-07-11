@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -8,8 +8,8 @@ const badge = { new: "bg-blue-100 text-blue-800", contacted:"bg-amber-100 text-a
 export default function Leads() {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("");
-  const load = () => api.get("/leads").then((r) => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/leads").then((r) => setItems(r.data)), []);
+  useEffect(() => { load(); }, [load]);
   const setStatus = async (id, status) => { await api.put(`/leads/${id}`, { status }); toast.success("Updated"); load(); };
   const shown = filter ? items.filter((i) => i.status === filter) : items;
   return (

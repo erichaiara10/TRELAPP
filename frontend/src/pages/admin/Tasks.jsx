@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Check } from "lucide-react";
@@ -6,8 +6,8 @@ import { Plus, Check } from "lucide-react";
 export default function Tasks() {
   const [items, setItems] = useState([]);
   const [t, setT] = useState({ title: "", description: "", priority: "medium", due_date: "" });
-  const load = () => api.get("/tasks").then((r) => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/tasks").then((r) => setItems(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const create = async (e) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -10,8 +10,8 @@ export default function Users() {
   const { user: me } = useAuth();
   const [items, setItems] = useState([]);
   const [n, setN] = useState({ email: "", password: "", name: "", role: "sales_agent" });
-  const load = () => api.get("/users").then((r) => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/users").then((r) => setItems(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const create = async (e) => {
     e.preventDefault();

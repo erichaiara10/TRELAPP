@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api, money, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Edit2, Trash2, X } from "lucide-react";
@@ -8,8 +8,8 @@ const empty = { title:"", listing_type:"sale", property_type:"house", price:0, c
 export default function Properties() {
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
-  const load = () => api.get("/properties", { params: { status: "" } }).then((r) => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/properties", { params: { status: "" } }).then((r) => setItems(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     const p = { ...modal,

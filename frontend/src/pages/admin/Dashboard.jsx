@@ -3,6 +3,8 @@ import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
+const BAR_RADIUS = [4, 4, 0, 0];
+
 const Stat = ({ label, value, hint, to }) => {
   const Wrap = to ? Link : "div";
   return (
@@ -27,7 +29,7 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="text-2xl font-semibold" data-testid="dashboard-title">Dashboard</h1>
-      <p className="text-sm text-muted-foreground">Overview of today's operations.</p>
+      <p className="text-sm text-muted-foreground">Overview of today&apos;s operations.</p>
       <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
         <Stat label="Active properties" value={summary.properties_active ?? "–"} to="/admin/properties" />
         <Stat label="New leads" value={summary.leads_new ?? "–"} to="/admin/leads" />
@@ -48,7 +50,7 @@ export default function Dashboard() {
                 <XAxis dataKey="source" fontSize={11} />
                 <YAxis fontSize={11} />
                 <Tooltip />
-                <Bar dataKey="count" fill="#2A5B46" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="#2A5B46" radius={BAR_RADIUS} />
               </BarChart>
             </ResponsiveContainer>
           </div>
