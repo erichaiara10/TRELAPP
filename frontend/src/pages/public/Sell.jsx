@@ -26,6 +26,6 @@ export default function Sell() {
       </label>
     </>
   );
-  return <LeadFormPage source="sell_form" kicker="Sell with us" title="List your property" intro="Tell us about your property — a PNG Realty agent will schedule an appraisal and walk you through our marketing plan."
+  return <LeadFormPage source="sell_form" kicker="Sell with us" title="List your property" intro="Tell us about your property — a TREL agent will schedule an appraisal and walk you through our marketing plan."
     extra={extra} extraPayload={() => prop} />;
 }

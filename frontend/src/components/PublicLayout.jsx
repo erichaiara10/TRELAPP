@@ -5,11 +5,13 @@ import PublicHeader from "@/components/public/PublicHeader";
 import PublicFooter from "@/components/public/PublicFooter";
 
 const DEFAULT_SITE = {
-  agency_name: "PNG Realty",
-  tagline: "Homes rooted in the heart of Papua New Guinea",
-  phone: "+675 7100 0000",
-  whatsapp: "6757100000",
-  email: "hello@pngrealty.pg",
+  agency_name: "Triumph Real Estate Limited",
+  short_name: "TREL",
+  tagline: "We Care To Share",
+  logo_url: "https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+  phone: "+675 76281552",
+  whatsapp: "+675 8138 3302",
+  email: "sales101.trel@gmail.com",
   address: "",
 };
 

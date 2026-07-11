@@ -13,6 +13,33 @@ const NAV = [
   { to: "/contact", label: "Contact" },
 ];
 
+function BrandLogo({ site }) {
+  const short = site.short_name || "TREL";
+  if (site.logo_url) {
+    return (
+      <Link to="/" className="flex items-center gap-3 group shrink-0" data-testid="brand-home-link" aria-label={site.agency_name}>
+        <img src={site.logo_url} alt={site.agency_name}
+          className="h-12 w-auto object-contain" />
+        <div className="hidden sm:block leading-tight">
+          <div className="font-serif text-base text-ink-900">{site.agency_name}</div>
+          <div className="text-[10px] tracking-[0.2em] uppercase text-muted-foreground italic">{site.tagline || "We Care To Share"}</div>
+        </div>
+      </Link>
+    );
+  }
+  return (
+    <Link to="/" className="flex items-center gap-2 group" data-testid="brand-home-link">
+      <div className="w-9 h-9 rounded-full bg-pine-500 text-white grid place-items-center font-serif text-lg">
+        {short.slice(0, 1)}
+      </div>
+      <div>
+        <div className="font-serif text-lg leading-none">{site.agency_name}</div>
+        <div className="text-[10px] tracking-[0.25em] uppercase text-muted-foreground">Papua New Guinea</div>
+      </div>
+    </Link>
+  );
+}
+
 export default function PublicHeader({ site }) {
   const [open, setOpen] = useState(false);
   const loc = useLocation();
@@ -22,22 +49,16 @@ export default function PublicHeader({ site }) {
 
   return (
     <header className="sticky top-0 z-40 glass border-b border-border" data-testid="public-header">
-      <div className="container-tight flex items-center justify-between h-16">
-        <Link to="/" className="flex items-center gap-2 group" data-testid="brand-home-link">
-          <div className="w-9 h-9 rounded-full bg-pine-500 text-white grid place-items-center font-serif text-lg">P</div>
-          <div>
-            <div className="font-serif text-lg leading-none">{site.agency_name}</div>
-            <div className="text-[10px] tracking-[0.25em] uppercase text-muted-foreground">Papua New Guinea</div>
-          </div>
-        </Link>
-        <nav className="hidden lg:flex items-center gap-6 text-sm">
+      <div className="container-tight flex items-center justify-between h-16 gap-4">
+        <BrandLogo site={site} />
+        <nav className="hidden lg:flex items-center gap-5 text-sm">
           {NAV.map((n) => (
             <Link key={n.to} to={n.to} data-testid={`nav-${n.to.slice(1)}`} className="text-ink-700 hover:text-pine-500">
               {n.label}
             </Link>
           ))}
         </nav>
-        <div className="hidden md:flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2 shrink-0">
           <a href={`tel:${site.phone}`} className="text-sm text-ink-700 hover:text-pine-500 flex items-center gap-1.5" data-testid="header-phone">
             <Phone className="w-4 h-4" /> {site.phone}
           </a>

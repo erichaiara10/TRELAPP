@@ -44,7 +44,7 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
       {sent ? (
         <div className="mt-10 rounded-2xl bg-pine-500 text-white p-8" data-testid={`${source}-success`}>
           <h2 className="font-serif text-2xl">Submission received</h2>
-          <p className="mt-2 text-sand-100/90">A dedicated agent from PNG Realty will call you within one business day.</p>
+          <p className="mt-2 text-sand-100/90">A dedicated agent from Triumph Real Estate Limited will call you within one business day.</p>
         </div>
       ) : (
         <form onSubmit={submit} className="mt-10 grid md:grid-cols-2 gap-4" data-testid={`${source}-form`}>

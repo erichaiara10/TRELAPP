@@ -24,11 +24,11 @@ JWT_ALG = os.environ.get("JWT_ALGORITHM", "HS256")
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
-app = FastAPI(title="PNG Realty API")
+app = FastAPI(title="TREL API")
 api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("pngrealty")
+logger = logging.getLogger("trel")
 
 def now_iso() -> str: return datetime.now(timezone.utc).isoformat()
 def new_id() -> str: return str(uuid.uuid4())
@@ -610,7 +610,7 @@ async def leads_by_source(user: dict = Depends(get_current_user)):
     return [{"source": r["_id"], "count": r["count"]} for r in rows]
 
 @api.get("/")
-async def root(): return {"ok": True, "service": "PNG Realty API"}
+async def root(): return {"ok": True, "service": "TREL API"}
 
 # ---- Seed ----
 DEMO_PROPERTIES = [
@@ -635,24 +635,49 @@ DEMO_PROPERTIES = [
 ]
 
 DEMO_USERS = [
-    {"email": os.environ.get("ADMIN_EMAIL","admin@pngrealty.pg"), "name":"System Admin","role":"system_admin"},
-    {"email":"director@pngrealty.pg","name":"Naomi Kila","role":"managing_director"},
-    {"email":"sales@pngrealty.pg","name":"John Namaliu","role":"sales_agent"},
-    {"email":"leasing@pngrealty.pg","name":"Grace Toua","role":"leasing_agent"},
-    {"email":"marketing@pngrealty.pg","name":"Peter Amet","role":"marketing_officer"},
+    {"email": os.environ.get("ADMIN_EMAIL","admin@trel.com.pg"), "name":"System Admin","role":"system_admin"},
+    {"email":"director@trel.com.pg","name":"Naomi Kila","role":"managing_director"},
+    {"email":"sales@trel.com.pg","name":"John Namaliu","role":"sales_agent"},
+    {"email":"leasing@trel.com.pg","name":"Grace Toua","role":"leasing_agent"},
+    {"email":"marketing@trel.com.pg","name":"Peter Amet","role":"marketing_officer"},
 ]
 
+LEGACY_EMAIL_MAP = {
+    "admin@pngrealty.pg": "admin@trel.com.pg",
+    "director@pngrealty.pg": "director@trel.com.pg",
+    "sales@pngrealty.pg": "sales@trel.com.pg",
+    "leasing@pngrealty.pg": "leasing@trel.com.pg",
+    "marketing@pngrealty.pg": "marketing@trel.com.pg",
+}
+
+async def _migrate_legacy_user_emails():
+    for old, new in LEGACY_EMAIL_MAP.items():
+        old_user = await db.users.find_one({"email": old})
+        if not old_user:
+            continue
+        new_user = await db.users.find_one({"email": new})
+        if new_user:
+            # New already exists; delete old to avoid duplicates
+            await db.users.delete_one({"email": old})
+        else:
+            await db.users.update_one({"email": old}, {"$set": {"email": new}})
+
 DEFAULT_CONTENT = {
-    "site": {"agency_name":"PNG Realty","tagline":"Homes rooted in the heart of Papua New Guinea",
-             "phone":"+675 7100 0000","whatsapp":"6757100000","email":"hello@pngrealty.pg",
-             "address":"Level 4, Deloitte Tower, Port Moresby, NCD"},
-    "about": {"heading":"About PNG Realty","body":"We are a locally-owned Papua New Guinea real estate agency helping families, investors and corporates find the right home, tenant or asset. Our team combines deep local knowledge with modern, transparent processes."},
-    "why": {"heading":"Why choose us","items":[
+    "site": {"agency_name":"Triumph Real Estate Limited","short_name":"TREL",
+             "tagline":"We Care To Share",
+             "logo_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+             "phone":"+675 76281552","whatsapp":"+675 8138 3302","email":"sales101.trel@gmail.com",
+             "address":"Rm 12, NDB Business Incubation Centre, Kunai Street, Hohola. P.O. Box 1061, Vision City, National Capital District, PNG"},
+    "about": {"heading":"About Triumph Real Estate Limited","body":"Triumph Real Estate Limited (TREL) is a Papua New Guinea-owned real estate agency helping families, investors and corporates find the right home, tenant or asset. We combine deep local knowledge with modern, transparent processes — because we care to share."},
+    "why": {"heading":"Why choose TREL","items":[
         {"title":"Local expertise","body":"Born and raised in PNG — we know every suburb, security landscape, and school catchment."},
         {"title":"Verified listings","body":"Every property is checked by our team before it goes live."},
         {"title":"Corporate ready","body":"We handle expat relocations, corporate leases and portfolio management end-to-end."},
     ]},
 }
+
+# Migration: overwrite legacy placeholder branding (PNG Realty) with TREL defaults; preserves user edits.
+LEGACY_AGENCY_NAMES = {"PNG Realty"}
 
 SAMPLE_REQUIREMENTS = [
     {"customer_name":"Family of 5","intent":"buy","property_type":"house","min_price":600000,"max_price":900000,"min_bedrooms":3,"locations":["Port Moresby"],"notes":"Prefers Gordons or Waigani, secure compound"},
@@ -678,6 +703,23 @@ async def _seed_properties():
 async def _seed_content():
     for k, v in DEFAULT_CONTENT.items():
         await db.content.update_one({"key": k}, {"$setOnInsert": {"key": k, "value": v}}, upsert=True)
+    # Migrate legacy placeholder branding (PNG Realty) → TREL, preserving custom edits
+    site = await db.content.find_one({"key": "site"}, {"_id": 0})
+    current_name = (site or {}).get("value", {}).get("agency_name", "")
+    # Overwrite when: missing agency_name (test corruption), or matches legacy names, or contains "PNG Realty"
+    needs_full_reset = (not current_name) or (current_name in LEGACY_AGENCY_NAMES) or ("PNG Realty" in current_name)
+    if site and needs_full_reset:
+        await db.content.update_one({"key": "site"}, {"$set": {"value": DEFAULT_CONTENT["site"]}})
+    else:
+        current_logo = (site or {}).get("value", {}).get("logo_url", "")
+        if "TREL%20Letter%20Head" in current_logo or "TREL Letter Head" in current_logo:
+            await db.content.update_one({"key": "site"}, {"$set": {"value.logo_url": DEFAULT_CONTENT["site"]["logo_url"]}})
+    about = await db.content.find_one({"key": "about"}, {"_id": 0})
+    if about and about.get("value", {}).get("heading", "").endswith("PNG Realty"):
+        await db.content.update_one({"key": "about"}, {"$set": {"value": DEFAULT_CONTENT["about"]}})
+    why = await db.content.find_one({"key": "why"}, {"_id": 0})
+    if why and why.get("value", {}).get("heading") == "Why choose us":
+        await db.content.update_one({"key": "why"}, {"$set": {"value": DEFAULT_CONTENT["why"]}})
 
 async def _seed_requirements():
     if await db.requirements.count_documents({}) == 0:
@@ -686,21 +728,22 @@ async def _seed_requirements():
 
 def _write_test_credentials():
     admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
+    admin_email = os.environ.get('ADMIN_EMAIL','admin@trel.com.pg')
     try:
         creds_dir = Path("/app/memory")
         creds_dir.mkdir(parents=True, exist_ok=True)
-        (creds_dir / "test_credentials.md").write_text(f"""# PNG Realty Test Credentials
+        (creds_dir / "test_credentials.md").write_text(f"""# Triumph Real Estate Limited (TREL) — Test Credentials
 
 ## Admin
-- Email: `{os.environ.get('ADMIN_EMAIL','admin@pngrealty.pg')}`
+- Email: `{admin_email}`
 - Password: `{admin_pwd}`
 - Role: system_admin
 
 ## Staff (all password: `Password@123`)
-- director@pngrealty.pg  (managing_director)
-- sales@pngrealty.pg     (sales_agent)
-- leasing@pngrealty.pg   (leasing_agent)
-- marketing@pngrealty.pg (marketing_officer)
+- director@trel.com.pg  (managing_director)
+- sales@trel.com.pg     (sales_agent)
+- leasing@trel.com.pg   (leasing_agent)
+- marketing@trel.com.pg (marketing_officer)
 
 ## Auth Endpoints
 - POST /api/auth/login  {{ email, password }} -> returns token
@@ -713,6 +756,7 @@ def _write_test_credentials():
 @app.on_event("startup")
 async def on_startup():
     await db.users.create_index("email", unique=True)
+    await _migrate_legacy_user_emails()
     await _seed_users()
     await _seed_properties()
     await _seed_content()

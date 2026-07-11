@@ -7,8 +7,8 @@ export default function PublicFooter({ site }) {
       <div className="container-tight py-12 grid md:grid-cols-4 gap-8">
         <div>
           <div className="font-serif text-2xl">{site.agency_name}</div>
-          <p className="text-sm mt-2 text-sand-100/80">{site.tagline || "Homes rooted in the heart of Papua New Guinea"}</p>
-          <p className="text-xs mt-4 text-sand-100/60">{site.address}</p>
+          <p className="text-sm mt-2 text-sand-100/80">{site.tagline || "We Care To Share"}</p>
+          <p className="text-xs mt-4 text-sand-100/60 whitespace-pre-line">{site.address}</p>
         </div>
         <div>
           <div className="text-xs uppercase tracking-[0.25em] text-sand-100/70 mb-3">Explore</div>

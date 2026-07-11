@@ -28,7 +28,7 @@ export default function AdminLayout() {
     <div className="min-h-screen flex bg-[#F3F4F6] text-[#111827]" style={{ fontFamily: "Outfit, sans-serif" }}>
       <aside className="w-64 shrink-0 bg-[#0F172A] text-white flex flex-col" data-testid="admin-sidebar">
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="text-sm uppercase tracking-[0.3em] text-white/50">PNG Realty</div>
+          <div className="text-sm uppercase tracking-[0.3em] text-white/50">TREL</div>
           <div className="font-serif text-xl mt-1">Operations</div>
         </div>
         <nav className="p-3 flex-1 overflow-y-auto">

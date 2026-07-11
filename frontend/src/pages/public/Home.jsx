@@ -137,7 +137,7 @@ export default function Home() {
         <div className="rounded-3xl bg-ink-900 text-white p-10 md:p-14 relative overflow-hidden">
           <div className="max-w-2xl">
             <h2 className="font-serif text-3xl sm:text-4xl">Selling, leasing or need management?</h2>
-            <p className="text-sand-100/80 mt-3">List with PNG Realty and get a dedicated agent, professional marketing, and access to our corporate buyer network.</p>
+            <p className="text-sand-100/80 mt-3">List with Triumph Real Estate Limited and get a dedicated agent, professional marketing, and access to our corporate buyer network.</p>
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Link to="/sell" data-testid="cta-sell" className="px-6 py-3 rounded-full bg-terracotta-500 hover:bg-terracotta-600 text-white font-medium text-center">
                 Submit your property

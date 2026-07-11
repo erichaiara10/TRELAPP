@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
 export default function About() {
-  const [about, setAbout] = useState({ heading: "About PNG Realty", body: "" });
+  const [about, setAbout] = useState({ heading: "About Triumph Real Estate Limited", body: "" });
   const [why, setWhy] = useState({ heading: "Why choose us", items: [] });
   useEffect(() => {
     api.get("/content/about").then((r) => r.data?.value && setAbout(r.data.value));

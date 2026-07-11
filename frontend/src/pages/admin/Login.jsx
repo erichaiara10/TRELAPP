@@ -7,7 +7,7 @@ import LoginHero from "@/components/admin/LoginHero";
 function LoginForm() {
   const { login } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("admin@pngrealty.pg");
+  const [email, setEmail] = useState("admin@trel.com.pg");
   const [pwd, setPwd] = useState("Admin@123");
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +24,7 @@ function LoginForm() {
     <form onSubmit={submit} className="w-full max-w-md bg-white rounded-2xl p-8 border border-border" data-testid="login-form">
       <Link to="/" className="text-xs text-muted-foreground">← Back to site</Link>
       <h1 className="font-serif text-3xl mt-3">Staff sign in</h1>
-      <p className="text-sm text-muted-foreground mt-1">Access the PNG Realty operating system.</p>
+      <p className="text-sm text-muted-foreground mt-1">Access the TREL operating system.</p>
       <div className="mt-6 space-y-3">
         <label className="block">
           <span className="text-xs uppercase tracking-widest text-muted-foreground">Email</span>

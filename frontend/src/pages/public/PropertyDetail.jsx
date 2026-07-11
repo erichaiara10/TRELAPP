@@ -7,7 +7,7 @@ import { toast } from "sonner";
 export default function PropertyDetail() {
   const { id } = useParams();
   const [p, setP] = useState(null);
-  const [site, setSite] = useState({ phone: "+675 7100 0000", whatsapp: "6757100000" });
+  const [site, setSite] = useState({ phone: "+675 76281552", whatsapp: "+675 8138 3302" });
   const [imgIdx, setImgIdx] = useState(0);
   const [form, setForm] = useState({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
   const [contact, setContact] = useState({ name: "", email: "", phone: "", message: "" });
@@ -39,7 +39,7 @@ export default function PropertyDetail() {
   };
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
-  const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi PNG Realty, I'm interested in "${p.title}" (${window.location.href})`)}`;
+  const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi TREL, I'm interested in "${p.title}" (${window.location.href})`)}`;
 
   return (
     <div className="container-tight py-8">
