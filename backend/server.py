@@ -301,22 +301,39 @@ async def delete_user(uid: str, user: dict = Depends(require_roles("system_admin
     return {"ok": True}
 
 # ---- Properties ----
-def _build_property_query(listing_type, property_type, location, min_price, max_price, bedrooms, featured, status, q):
+def _q_match(field, value):
+    return {field: value} if value else {}
+
+def _q_gte(field, value):
+    return {field: {"$gte": value}} if value is not None else {}
+
+def _q_price(min_price, max_price):
+    if min_price is None and max_price is None: return {}
+    pr = {}
+    if min_price is not None: pr["$gte"] = min_price
+    if max_price is not None: pr["$lte"] = max_price
+    return {"price": pr}
+
+def _q_search(q):
+    if not q: return {}
+    return {"$or": [{f: {"$regex": q, "$options": "i"}} for f in ("title","description","suburb","location")]}
+
+def _q_bool(field, value):
+    return {field: value} if value is not None else {}
+
+def _build_property_query(filters: dict) -> dict:
     query = {}
-    if listing_type: query["listing_type"] = listing_type
-    if property_type: query["property_type"] = property_type
-    if location: query["location"] = location
-    if bedrooms is not None: query["bedrooms"] = {"$gte": bedrooms}
-    if status: query["status"] = status
-    if featured is not None: query["featured"] = featured
-    if min_price is not None or max_price is not None:
-        pr = {}
-        if min_price is not None: pr["$gte"] = min_price
-        if max_price is not None: pr["$lte"] = max_price
-        query["price"] = pr
-    if q:
-        query["$or"] = [{"title":{"$regex":q,"$options":"i"}},{"description":{"$regex":q,"$options":"i"}},
-                        {"suburb":{"$regex":q,"$options":"i"}},{"location":{"$regex":q,"$options":"i"}}]
+    for part in (
+        _q_match("listing_type", filters.get("listing_type")),
+        _q_match("property_type", filters.get("property_type")),
+        _q_match("location", filters.get("location")),
+        _q_match("status", filters.get("status")),
+        _q_gte("bedrooms", filters.get("bedrooms")),
+        _q_bool("featured", filters.get("featured")),
+        _q_price(filters.get("min_price"), filters.get("max_price")),
+        _q_search(filters.get("q")),
+    ):
+        query.update(part)
     return query
 
 @api.get("/properties")
@@ -327,7 +344,11 @@ async def list_properties(
     featured: Optional[bool] = None, status: Optional[str] = "active",
     q: Optional[str] = None, limit: int = 60,
 ):
-    query = _build_property_query(listing_type, property_type, location, min_price, max_price, bedrooms, featured, status, q)
+    query = _build_property_query({
+        "listing_type": listing_type, "property_type": property_type, "location": location,
+        "min_price": min_price, "max_price": max_price, "bedrooms": bedrooms,
+        "featured": featured, "status": status, "q": q,
+    })
     return await db.properties.find(query, {"_id":0}).sort("created_at",-1).to_list(limit)
 
 @api.get("/properties/{pid}")

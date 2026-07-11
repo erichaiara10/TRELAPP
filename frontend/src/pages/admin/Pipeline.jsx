@@ -4,6 +4,8 @@ import { toast } from "sonner";
 
 const COLS = ["new","contacted","qualified","converted","lost"];
 
+const OTHER_COLS = Object.fromEntries(COLS.map((c) => [c, COLS.filter((s) => s !== c)]));
+
 export default function Pipeline() {
   const [tab, setTab] = useState("sales");
   const [leads, setLeads] = useState([]);
@@ -41,7 +43,7 @@ export default function Pipeline() {
                   <div className="font-medium truncate">{l.name}</div>
                   <div className="text-xs text-muted-foreground truncate">{l.property_title || l.source}</div>
                   <div className="mt-2 flex gap-1 flex-wrap">
-                    {COLS.filter((s) => s !== col).map((s) => (
+                    {OTHER_COLS[col].map((s) => (
                       <button key={s} onClick={() => move(l.id, s)} className="text-[10px] px-1.5 py-0.5 rounded bg-sand-100 hover:bg-sand-200" data-testid={`move-${l.id}-${s}`}>→ {s}</button>
                     ))}
                   </div>

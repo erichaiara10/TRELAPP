@@ -27,7 +27,9 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("png_token");
     setUser(false);
     try { await api.post("/auth/logout"); }
-    catch (e) { console.warn("Logout API failed (token already cleared locally):", e?.message); }
+    catch (e) {
+      if (process.env.NODE_ENV !== "production") console.warn("Logout API failed (token already cleared locally):", e?.message);
+    }
   }, []);
 
   const value = useMemo(() => ({ user, login, logout }), [user, login, logout]);
