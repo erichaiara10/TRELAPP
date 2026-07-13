@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import LeadFormPage from "./LeadFormPage";
+import PhotoUploader from "@/components/PhotoUploader";
 
 export default function Sell() {
   const [prop, setProp] = useState({ property_type: "house", price: "", location: "", suburb: "", bedrooms: "" });
+  const [photos, setPhotos] = useState([]);
+
   const extra = (
     <>
       <label className="block">
@@ -24,8 +27,9 @@ export default function Sell() {
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Suburb</span>
         <input value={prop.suburb} onChange={(e) => setProp({ ...prop, suburb: e.target.value })} data-testid="sell_form-suburb" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
+      <PhotoUploader value={photos} onChange={setPhotos} testId="sell_form-photos" />
     </>
   );
-  return <LeadFormPage source="sell_form" kicker="Sell with us" title="List your property" intro="Tell us about your property — a TREL agent will schedule an appraisal and walk you through our marketing plan."
-    extra={extra} extraPayload={() => prop} />;
+  return <LeadFormPage source="sell_form" kicker="Sell with us" title="List your property" intro="Tell us about your property — a TREL agent will schedule an appraisal and walk you through our marketing plan. Adding photos speeds up appraisal by 2–3 days."
+    extra={extra} extraPayload={() => ({ ...prop, photos })} />;
 }

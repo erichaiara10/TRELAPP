@@ -22,14 +22,26 @@ export default function Leads() {
       <div className="mt-4 bg-white rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-sand-50 text-left text-xs uppercase text-muted-foreground">
-            <tr><th className="p-3">Name</th><th className="p-3">Source</th><th className="p-3">Property</th><th className="p-3">Contact</th><th className="p-3">Status</th><th className="p-3">Change</th></tr>
+            <tr><th className="p-3">Name</th><th className="p-3">Source</th><th className="p-3">Property / Photos</th><th className="p-3">Contact</th><th className="p-3">Status</th><th className="p-3">Change</th></tr>
           </thead>
           <tbody>
             {shown.map((l) => (
               <tr key={l.id} className="border-t border-border" data-testid={`lead-row-${l.id}`}>
                 <td className="p-3 font-medium">{l.name}</td>
                 <td className="p-3 text-xs">{l.source}</td>
-                <td className="p-3">{l.property_title || "—"}</td>
+                <td className="p-3">
+                  {l.property_title || "—"}
+                  {Array.isArray(l.payload?.photos) && l.payload.photos.length > 0 && (
+                    <div className="mt-1.5 flex gap-1 flex-wrap" data-testid={`lead-photos-${l.id}`}>
+                      {l.payload.photos.map((p) => (
+                        <a key={p.id} href={`${process.env.REACT_APP_BACKEND_URL}${p.url}`} target="_blank" rel="noreferrer"
+                          className="block w-10 h-10 rounded overflow-hidden border border-border">
+                          <img src={`${process.env.REACT_APP_BACKEND_URL}${p.url}`} alt="" className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </td>
                 <td className="p-3 text-xs">{l.email}<br />{l.phone}</td>
                 <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs capitalize ${badge[l.status]}`}>{l.status}</span></td>
                 <td className="p-3">

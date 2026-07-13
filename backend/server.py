@@ -11,10 +11,11 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Literal
 
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, UploadFile, File, Query, Header
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
+import requests
 
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
@@ -661,6 +662,90 @@ async def leads_by_source(user: dict = Depends(get_current_user)):
 @api.get("/")
 async def root(): return {"ok": True, "service": "TREL API"}
 
+# ---- Object storage (Emergent) ----
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+APP_NAME = "trel"
+_storage_key = None
+
+def _init_storage():
+    global _storage_key
+    if _storage_key or not EMERGENT_KEY: return _storage_key
+    try:
+        r = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+        r.raise_for_status()
+        _storage_key = r.json()["storage_key"]
+        logger.info("Storage initialised")
+    except Exception as e:
+        logger.warning(f"Storage init failed: {e}")
+    return _storage_key
+
+def _put_object(path: str, data: bytes, content_type: str) -> dict:
+    global _storage_key
+    key = _init_storage()
+    if not key: raise HTTPException(503, "Storage unavailable")
+    r = requests.put(f"{STORAGE_URL}/objects/{path}",
+                     headers={"X-Storage-Key": key, "Content-Type": content_type},
+                     data=data, timeout=120)
+    if r.status_code == 403:
+        _storage_key = None
+        key = _init_storage()
+        r = requests.put(f"{STORAGE_URL}/objects/{path}",
+                         headers={"X-Storage-Key": key, "Content-Type": content_type},
+                         data=data, timeout=120)
+    r.raise_for_status()
+    return r.json()
+
+def _get_object(path: str):
+    global _storage_key
+    key = _init_storage()
+    if not key: raise HTTPException(503, "Storage unavailable")
+    r = requests.get(f"{STORAGE_URL}/objects/{path}",
+                     headers={"X-Storage-Key": key}, timeout=60)
+    if r.status_code == 403:
+        _storage_key = None
+        key = _init_storage()
+        r = requests.get(f"{STORAGE_URL}/objects/{path}",
+                         headers={"X-Storage-Key": key}, timeout=60)
+    r.raise_for_status()
+    return r.content, r.headers.get("Content-Type", "application/octet-stream")
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+EXT_FROM_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+@api.post("/public/upload")
+async def public_upload(file: UploadFile = File(...)):
+    """Public image upload — used by the Sell/Wanted forms to attach property photos."""
+    ct = (file.content_type or "").lower()
+    if ct not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Only JPG, PNG or WebP images are allowed")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "Image exceeds 10 MB limit")
+    if len(data) < 100:
+        raise HTTPException(400, "Uploaded file is empty")
+    ext = EXT_FROM_MIME[ct]
+    file_id = new_id()
+    path = f"{APP_NAME}/uploads/public/{file_id}.{ext}"
+    result = _put_object(path, data, ct)
+    await db.files.insert_one({
+        "id": file_id, "storage_path": result["path"],
+        "original_filename": file.filename, "content_type": ct,
+        "size": result.get("size", len(data)), "is_deleted": False,
+        "source": "public_upload", "created_at": now_iso(),
+    })
+    return {"id": file_id, "url": f"/api/files/{file_id}"}
+
+@api.get("/files/{file_id}")
+async def download_file(file_id: str):
+    rec = await db.files.find_one({"id": file_id, "is_deleted": False}, {"_id": 0})
+    if not rec: raise HTTPException(404, "File not found")
+    data, ct = _get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type") or ct,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 # ---- Seed ----
 DEMO_PROPERTIES = [
     {"title":"Modern 4BR Beachfront Villa, Ela Beach","listing_type":"sale","property_type":"house","price":1450000,"bedrooms":4,"bathrooms":3,"parking":2,"area_sqm":420,"location":"Port Moresby","suburb":"Ela Beach","address":"12 Ela Beach Road","featured":True,"verified":True,
@@ -719,7 +804,7 @@ DEFAULT_CONTENT = {
              "og_image_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
              "og_description":"Triumph Real Estate Limited — verified homes, apartments, land and commercial properties across Papua New Guinea. We Care To Share.",
              "phone":"+675 76281552","whatsapp":"+675 8138 3302","email":"sales101.trel@gmail.com",
-             "address":"Section 38, Lot 33, Unity Mall, Steamships Company, Wagaini Drive, NCD, Port Moresby, PNG"},
+             "address":"Lot 33, Section 38, Unity Mall, Steamships Compound, Waigani Rd. P.O. Box 1061, Vision City, National Capital District, PNG"},
     "about": {"heading":"About Triumph Real Estate Limited","body":"Triumph Real Estate Limited (TREL) is a Papua New Guinea-owned real estate agency helping families, investors and corporates find the right home, tenant or asset. We combine deep local knowledge with modern, transparent processes — because we care to share."},
     "why": {"heading":"Why choose TREL","items":[
         {"title":"Local expertise","body":"Born and raised in PNG — we know every suburb, security landscape, and school catchment."},
@@ -816,6 +901,7 @@ def _write_test_credentials():
 @app.on_event("startup")
 async def on_startup():
     await db.users.create_index("email", unique=True)
+    _init_storage()
     await _migrate_legacy_user_emails()
     await _seed_users()
     await _seed_properties()
