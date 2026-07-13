@@ -719,7 +719,7 @@ DEFAULT_CONTENT = {
              "og_image_url":"https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
              "og_description":"Triumph Real Estate Limited — verified homes, apartments, land and commercial properties across Papua New Guinea. We Care To Share.",
              "phone":"+675 76281552","whatsapp":"+675 8138 3302","email":"sales101.trel@gmail.com",
-             "address":"Rm 12, NDB Business Incubation Centre, Kunai Street, Hohola. P.O. Box 1061, Vision City, National Capital District, PNG"},
+             "address":"Section 38, Lot 33, Unity Mall, Steamships Company, Wagaini Drive, NCD, Port Moresby, PNG"},
     "about": {"heading":"About Triumph Real Estate Limited","body":"Triumph Real Estate Limited (TREL) is a Papua New Guinea-owned real estate agency helping families, investors and corporates find the right home, tenant or asset. We combine deep local knowledge with modern, transparent processes — because we care to share."},
     "why": {"heading":"Why choose TREL","items":[
         {"title":"Local expertise","body":"Born and raised in PNG — we know every suburb, security landscape, and school catchment."},
