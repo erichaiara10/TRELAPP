@@ -203,6 +203,9 @@ class LeadCreate(BaseModel):
     message: Optional[str] = ""
     property_id: Optional[str] = None
     payload: dict = {}
+    verification_token: Optional[str] = None
+    verification_answer: Optional[str] = None
+    hp_website: Optional[str] = None
 
 class Inspection(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -224,6 +227,9 @@ class InspectionCreate(BaseModel):
     customer_email: Optional[str] = None
     preferred_date: Optional[str] = None
     feedback: Optional[str] = ""
+    verification_token: Optional[str] = None
+    verification_answer: Optional[str] = None
+    hp_website: Optional[str] = None
 
 class Task(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -258,6 +264,45 @@ class Notification(BaseModel):
     body: Optional[str] = None
     read: bool = False
     created_at: str = Field(default_factory=now_iso)
+
+# ---- Human verification (captcha) ----
+import random
+
+def _captcha_pair():
+    a, b = random.randint(2, 9), random.randint(2, 9)
+    op = random.choice(["+", "-"])
+    if op == "-" and b > a: a, b = b, a
+    question = f"What is {a} {op} {b}?"
+    answer = a + b if op == "+" else a - b
+    return question, str(answer)
+
+def _captcha_encode(answer: str) -> str:
+    payload = {"a": answer, "type": "captcha",
+               "exp": datetime.now(timezone.utc) + timedelta(minutes=15)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+def _captcha_verify(token: Optional[str], answer: Optional[str]) -> None:
+    if not token or answer is None:
+        raise HTTPException(400, "Human verification required")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(400, "Verification expired — please retry")
+    except jwt.InvalidTokenError:
+        raise HTTPException(400, "Invalid verification token")
+    if payload.get("type") != "captcha":
+        raise HTTPException(400, "Invalid verification token type")
+    if str(answer).strip() != str(payload.get("a", "")).strip():
+        raise HTTPException(400, "Incorrect verification answer")
+
+def _honeypot_check(hp: Optional[str]) -> None:
+    if hp:
+        raise HTTPException(400, "Bot detected")
+
+@api.get("/public/challenge")
+async def get_public_challenge():
+    q, a = _captcha_pair()
+    return {"question": q, "token": _captcha_encode(a)}
 
 # ---- Auth ----
 @api.post("/auth/login")
@@ -449,6 +494,8 @@ async def _notify(subject: str, body: str, to: Optional[str] = None):
 
 @api.post("/public/leads")
 async def public_create_lead(payload: LeadCreate):
+    _honeypot_check(payload.hp_website)
+    _captcha_verify(payload.verification_token, payload.verification_answer)
     p = payload.model_dump()
     prop_title = None
     if p.get("property_id"):
@@ -480,6 +527,8 @@ async def public_create_lead(payload: LeadCreate):
 
 @api.post("/public/inspections")
 async def public_create_inspection(payload: InspectionCreate):
+    _honeypot_check(payload.hp_website)
+    _captcha_verify(payload.verification_token, payload.verification_answer)
     prop = await db.properties.find_one({"id": payload.property_id}, {"_id":0, "title":1})
     if not prop: raise HTTPException(404, "Property not found")
     ins = Inspection(property_id=payload.property_id, property_title=prop["title"],

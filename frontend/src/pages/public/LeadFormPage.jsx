@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
+import HumanVerification from "@/components/HumanVerification";
 
 function Field({ label, ...props }) {
   return (
@@ -23,16 +24,25 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const captchaRef = useRef(null);
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!captchaRef.current?.isValid()) {
+      toast.error("Please complete the human verification");
+      return;
+    }
     setLoading(true);
     try {
-      await api.post("/public/leads", { source, ...form, payload: extraPayload() });
+      await api.post("/public/leads", {
+        source, ...form, payload: extraPayload(), ...captchaRef.current.getPayload(),
+      });
       setSent(true);
       toast.success("Thanks! Our team will be in touch shortly.");
-    } catch (err) { toast.error(formatError(err)); }
-    finally { setLoading(false); }
+    } catch (err) {
+      toast.error(formatError(err));
+      captchaRef.current?.refresh();
+    } finally { setLoading(false); }
   };
 
   return (
@@ -53,6 +63,9 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
           <Field label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid={`${source}-phone`} />
           {extra}
           <Area label="Tell us more" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} data-testid={`${source}-message`} />
+          <div className="md:col-span-2">
+            <HumanVerification ref={captchaRef} />
+          </div>
           <div className="md:col-span-2">
             <button disabled={loading} data-testid={`${source}-submit`} className="px-8 py-3 rounded-full bg-pine-500 hover:bg-pine-600 text-white disabled:opacity-60">
               {loading ? "Submitting…" : "Submit"}

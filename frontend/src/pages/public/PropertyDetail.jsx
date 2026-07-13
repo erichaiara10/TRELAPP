@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, money, formatError } from "@/lib/api";
 import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar } from "lucide-react";
 import { toast } from "sonner";
+import HumanVerification from "@/components/HumanVerification";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -11,6 +12,8 @@ export default function PropertyDetail() {
   const [imgIdx, setImgIdx] = useState(0);
   const [form, setForm] = useState({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
   const [contact, setContact] = useState({ name: "", email: "", phone: "", message: "" });
+  const inspectionCaptchaRef = useRef(null);
+  const contactCaptchaRef = useRef(null);
 
   useEffect(() => {
     api.get(`/properties/${id}`).then((r) => setP(r.data)).catch(() => setP(false));
@@ -22,20 +25,24 @@ export default function PropertyDetail() {
 
   const requestInspection = async (e) => {
     e.preventDefault();
+    if (!inspectionCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
-      await api.post("/public/inspections", { property_id: p.id, ...form });
+      await api.post("/public/inspections", { property_id: p.id, ...form, ...inspectionCaptchaRef.current.getPayload() });
       toast.success("Inspection request sent! Our agent will contact you shortly.");
       setForm({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
-    } catch (e) { toast.error(formatError(e)); }
+      inspectionCaptchaRef.current?.refresh();
+    } catch (e) { toast.error(formatError(e)); inspectionCaptchaRef.current?.refresh(); }
   };
 
   const submitEnquiry = async (e) => {
     e.preventDefault();
+    if (!contactCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
-      await api.post("/public/leads", { source: "contact_form", ...contact, property_id: p.id });
+      await api.post("/public/leads", { source: "contact_form", ...contact, property_id: p.id, ...contactCaptchaRef.current.getPayload() });
       toast.success("Enquiry sent! We'll be in touch soon.");
       setContact({ name: "", email: "", phone: "", message: "" });
-    } catch (e) { toast.error(formatError(e)); }
+      contactCaptchaRef.current?.refresh();
+    } catch (e) { toast.error(formatError(e)); contactCaptchaRef.current?.refresh(); }
   };
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
@@ -111,6 +118,7 @@ export default function PropertyDetail() {
               <input required type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} data-testid="contact-email" className="w-full border border-border rounded-lg px-3 py-2" />
               <input placeholder="Phone" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} data-testid="contact-phone" className="w-full border border-border rounded-lg px-3 py-2" />
               <textarea placeholder="Message" rows={3} value={contact.message} onChange={(e) => setContact({ ...contact, message: e.target.value })} data-testid="contact-msg" className="w-full border border-border rounded-lg px-3 py-2" />
+              <HumanVerification ref={contactCaptchaRef} />
               <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
             </form>
           </div>
@@ -122,6 +130,7 @@ export default function PropertyDetail() {
               <input placeholder="Phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} data-testid="insp-phone" className="w-full rounded-lg px-3 py-2 text-ink-900" />
               <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
               <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+              <HumanVerification ref={inspectionCaptchaRef} />
               <button className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
             </div>
           </form>
