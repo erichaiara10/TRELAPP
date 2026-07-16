@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { MessageSquare } from "lucide-react";
+import CommunicationsPanel from "@/components/admin/CommunicationsPanel";
 
 const STATUSES = ["new","contacted","qualified","converted","lost"];
 const badge = { new: "bg-blue-100 text-blue-800", contacted:"bg-amber-100 text-amber-800", qualified:"bg-emerald-100 text-emerald-800", converted:"bg-pine-500 text-white", lost:"bg-sand-200 text-ink-700" };
@@ -8,6 +10,7 @@ const badge = { new: "bg-blue-100 text-blue-800", contacted:"bg-amber-100 text-a
 export default function Leads() {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("");
+  const [commLead, setCommLead] = useState(null);
   const load = useCallback(() => api.get("/leads").then((r) => setItems(r.data)), []);
   useEffect(() => { load(); }, [load]);
   const setStatus = async (id, status) => { await api.put(`/leads/${id}`, { status }); toast.success("Updated"); load(); };
@@ -22,7 +25,7 @@ export default function Leads() {
       <div className="mt-4 bg-white rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-sand-50 text-left text-xs uppercase text-muted-foreground">
-            <tr><th className="p-3">Name</th><th className="p-3">Source</th><th className="p-3">Property / Photos</th><th className="p-3">Contact</th><th className="p-3">Status</th><th className="p-3">Change</th></tr>
+            <tr><th className="p-3">Name</th><th className="p-3">Source</th><th className="p-3">Property / Photos</th><th className="p-3">Contact</th><th className="p-3">Status</th><th className="p-3">Change</th><th className="p-3">History</th></tr>
           </thead>
           <tbody>
             {shown.map((l) => (
@@ -49,11 +52,18 @@ export default function Leads() {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
+                <td className="p-3">
+                  <button onClick={() => setCommLead(l)} data-testid={`lead-history-${l.id}`}
+                    className="p-1.5 hover:bg-sand-100 rounded flex items-center gap-1 text-xs text-pine-500" title="Communication history">
+                    <MessageSquare className="w-4 h-4" /> Log
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {commLead && <CommunicationsPanel lead={commLead} onClose={() => setCommLead(null)} />}
     </div>
   );
 }

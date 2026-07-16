@@ -3,9 +3,10 @@ import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import PropertyModal, { serializeProperty } from "@/components/admin/PropertyModal";
+import { normalizePhotos } from "@/components/admin/PropertyModalFields";
 import PropertiesTable from "@/components/admin/PropertiesTable";
 
-const EMPTY = { title:"", listing_type:"sale", property_type:"house", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"Port Moresby", suburb:"", description:"", features:"", images:"", status:"active", featured:false, verified:false };
+const EMPTY = { title:"", listing_type:"sale", property_type:"house", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"Port Moresby", suburb:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false };
 
 export default function Properties() {
   const [items, setItems] = useState([]);
@@ -15,7 +16,11 @@ export default function Properties() {
   useEffect(() => { load(); }, [load]);
 
   const openNew = () => setModal({ ...EMPTY });
-  const openEdit = (p) => setModal({ ...p, features: (p.features || []).join(", "), images: (p.images || []).join(", ") });
+  const openEdit = (p) => setModal({
+    ...p,
+    features: (p.features || []).join(", "),
+    photos: normalizePhotos(p.images),
+  });
 
   const save = async () => {
     try {

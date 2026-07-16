@@ -79,6 +79,32 @@ class UserCreate(BaseModel):
     role: str
     phone: Optional[str] = None
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    phone: Optional[str] = None
+
+class PasswordUpdate(BaseModel):
+    password: str
+
+class Communication(BaseModel):
+    id: str = Field(default_factory=new_id)
+    lead_id: str
+    kind: Literal["call","email","whatsapp","note","meeting","sms"] = "note"
+    direction: Literal["inbound","outbound","internal"] = "outbound"
+    subject: Optional[str] = ""
+    body: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+class CommunicationCreate(BaseModel):
+    kind: str = "note"
+    direction: str = "outbound"
+    subject: Optional[str] = ""
+    body: str
+
 class Property(BaseModel):
     id: str = Field(default_factory=new_id)
     title: str
@@ -346,6 +372,26 @@ async def delete_user(uid: str, user: dict = Depends(require_roles("system_admin
     await db.users.delete_one({"id": uid})
     return {"ok": True}
 
+@api.put("/users/{uid}")
+async def update_user(uid: str, payload: UserUpdate, user: dict = Depends(require_roles("system_admin"))):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "email" in updates:
+        email = updates["email"].lower().strip()
+        clash = await db.users.find_one({"email": email, "id": {"$ne": uid}})
+        if clash: raise HTTPException(400, "Email already in use")
+        updates["email"] = email
+    if not updates:
+        raise HTTPException(400, "No changes provided")
+    await db.users.update_one({"id": uid}, {"$set": updates})
+    return await db.users.find_one({"id": uid}, {"_id":0, "password_hash":0})
+
+@api.put("/users/{uid}/password")
+async def reset_user_password(uid: str, payload: PasswordUpdate, user: dict = Depends(require_roles("system_admin"))):
+    if len(payload.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    await db.users.update_one({"id": uid}, {"$set": {"password_hash": hash_password(payload.password)}})
+    return {"ok": True}
+
 # ---- Properties ----
 def _q_match(field, value):
     return {field: value} if value else {}
@@ -482,6 +528,32 @@ async def update_lead(lid: str, payload: dict, user: dict = Depends(get_current_
 @api.delete("/leads/{lid}")
 async def delete_lead(lid: str, user: dict = Depends(get_current_user)):
     await db.leads.delete_one({"id": lid})
+    await db.communications.delete_many({"lead_id": lid})
+    return {"ok": True}
+
+# ---- Communications history ----
+@api.get("/leads/{lid}/communications")
+async def list_lead_communications(lid: str, user: dict = Depends(get_current_user)):
+    return await db.communications.find({"lead_id": lid}, {"_id":0}).sort("created_at", 1).to_list(500)
+
+@api.post("/leads/{lid}/communications")
+async def create_lead_communication(lid: str, payload: CommunicationCreate, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid}, {"_id":0, "id":1})
+    if not lead: raise HTTPException(404, "Lead not found")
+    body = payload.body.strip()
+    if not body: raise HTTPException(400, "Body is required")
+    c = Communication(
+        lead_id=lid, kind=payload.kind, direction=payload.direction,
+        subject=payload.subject, body=body,
+        agent_id=user["id"], agent_name=user["name"],
+    ).model_dump()
+    await db.communications.insert_one(c)
+    strip_id(c)
+    return c
+
+@api.delete("/communications/{cid}")
+async def delete_communication(cid: str, user: dict = Depends(get_current_user)):
+    await db.communications.delete_one({"id": cid})
     return {"ok": True}
 
 # ---- Public leads ----
