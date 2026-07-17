@@ -15,6 +15,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Phase 1 Fixes (Feb 17, 2026)
+- Math CAPTCHA replaced with alphanumeric CAPTCHA (5-char, case-insensitive, excludes 0/O/1/I/l, 15-min JWT expiry)
+- HumanVerification widget shows code with obfuscated wavy strikethrough styling
+- Contact page: Google Maps iframe (dynamic from `site.address`) + Call Now / Email Us / WhatsApp Chat action buttons + "Open in Google Maps" link
+- PropertyDetail: "View on Google Maps" pill next to the address (opens google.com/maps/search in new tab)
+- PropertyDetail sidebar contact-enquiry and inspection forms now show inline success cards (not just toasts)
+- LeadFormPage already renders a clean "Thank you" success view for Sell/Contact/Wanted/Management/Corporate
+- PublicFooter: removed redundant duplicate backgroundColor style
+
 ### Brand assets & SEO (rebranded to TREL)
 - Logo, favicon, OG/social share image, og:description, agency_name, short_name, tagline, phone, WhatsApp, email, address — all editable via `/admin/content`
 - URL fields render a live preview in the admin form
