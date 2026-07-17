@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 7 testing complete. All 8 backend CAPTCHA/lead/inspection tests pass. Frontend: /contact renders WhatsApp/Call/Email buttons, Google Maps iframe (with site.address), and 'Open in Google Maps' link. HumanVerification widget shows alphanumeric code with wavy strikethrough and 'Enter the code above (not case-sensitive)' placeholder (no math). Contact form, /sell form, property detail contact-enquiry, and inspection sidebar all show inline success cards after real end-to-end submissions with captcha extracted from DOM. Footer renders exactly once with brand blue #0d50e0 (rgb(13,80,224)). PropertyDetail detail-map-btn href starts with https://www.google.com/maps/search/?api=1&query= and target=_blank. Admin login regression passes (admin@trel.com.pg / Admin@123).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_captcha.py",
+    "/app/test_reports/pytest/iter7_captcha.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "HumanVerification.jsx: 'aria-label' announces the code (e.g., 'Verification code 8 X M L 2') which trivially defeats the captcha for screen-reader-based bots. Consider removing/obfuscating the aria-label for adversarial contexts.",
+    "The visual captcha is only line-through wavy text on plain HTML — trivially machine-readable via DOM scraping (as demonstrated in this test). Consider server-side canvas image rendering if bot pressure is real."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_captcha.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all Phase 1 checks passed)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (works). Note: memory file has Admin@123; review_request said 'system_admin' which is the role, not the password.",
+  "seed_data_creation": "Created a few TEST_* leads and inspections via public endpoints during real e2e submissions.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend challenge/lead/inspection captcha suite in /app/backend/tests/test_captcha.py. To read the captcha in Playwright, use selector [data-testid=captcha-question] span.select-none (the second span holds the raw 5-char code). Sidebar forms on PropertyDetail use submit selectors [data-testid=contact-submit] and [data-testid=insp-submit] (not the form testid) — they are not typed submit buttons inside the form. Existing /app/backend/tests/backend_test.py still uses stale admin@pngrealty.pg email; not updated in this iteration."
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, money, formatError } from "@/lib/api";
-import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar } from "lucide-react";
+import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, CheckCircle2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
 
@@ -12,6 +12,8 @@ export default function PropertyDetail() {
   const [imgIdx, setImgIdx] = useState(0);
   const [form, setForm] = useState({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
   const [contact, setContact] = useState({ name: "", email: "", phone: "", message: "" });
+  const [contactSent, setContactSent] = useState(false);
+  const [inspectionSent, setInspectionSent] = useState(false);
   const inspectionCaptchaRef = useRef(null);
   const contactCaptchaRef = useRef(null);
 
@@ -28,9 +30,7 @@ export default function PropertyDetail() {
     if (!inspectionCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
       await api.post("/public/inspections", { property_id: p.id, ...form, ...inspectionCaptchaRef.current.getPayload() });
-      toast.success("Inspection request sent! Our agent will contact you shortly.");
-      setForm({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
-      inspectionCaptchaRef.current?.refresh();
+      setInspectionSent(true);
     } catch (e) { toast.error(formatError(e)); inspectionCaptchaRef.current?.refresh(); }
   };
 
@@ -39,14 +39,14 @@ export default function PropertyDetail() {
     if (!contactCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
       await api.post("/public/leads", { source: "contact_form", ...contact, property_id: p.id, ...contactCaptchaRef.current.getPayload() });
-      toast.success("Enquiry sent! We'll be in touch soon.");
-      setContact({ name: "", email: "", phone: "", message: "" });
-      contactCaptchaRef.current?.refresh();
+      setContactSent(true);
     } catch (e) { toast.error(formatError(e)); contactCaptchaRef.current?.refresh(); }
   };
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
   const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi TREL, I'm interested in "${p.title}" (${window.location.href})`)}`;
+  const mapQuery = encodeURIComponent([p.address, p.suburb, p.location, "Papua New Guinea"].filter(Boolean).join(", "));
+  const mapLink = `https://www.google.com/maps/search/?api=1&query=${mapQuery}`;
 
   return (
     <div className="container-tight py-8">
@@ -75,8 +75,17 @@ export default function PropertyDetail() {
             {p.verified && <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-terracotta-50 text-terracotta-600"><ShieldCheck className="w-3 h-3" />Verified</span>}
           </div>
           <h1 className="font-serif text-4xl mt-3">{p.title}</h1>
-          <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2">
-            <MapPin className="w-4 h-4" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}
+          <div className="flex items-center gap-3 text-sm text-muted-foreground mt-2 flex-wrap">
+            <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}</span>
+            <a
+              href={mapLink}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="detail-map-btn"
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-pine-500 text-pine-500 hover:bg-pine-500 hover:text-white transition-colors text-xs font-medium"
+            >
+              View on Google Maps <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
           <div className="mt-4 text-3xl font-semibold text-pine-500">
             {money(p.price, p.currency || "PGK")}{p.listing_type === "rent" && <span className="text-base text-muted-foreground"> / month</span>}
@@ -114,25 +123,51 @@ export default function PropertyDetail() {
               </a>
             </div>
             <form onSubmit={submitEnquiry} className="mt-6 space-y-2" data-testid="detail-contact-form">
-              <input required placeholder="Your name" value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} data-testid="contact-name" className="w-full border border-border rounded-lg px-3 py-2" />
-              <input required type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} data-testid="contact-email" className="w-full border border-border rounded-lg px-3 py-2" />
-              <input placeholder="Phone" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} data-testid="contact-phone" className="w-full border border-border rounded-lg px-3 py-2" />
-              <textarea placeholder="Message" rows={3} value={contact.message} onChange={(e) => setContact({ ...contact, message: e.target.value })} data-testid="contact-msg" className="w-full border border-border rounded-lg px-3 py-2" />
-              <HumanVerification ref={contactCaptchaRef} />
-              <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
+              {contactSent ? (
+                <div className="rounded-lg bg-pine-500 text-white p-4" data-testid="detail-contact-success">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-medium">Thank you!</div>
+                      <p className="text-xs text-sand-100 mt-1">Your enquiry was received. An agent will attend to you shortly.</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <input required placeholder="Your name" value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} data-testid="contact-name" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <input required type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} data-testid="contact-email" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <input placeholder="Phone" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} data-testid="contact-phone" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <textarea placeholder="Message" rows={3} value={contact.message} onChange={(e) => setContact({ ...contact, message: e.target.value })} data-testid="contact-msg" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <HumanVerification ref={contactCaptchaRef} />
+                  <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
+                </>
+              )}
             </form>
           </div>
 
           <form onSubmit={requestInspection} className="bg-pine-500 text-white rounded-2xl p-6" data-testid="inspection-form">
             <h3 className="font-serif text-xl flex items-center gap-2"><Calendar className="w-5 h-5" />Request inspection</h3>
-            <div className="mt-4 space-y-2">
-              <input required placeholder="Your name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} data-testid="insp-name" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-              <input placeholder="Phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} data-testid="insp-phone" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-              <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-              <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-              <HumanVerification ref={inspectionCaptchaRef} />
-              <button className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
-            </div>
+            {inspectionSent ? (
+              <div className="mt-4 rounded-lg bg-white/15 border border-white/25 p-4" data-testid="inspection-success">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium">Inspection requested!</div>
+                    <p className="text-xs text-sand-100 mt-1">An agent will confirm your preferred time shortly.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-2">
+                <input required placeholder="Your name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} data-testid="insp-name" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <input placeholder="Phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} data-testid="insp-phone" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <HumanVerification ref={inspectionCaptchaRef} />
+                <button className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
+              </div>
+            )}
           </form>
         </aside>
       </div>

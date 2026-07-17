@@ -39,7 +39,7 @@ export default function PublicFooter({ site }) {
           </ul>
         </div>
       </div>
-      <div className="border-t border-white/20" style={{ backgroundColor: BRAND_BLUE }}>
+      <div className="border-t border-white/20">
         <div className="container-tight py-4 flex flex-col md:flex-row items-center justify-between gap-2 text-xs text-white/80">
           <div>© {new Date().getFullYear()} {site.agency_name}. All rights reserved.</div>
           <div className="flex gap-4">

@@ -4,18 +4,15 @@ import { api } from "@/lib/api";
 
 /**
  * Reusable "I'm not a robot" verification.
- * - Server issues a signed math challenge (JWT with correct answer + expiry).
+ * - Server issues a signed alphanumeric CAPTCHA (JWT with the code + expiry).
+ * - Case-insensitive; excludes confusable chars (0/O, 1/I/l).
  * - Includes a hidden honeypot field (bots that fill every field will be caught).
  *
  * Usage:
  *   const captchaRef = useRef(null);
- *   ...
  *   <HumanVerification ref={captchaRef} />
- *   ...
- *   const v = captchaRef.current?.getPayload();  // { verification_token, verification_answer, hp_website }
- *   if (!v.verification_answer) { toast.error("Please complete verification"); return; }
- *   await api.post("/public/leads", { ...form, ...v });
- *   captchaRef.current?.refresh();  // after success or failure
+ *   const v = captchaRef.current?.getPayload();
+ *   captchaRef.current?.refresh();
  */
 const HumanVerification = forwardRef(function HumanVerification(props, ref) {
   const [challenge, setChallenge] = useState({ question: "", token: "" });
@@ -44,6 +41,13 @@ const HumanVerification = forwardRef(function HumanVerification(props, ref) {
     refresh: load,
   }), [challenge.token, answer, hp, load]);
 
+  // Server returns "Type these letters/numbers: XXXXX". Split so we can style the code.
+  const [prompt, code] = (() => {
+    const q = challenge.question || "";
+    const idx = q.lastIndexOf(":");
+    return idx > 0 ? [q.slice(0, idx).trim(), q.slice(idx + 1).trim()] : ["", q];
+  })();
+
   return (
     <div className="rounded-lg border border-border bg-sand-50 p-3" data-testid="human-verification">
       {/* honeypot: hidden from users, tab-index -1, off-screen */}
@@ -63,8 +67,23 @@ const HumanVerification = forwardRef(function HumanVerification(props, ref) {
         Human verification
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <div className="flex-1 text-sm font-medium text-ink-900" data-testid="captcha-question">
-          {loading ? "Loading…" : (challenge.question || "—")}
+        <div className="flex-1 flex items-center gap-2" data-testid="captcha-question">
+          {loading ? (
+            <span className="text-sm text-muted-foreground">Loading…</span>
+          ) : code ? (
+            <>
+              <span className="text-xs text-muted-foreground">{prompt || "Type this code"}:</span>
+              <span
+                className="select-none font-mono text-lg font-bold tracking-[0.35em] text-ink-900 bg-white border border-border rounded px-3 py-1"
+                style={{ fontFamily: "'Courier New', ui-monospace, monospace", textDecoration: "line-through", textDecorationStyle: "wavy", textDecorationColor: "rgba(0,0,0,0.2)" }}
+                aria-label={`Verification code ${code.split("").join(" ")}`}
+              >
+                {code}
+              </span>
+            </>
+          ) : (
+            <span className="text-sm text-ink-900">—</span>
+          )}
         </div>
         <button type="button" onClick={load} data-testid="captcha-refresh"
           className="p-1.5 rounded-md text-muted-foreground hover:bg-white" aria-label="New challenge">
@@ -73,12 +92,14 @@ const HumanVerification = forwardRef(function HumanVerification(props, ref) {
       </div>
       <input
         type="text"
-        inputMode="numeric"
-        placeholder="Your answer"
+        autoCapitalize="characters"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Enter the code above (not case-sensitive)"
         value={answer}
         onChange={(e) => setAnswer(e.target.value)}
         data-testid="captcha-answer"
-        className="mt-2 w-full border border-border rounded px-3 py-2 bg-white"
+        className="mt-2 w-full border border-border rounded px-3 py-2 bg-white font-mono tracking-widest uppercase"
         required
       />
     </div>
