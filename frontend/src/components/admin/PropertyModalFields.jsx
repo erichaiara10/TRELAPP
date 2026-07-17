@@ -1,5 +1,6 @@
 import React from "react";
 import PhotoUploader from "@/components/PhotoUploader";
+import MapCoordsField from "@/components/MapCoordsField";
 
 const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price"];
 const TEXT_FIELDS = [
@@ -84,6 +85,16 @@ export default function PropertyModalFields({ modal, setModal }) {
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Features (comma)</span>
         <input value={modal.features} onChange={set("features")} data-testid="property-features" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
       </label>
+      <label className="block col-span-2">
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Street address</span>
+        <input value={modal.address ?? ""} onChange={set("address")} data-testid="property-address" placeholder="e.g. 12 Ela Beach Road" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+      </label>
+      <MapCoordsField
+        label="Google Maps location"
+        value={modal.map_coords ?? ""}
+        onChange={(v) => setModal({ ...modal, map_coords: v })}
+        testId="property-map-coords"
+      />
       <PhotoUploader
         value={modal.photos || []}
         onChange={setPhotos}

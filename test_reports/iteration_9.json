@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 9 tested the new global Google Maps Coordinate Input system. Backend: 4 new tests in /app/backend/tests/test_map_coords.py cover Property CRUD with map_coords, empty-clear, site.map_coords persistence and contact.map_coords persistence — all pass. Regression: existing 29 tests (test_captcha.py + test_page_content.py) still pass. Frontend: MapCoordsField renders correctly on /sell (testId prefix sell_form-map-coords) with correct read-only prefix 'https://www.google.com/maps?q=', instructional help text, and live preview link. Admin Add-property modal renders property-address text field ABOVE property-map-coords, both with correct testids and preview URL. Admin Content > Contact page renders field-map_coords correctly. Public /contact iframe (contact-map-iframe) and contact-open-map href both start with 'https://www.google.com/maps?q=' — verified in both coords-set mode and fallback (site address) mode. Public /property/{id} 'View on Google Maps' button (detail-map-btn) uses coords URL when set and falls back to '<MAPS_BASE>+encoded address' when unset (previously used /maps/search/?api=1 pattern — bundle was stale, resolved after frontend restart).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_map_coords.py",
+    "/app/test_reports/pytest/iter9_mapcoords.xml"
+  ],
+  "action_items": [
+    "Optional: consider updating the pre-existing /app/backend/tests/backend_test.py (still uses stale pngrealty.pg credentials — not touched this run)."
+  ],
+  "critical_code_review_comments": [
+    "Bug found & fixed by testing agent: /app/frontend/src/pages/admin/Content.jsx branding schema was MISSING the required { key: 'map_coords', type: 'mapcoords' } entry, so [data-testid=branding-map_coords] did not render even though the BrandingEditor supported the type. Added the schema entry (Office Google Maps coordinates) between 'address' and 'logo_url'. Verified end-to-end: saving via branding-save persists site.map_coords, and /contact iframe + open-map immediately use it.",
+    "Note: The frontend bundle was stale on first hit (still contained '/maps/search/?api=1&query=' from an older PropertyDetail/Contact revision). A supervisorctl restart of the frontend picked up the current source; if that occurs again, bounce the frontend service."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_map_coords.py (new)",
+    "/app/frontend/src/pages/admin/Content.jsx (added branding map_coords schema entry)"
+  ],
+  "success_rate": {"backend": "100% (4/4 new + 29/29 regression)", "frontend": "100% (all critical map-coords flows verified)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (verified)",
+  "seed_data_creation": "Created + deleted a TEST_MAP_COORDS Property and a TEST_MAP_COORDS_None Property during backend tests. Temporarily set + cleared site.map_coords and contact.map_coords during UI verification (net-zero change).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "MapCoordsField exposes testIds: {testId}, {testId}-prefix (read-only 'https://www.google.com/maps?q='), {testId}-input, {testId}-help, {testId}-preview (only when coords entered). Public forms use sell_form-map-coords. Admin property modal uses property-map-coords (with property-address text field above it — data-testid='property-address'). Admin Content > Branding & Site now correctly renders branding-map_coords; Admin Content > Contact page renders field-map_coords. Contact page priority: contact.map_coords > site.map_coords > site.address fallback (still using MAPS_BASE). Property detail 'View on Google Maps' testId=detail-map-btn. Backend Property model has map_coords: Optional[str]. If you touch frontend and don't see updates, `sudo supervisorctl restart frontend` to bust the CRA bundle."
+}

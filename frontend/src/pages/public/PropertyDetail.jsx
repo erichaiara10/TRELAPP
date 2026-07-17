@@ -4,6 +4,7 @@ import { api, money, formatError } from "@/lib/api";
 import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, CheckCircle2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
+import { mapsUrlFromCoords, MAPS_BASE } from "@/components/MapCoordsField";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -45,8 +46,10 @@ export default function PropertyDetail() {
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
   const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi TREL, I'm interested in "${p.title}" (${window.location.href})`)}`;
+  // Prefer precise coordinates when set on the property; fall back to address search.
+  const coordsLink = mapsUrlFromCoords(p.map_coords);
   const mapQuery = encodeURIComponent([p.address, p.suburb, p.location, "Papua New Guinea"].filter(Boolean).join(", "));
-  const mapLink = `https://www.google.com/maps/search/?api=1&query=${mapQuery}`;
+  const mapLink = coordsLink || `${MAPS_BASE}${mapQuery}`;
 
   return (
     <div className="container-tight py-8">

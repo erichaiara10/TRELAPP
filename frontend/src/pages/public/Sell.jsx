@@ -2,12 +2,13 @@ import React, { useState } from "react";
 import { usePage } from "@/lib/usePage";
 import LeadFormPage, { RequiredMark } from "./LeadFormPage";
 import PhotoUploader from "@/components/PhotoUploader";
+import MapCoordsField from "@/components/MapCoordsField";
 
 export default function Sell() {
   const { sections } = usePage("sell");
   const hero = sections.hero || {};
   const benefits = sections.benefits || [];
-  const [prop, setProp] = useState({ property_type: "house", price: "", location: "", suburb: "", bedrooms: "" });
+  const [prop, setProp] = useState({ property_type: "house", price: "", location: "", suburb: "", bedrooms: "", map_coords: "" });
   const [photos, setPhotos] = useState([]);
 
   const extra = (
@@ -31,6 +32,12 @@ export default function Sell() {
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Suburb</span>
         <input placeholder="e.g. Boroko" value={prop.suburb} onChange={(e) => setProp({ ...prop, suburb: e.target.value })} data-testid="sell_form-suburb" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
+      <MapCoordsField
+        label="Google Maps location (optional)"
+        value={prop.map_coords}
+        onChange={(v) => setProp({ ...prop, map_coords: v })}
+        testId="sell_form-map-coords"
+      />
       <PhotoUploader value={photos} onChange={setPhotos} testId="sell_form-photos" />
     </>
   );

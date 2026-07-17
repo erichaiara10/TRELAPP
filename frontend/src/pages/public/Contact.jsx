@@ -3,14 +3,15 @@ import LeadFormPage from "./LeadFormPage";
 import { api } from "@/lib/api";
 import { usePage } from "@/lib/usePage";
 import { Phone, Mail, MapPin, MessageCircle, ExternalLink, Clock } from "lucide-react";
+import { MAPS_BASE, mapsEmbedFromCoords, mapsUrlFromCoords } from "@/components/MapCoordsField";
 
 export default function Contact() {
   const { sections } = usePage("contact");
   const hero = sections.hero || {};
   const businessHours = sections.business_hours || "";
-  const mapOverride = sections.map_query || "";
+  const contactCoords = sections.map_coords || "";
 
-  const [site, setSite] = useState({ phone: "", email: "", whatsapp: "", address: "" });
+  const [site, setSite] = useState({ phone: "", email: "", whatsapp: "", address: "", map_coords: "" });
   useEffect(() => {
     api.get("/content/site").then((r) => r.data?.value && setSite((s) => ({ ...s, ...r.data.value }))).catch(() => {});
   }, []);
@@ -21,13 +22,18 @@ export default function Contact() {
   const mailLink = site.email ? `mailto:${site.email}` : "#";
 
   const { mapEmbed, mapOpen } = useMemo(() => {
-    const addr = (mapOverride || site.address || "Port Moresby, Papua New Guinea").trim();
+    // Priority: contact page coords → site branding coords → address search fallback
+    const coords = (contactCoords || site.map_coords || "").trim();
+    if (coords) {
+      return {
+        mapEmbed: mapsEmbedFromCoords(coords),
+        mapOpen: mapsUrlFromCoords(coords),
+      };
+    }
+    const addr = (site.address || "Port Moresby, Papua New Guinea").trim();
     const q = encodeURIComponent(addr);
-    return {
-      mapEmbed: `https://www.google.com/maps?q=${q}&output=embed`,
-      mapOpen: `https://www.google.com/maps/search/?api=1&query=${q}`,
-    };
-  }, [mapOverride, site.address]);
+    return { mapEmbed: `${MAPS_BASE}${q}&output=embed`, mapOpen: `${MAPS_BASE}${q}` };
+  }, [contactCoords, site.map_coords, site.address]);
 
   return (
     <div>

@@ -3,6 +3,7 @@ import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, Save } from "lucide-react";
 import ImageField from "@/components/admin/ImageField";
+import MapCoordsField from "@/components/MapCoordsField";
 
 // ---------------- Page schemas --------------------------------------------
 // Each entry describes editable sections. Types: "text" | "textarea" | "image"
@@ -19,6 +20,7 @@ const PAGE_SCHEMAS = [
       { key: "whatsapp", label: "WhatsApp" },
       { key: "email", label: "Email" },
       { key: "address", label: "Address", type: "textarea" },
+      { key: "map_coords", label: "Office Google Maps coordinates", type: "mapcoords" },
       { key: "logo_url", label: "Logo URL", type: "image" },
       { key: "favicon_url", label: "Favicon URL", type: "image" },
       { key: "og_image_url", label: "OG / social share image", type: "image" },
@@ -185,7 +187,7 @@ const PAGE_SCHEMAS = [
         { key: "intro", label: "Intro", type: "textarea" },
       ]},
       { key: "business_hours", label: "Business hours (single field)", type: "flat" },
-      { key: "map_query", label: "Google Maps query override (blank = use site address)", type: "flat" },
+      { key: "map_coords", label: "Office Google Maps location (overrides branding coords)", type: "flat-mapcoords" },
     ],
   },
   {
@@ -265,15 +267,19 @@ function BrandingEditor({ schema, onSaved }) {
   if (loading) return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
   return (
     <div className="grid md:grid-cols-2 gap-4">
-      {schema.fields.map((f) => (
-        f.type === "image" ? (
-          <div key={f.key} className="md:col-span-2"><ImageField label={f.label} value={state[f.key] || ""} onChange={(v) => setState({ ...state, [f.key]: v })} testId={`branding-${f.key}`} /></div>
-        ) : (
+      {schema.fields.map((f) => {
+        if (f.type === "image") {
+          return <div key={f.key} className="md:col-span-2"><ImageField label={f.label} value={state[f.key] || ""} onChange={(v) => setState({ ...state, [f.key]: v })} testId={`branding-${f.key}`} /></div>;
+        }
+        if (f.type === "mapcoords") {
+          return <div key={f.key} className="md:col-span-2"><MapCoordsField label={f.label} value={state[f.key] || ""} onChange={(v) => setState({ ...state, [f.key]: v })} testId={`branding-${f.key}`} /></div>;
+        }
+        return (
           <div key={f.key} className={f.type === "textarea" ? "md:col-span-2" : ""}>
             <TextInput field={f} value={state[f.key]} onChange={(v) => setState({ ...state, [f.key]: v })} testId={`branding-${f.key}`} />
           </div>
-        )
-      ))}
+        );
+      })}
       <div className="md:col-span-2 pt-2">
         <button onClick={save} disabled={saving} data-testid="branding-save" className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-pine-500 hover:bg-pine-600 text-white disabled:opacity-60">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save changes
@@ -402,6 +408,13 @@ function PageEditor({ schema }) {
           return (
             <div key={sec.key}>
               <TextInput field={{ label: sec.label, type: "textarea" }} value={state[sec.key]} onChange={(v) => setState({ ...state, [sec.key]: v })} testId={`field-${sec.key}`} />
+            </div>
+          );
+        }
+        if (sec.type === "flat-mapcoords") {
+          return (
+            <div key={sec.key}>
+              <MapCoordsField label={sec.label} value={state[sec.key] || ""} onChange={(v) => setState({ ...state, [sec.key]: v })} testId={`field-${sec.key}`} />
             </div>
           );
         }

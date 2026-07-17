@@ -119,6 +119,7 @@ class Property(BaseModel):
     location: str
     suburb: Optional[str] = None
     address: Optional[str] = None
+    map_coords: Optional[str] = None
     description: str = ""
     features: List[str] = []
     images: List[str] = []
@@ -143,6 +144,7 @@ class PropertyCreate(BaseModel):
     location: str
     suburb: Optional[str] = None
     address: Optional[str] = None
+    map_coords: Optional[str] = None
     description: Optional[str] = ""
     features: List[str] = []
     images: List[str] = []
