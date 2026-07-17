@@ -294,14 +294,17 @@ class Notification(BaseModel):
 
 # ---- Human verification (captcha) ----
 import random
+import string
+
+# Exclude visually confusable characters (0/O, 1/I/l)
+_CAPTCHA_ALPHABET = (
+    string.ascii_uppercase.replace("O", "").replace("I", "")
+    + string.digits.replace("0", "").replace("1", "")
+)
 
 def _captcha_pair():
-    a, b = random.randint(2, 9), random.randint(2, 9)
-    op = random.choice(["+", "-"])
-    if op == "-" and b > a: a, b = b, a
-    question = f"What is {a} {op} {b}?"
-    answer = a + b if op == "+" else a - b
-    return question, str(answer)
+    code = "".join(random.choices(_CAPTCHA_ALPHABET, k=5))
+    return f"Type these letters/numbers: {code}", code
 
 def _captcha_encode(answer: str) -> str:
     payload = {"a": answer, "type": "captcha",
@@ -319,8 +322,9 @@ def _captcha_verify(token: Optional[str], answer: Optional[str]) -> None:
         raise HTTPException(400, "Invalid verification token")
     if payload.get("type") != "captcha":
         raise HTTPException(400, "Invalid verification token type")
-    if str(answer).strip() != str(payload.get("a", "")).strip():
-        raise HTTPException(400, "Incorrect verification answer")
+    # Case-insensitive comparison for alphanumeric codes
+    if str(answer).strip().upper() != str(payload.get("a", "")).strip().upper():
+        raise HTTPException(400, "Incorrect verification — please try again")
 
 def _honeypot_check(hp: Optional[str]) -> None:
     if hp:
