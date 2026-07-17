@@ -15,6 +15,14 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### PageContent architecture (Feb 17, 2026)
+- **New `page_content` MongoDB collection** — one doc per public page (`home`, `about`, `sell`, `buy`, `rent`, `wanted`, `management`, `corporate`, `contact`, `legal_privacy`, `legal_terms`). Deep-merge with server-side defaults so callers always get a fully-populated object.
+- **New API endpoints** (all `/api`): `GET /page/{slug}` (public), `PUT /page/{slug}` (admin), `POST /page/{slug}/list/{section}` (admin — append), `DELETE /page/{slug}/list/{section}/{index}` (admin — remove).
+- **Admin `/admin/content` rebuilt** as a 12-tab editor (Branding & Site + 11 pages) with grouped section editors, list add/remove for team/values/services/benefits, and integrated single-image uploader (`ImageField`) that pushes to Emergent object storage.
+- **Public pages fully rewritten to consume page content** via `usePage(slug)` hook: Home (hero + featured intro + why-us + wanted teaser + CTA band), About (hero + story + mission + vision + values + team), Sell (hero + benefits), Buy/Rent (hero over search), Wanted (hero + active-requirements), Management/Corporate (hero + services grid), Contact (hero + business hours + map + action buttons), Privacy/Terms (title + body).
+- **LeadFormPage** gains `heroImage` prop and a "Submit another" button on the success card.
+- Backend tests: `/app/backend/tests/test_page_content.py` (21/21 pass).
+
 ### Phase 1 Fixes (Feb 17, 2026)
 - Math CAPTCHA replaced with alphanumeric CAPTCHA (5-char, case-insensitive, excludes 0/O/1/I/l, 15-min JWT expiry)
 - HumanVerification widget shows code with obfuscated wavy strikethrough styling
