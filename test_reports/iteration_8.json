@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 8 tested the new PageContent multi-page architecture. All 21 backend tests in /app/backend/tests/test_page_content.py pass (11 slug GETs + 404 + auth guards + partial deep-merge + team append/delete + out-of-range + regression content/site+content/about). Admin /admin/content shows all 12 tabs (Branding & Site + 11 pages); clicking each tab loads its editor without console errors. Hero heading persistence flow works end-to-end (edit → page-save → reload → verify → revert). About team member add flow works via list-team-add: new blank card appears (data-testid=list-team-item-{idx}), fields editable, page-save persists across reload; delete via list-team-delete-{idx} removes the member and persists. Home why_us list add button (list-why_us.items-add) present. All public pages render with the expected structural testids (see naming notes below) and the sell + wanted forms submit end-to-end with captcha (5-char alphanumeric read from [data-testid=captcha-question]) → inline success card [data-testid=<source>-success] with 'Submit another' button [data-testid=<source>-success-again] that restores the form. Contact page still renders map iframe, action buttons, hours line. /buy and /rent render optional hero and search filters. /privacy and /terms render legal-*-title/body. Regression: legacy /api/content/site and /api/content/about still return 200.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_page_content.py",
+    "/app/test_reports/pytest/iter8_page.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Testid naming inconsistency vs review-request spec: contact map iframe is data-testid='contact-map-iframe' (not 'contact-map'); contact hours line is 'contact-hours-line' (not 'contact-business-hours'); home why-us section is 'home-why-us' (no separate 'home-why-heading'); featured heading has no dedicated testid ('view-all-featured' link only); management/corporate pages have services grid but no 'management-hero-heading'/'corporate-hero-heading' testids on their H1s; wanted page has no 'wanted-benefits' section (only sell has 'sell-benefits'). Public pages all render correctly — only testid names differ from the spec. If tests/automation depend on the spec names, either add these testids or update the tests.",
+  "list remove button testid is 'list-{section}-delete-{idx}' (not 'list-{section}-remove-{idx}') — confirm which naming should be canonical in docs.",
+  "The pre-existing /app/backend/tests/backend_test.py still uses stale credentials (admin@pngrealty.pg / sales@pngrealty.pg) — will fail if executed. Not blocking, but should be updated to admin@trel.com.pg for regression runs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_page_content.py (new — 21 tests for PageContent API)"
+  ],
+  "success_rate": {"backend": "100% (21/21 PageContent tests)", "frontend": "100% (all critical flows verified)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (confirmed working)",
+  "seed_data_creation": "Created 1 TEST_Sell_UI lead and 1 TEST_Wanted_UI lead via public form E2E. During admin flow: added and then deleted a TEST_UI_Member on About team (net zero change). Reverted home hero.heading to default after persistence check.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite for the new PageContent architecture is at /app/backend/tests/test_page_content.py. Admin content editor uses: [data-testid=content-tab-{slug}] to switch tabs, [data-testid=page-save] to save, [data-testid=list-{section}-add] to append list items, [data-testid=list-{section}-delete-{idx}] to remove list items, [data-testid=list-{section}-item-{idx}] wraps each list card, and [data-testid=field-<path>] for scalar fields (e.g. field-hero.heading). Public pages: use [data-testid=captcha-question] inner span (case-insensitive 4–7 char alphanumeric) and [data-testid=captcha-answer] to complete captcha; LeadFormPage exposes {source}-hero-image, {source}-form, {source}-submit, {source}-success, {source}-success-again, {source}-success-message. Legacy /app/backend/tests/backend_test.py still references pngrealty.pg emails and is out of date."
+}

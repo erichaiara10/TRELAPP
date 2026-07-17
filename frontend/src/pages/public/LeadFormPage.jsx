@@ -32,7 +32,16 @@ function Area({ label, required, ...props }) {
   );
 }
 
-export function LeadFormPage({ source, title, kicker, intro, extra = null, extraPayload = () => ({}), extraRequired = () => true }) {
+/**
+ * Shared public form container.
+ * Displays optional hero (image + kicker + heading + intro) above the form,
+ * then the standard [name, email, phone, ...extra, message] grid,
+ * then a clean success card on submit.
+ */
+export function LeadFormPage({
+  source, title, kicker, intro, heroImage,
+  extra = null, extraPayload = () => ({}), extraRequired = () => true,
+}) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,7 +49,6 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
 
   const submit = async (e) => {
     e.preventDefault();
-    // Validate required base fields (Full name + Email + Phone) and any extras
     const missingBase = !form.name.trim() || !form.email.trim() || !form.phone.trim();
     if (missingBase || !extraRequired()) {
       toast.error(REQUIRED_ERROR);
@@ -65,9 +73,14 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
 
   return (
     <div className="container-tight py-14 max-w-3xl">
+      {heroImage && (
+        <div className="rounded-2xl overflow-hidden mb-8 aspect-[3/1] bg-sand-100 border border-border" data-testid={`${source}-hero-image`}>
+          <img src={heroImage} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
       <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{kicker}</div>
       <h1 className="font-serif text-4xl sm:text-5xl mt-3">{title}</h1>
-      <p className="text-muted-foreground mt-3 max-w-2xl">{intro}</p>
+      {intro && <p className="text-muted-foreground mt-3 max-w-2xl whitespace-pre-line">{intro}</p>}
 
       {sent ? (
         <div className="mt-10 rounded-2xl bg-pine-500 text-white p-8" data-testid={`${source}-success`}>
@@ -78,16 +91,23 @@ export function LeadFormPage({ source, title, kicker, intro, extra = null, extra
               <p className="mt-2 text-sand-100 text-lg" data-testid={`${source}-success-message`}>
                 {SUCCESS_MESSAGE}
               </p>
+              <button
+                onClick={() => { setSent(false); setForm({ name: "", email: "", phone: "", message: "" }); captchaRef.current?.refresh(); }}
+                data-testid={`${source}-success-again`}
+                className="mt-6 inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50"
+              >
+                Submit another
+              </button>
             </div>
           </div>
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="mt-10 grid md:grid-cols-2 gap-4" data-testid={`${source}-form`}>
-          <Field label="Full name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${source}-name`} />
-          <Field label="Email" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid={`${source}-email`} />
-          <Field label="Phone" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid={`${source}-phone`} />
+          <Field label="Full name" required placeholder="e.g. Jane Doe" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${source}-name`} />
+          <Field label="Email" required type="email" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid={`${source}-email`} />
+          <Field label="Phone" required placeholder="+675 …" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid={`${source}-phone`} />
           {extra}
-          <Area label="Tell us more" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} data-testid={`${source}-message`} />
+          <Area label="Tell us more" placeholder="Share any details that will help us respond faster." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} data-testid={`${source}-message`} />
           <div className="md:col-span-2">
             <HumanVerification ref={captchaRef} />
           </div>

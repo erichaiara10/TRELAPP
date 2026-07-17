@@ -714,6 +714,85 @@ async def set_content(key: str, payload: dict, user: dict = Depends(get_current_
     await db.content.update_one({"key": key}, {"$set": {"key": key, "value": payload}}, upsert=True)
     return {"ok": True}
 
+# ---- Page Content (per-page structured content) ----
+PAGE_SLUGS = {"home","about","sell","buy","rent","wanted","management","corporate","contact","legal_privacy","legal_terms"}
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Merge override into base (dicts merged recursively; lists/scalars replaced)."""
+    out = dict(base or {})
+    for k, v in (override or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+@api.get("/page/{page}")
+async def get_page_content(page: str):
+    if page not in PAGE_SLUGS:
+        raise HTTPException(404, f"Unknown page '{page}'")
+    doc = await db.page_content.find_one({"page": page}, {"_id": 0}) or {}
+    stored = doc.get("sections", {})
+    defaults = DEFAULT_PAGE_CONTENT.get(page, {})
+    return {"page": page, "sections": _deep_merge(defaults, stored)}
+
+@api.put("/page/{page}")
+async def set_page_content(page: str, payload: dict, user: dict = Depends(get_current_user)):
+    if page not in PAGE_SLUGS:
+        raise HTTPException(404, f"Unknown page '{page}'")
+    sections = payload.get("sections") if isinstance(payload, dict) and "sections" in payload else payload
+    if not isinstance(sections, dict):
+        raise HTTPException(400, "sections must be an object")
+    await db.page_content.update_one(
+        {"page": page},
+        {"$set": {"page": page, "sections": sections,
+                  "updated_at": now_iso(), "updated_by": user.get("id")}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+@api.post("/page/{page}/list/{section}")
+async def append_page_list_item(page: str, section: str, payload: dict, user: dict = Depends(get_current_user)):
+    if page not in PAGE_SLUGS:
+        raise HTTPException(404, f"Unknown page '{page}'")
+    # Fetch merged current
+    doc = await db.page_content.find_one({"page": page}, {"_id": 0}) or {}
+    sections = _deep_merge(DEFAULT_PAGE_CONTENT.get(page, {}), doc.get("sections", {}))
+    lst = sections.get(section)
+    if not isinstance(lst, list):
+        raise HTTPException(400, f"Section '{section}' is not a list on '{page}'")
+    lst.append(payload or {})
+    sections[section] = lst
+    await db.page_content.update_one(
+        {"page": page},
+        {"$set": {"page": page, "sections": sections,
+                  "updated_at": now_iso(), "updated_by": user.get("id")}},
+        upsert=True,
+    )
+    return {"ok": True, "count": len(lst)}
+
+@api.delete("/page/{page}/list/{section}/{index}")
+async def delete_page_list_item(page: str, section: str, index: int, user: dict = Depends(get_current_user)):
+    if page not in PAGE_SLUGS:
+        raise HTTPException(404, f"Unknown page '{page}'")
+    doc = await db.page_content.find_one({"page": page}, {"_id": 0}) or {}
+    sections = _deep_merge(DEFAULT_PAGE_CONTENT.get(page, {}), doc.get("sections", {}))
+    lst = sections.get(section)
+    if not isinstance(lst, list):
+        raise HTTPException(400, f"Section '{section}' is not a list on '{page}'")
+    if index < 0 or index >= len(lst):
+        raise HTTPException(400, "Index out of range")
+    lst.pop(index)
+    sections[section] = lst
+    await db.page_content.update_one(
+        {"page": page},
+        {"$set": {"page": page, "sections": sections,
+                  "updated_at": now_iso(), "updated_by": user.get("id")}},
+        upsert=True,
+    )
+    return {"ok": True, "count": len(lst)}
+
+
 # ---- Reports ----
 @api.get("/reports/summary")
 async def reports_summary(user: dict = Depends(get_current_user)):
@@ -889,6 +968,156 @@ DEFAULT_CONTENT = {
     ]},
 }
 
+# ---- Structured, admin-editable per-page content defaults ----
+DEFAULT_PAGE_CONTENT = {
+    "home": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "PAPUA NEW GUINEA REAL ESTATE",
+            "heading": "Find a place you're proud to call home.",
+            "sub": "Verified listings, honest advice, and end-to-end support — from families to corporates across PNG.",
+            "cta_primary": {"label": "Browse homes for sale", "href": "/buy"},
+            "cta_secondary": {"label": "Explore rentals", "href": "/rent"},
+        },
+        "featured_intro": {
+            "kicker": "FEATURED",
+            "heading": "Handpicked homes ready to inspect",
+            "sub": "A rotating selection of our most-loved listings — refreshed weekly by our sales team.",
+        },
+        "why_us": {
+            "heading": "Why families and corporates choose TREL",
+            "items": [
+                {"title": "Local expertise", "body": "Born and raised in PNG — we know every suburb, security landscape and school catchment.", "icon": "MapPin"},
+                {"title": "Verified listings", "body": "Every property is inspected and photographed by our team before going live.", "icon": "ShieldCheck"},
+                {"title": "Corporate ready", "body": "Expat relocation, corporate leases, and portfolio management — all handled in-house.", "icon": "Briefcase"},
+            ],
+        },
+        "wanted_preview": {
+            "kicker": "PROPERTY WANTED",
+            "heading": "Buyers and tenants actively searching",
+            "sub": "Have a property that might match? Submit it and we'll shortlist you within 24 hours.",
+        },
+        "cta_band": {
+            "heading": "Ready to list, buy, or rent?",
+            "sub": "Talk to a TREL agent today — we typically reply within one business day.",
+            "button_label": "Get in touch",
+        },
+    },
+    "about": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "ABOUT TREL",
+            "heading": "A PNG-owned real estate agency built on trust.",
+            "intro": "Triumph Real Estate Limited helps families, investors and corporates buy, sell, rent and manage property across Papua New Guinea.",
+        },
+        "story": {
+            "heading": "Our story",
+            "body": "TREL was founded to bring transparent, professional real estate services to Papua New Guinea. From day one we've focused on verified listings, honest pricing, and long-term relationships — with families, corporates, and government clients alike.\n\nToday we serve buyers, sellers, tenants, landlords and corporate clients across Port Moresby and beyond — combining local knowledge with modern digital tools.",
+        },
+        "mission": {
+            "heading": "Our mission",
+            "body": "To make property in Papua New Guinea accessible, transparent, and rewarding for everyone we serve — because we care to share.",
+        },
+        "vision": {
+            "heading": "Our vision",
+            "body": "To be the most trusted real estate partner in the Pacific, known for integrity, local expertise and lasting relationships.",
+        },
+        "values": [
+            {"title": "Integrity", "body": "Straight-talking advice, honest pricing, no surprises."},
+            {"title": "Local knowledge", "body": "We know PNG's suburbs, schools, and security landscape inside-out."},
+            {"title": "Care", "body": "We treat every client's home like our own — because we care to share."},
+        ],
+        "team": [
+            {"name": "Managing Director", "role": "Managing Director", "photo": "", "bio": "Leads TREL's strategy, corporate partnerships, and community programmes."},
+            {"name": "Sales Manager", "role": "Head of Sales", "photo": "", "bio": "Oversees residential and commercial sales across Port Moresby."},
+            {"name": "Leasing Manager", "role": "Head of Leasing", "photo": "", "bio": "Manages rentals, corporate leases and expat relocation."},
+        ],
+    },
+    "sell": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "SELL WITH TREL",
+            "heading": "List your property",
+            "intro": "Tell us about your property — a TREL agent will schedule an appraisal and walk you through our marketing plan. Adding photos speeds up appraisal by 2–3 days.",
+        },
+        "benefits": [
+            {"title": "Free appraisal", "body": "An accurate, market-based price backed by recent comparable sales."},
+            {"title": "Professional photography", "body": "Every listing gets a photo shoot before going live."},
+            {"title": "Verified marketing", "body": "Featured on our homepage, WhatsApp broadcasts and partner networks."},
+        ],
+    },
+    "buy": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "BUY WITH TREL",
+            "heading": "Homes and investments across Papua New Guinea",
+            "intro": "Browse verified houses, apartments, land and commercial properties. Every listing is inspected by our team.",
+        },
+    },
+    "rent": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "RENT WITH TREL",
+            "heading": "Rentals for families, expats and corporates",
+            "intro": "From compact apartments to executive housing — search verified rentals updated weekly.",
+        },
+    },
+    "wanted": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "PROPERTY WANTED",
+            "heading": "Tell us what you're looking for",
+            "intro": "Post your requirements — our team will shortlist matching properties within 24 hours and notify you when new ones list.",
+        },
+    },
+    "management": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "PROPERTY MANAGEMENT",
+            "heading": "End-to-end management for landlords",
+            "intro": "We tenant, inspect, collect rent and maintain your property — so you can focus on the return.",
+        },
+        "services": [
+            {"title": "Tenant sourcing", "body": "Vetted tenants, reference checks, and secure lease drafting.", "icon": "Users"},
+            {"title": "Rent collection", "body": "Automated invoicing, receipting, and monthly owner statements.", "icon": "Wallet"},
+            {"title": "Maintenance", "body": "24/7 emergency response with trusted local trade partners.", "icon": "Wrench"},
+            {"title": "Inspections", "body": "Quarterly condition reports with photos, delivered to your inbox.", "icon": "ClipboardCheck"},
+        ],
+    },
+    "corporate": {
+        "hero": {
+            "image": "https://images.unsplash.com/photo-1554469384-e58fac16e23a?auto=format&fit=crop&w=1600&q=80",
+            "kicker": "CORPORATE SERVICES",
+            "heading": "Housing solutions for expat and corporate clients",
+            "intro": "From single executive lets to full portfolio management for mining, energy and government clients.",
+        },
+        "services": [
+            {"title": "Expat relocation", "body": "Housing search, lease negotiation, orientation tours, and settlement support.", "icon": "Plane"},
+            {"title": "Corporate leases", "body": "Bulk residential and commercial leasing with consolidated invoicing.", "icon": "Building2"},
+            {"title": "Portfolio management", "body": "Multi-property management, KPI reporting, and quarterly reviews.", "icon": "BarChart3"},
+            {"title": "Serviced housing", "body": "Fully furnished, all-inclusive executive residences.", "icon": "Home"},
+        ],
+    },
+    "contact": {
+        "hero": {
+            "kicker": "CONTACT",
+            "heading": "Get in touch",
+            "intro": "Reach us during business hours (Mon–Fri, 8am–5pm PGT), or leave a message and we'll respond within one business day.",
+        },
+        "business_hours": "Mon–Fri, 8am–5pm PGT",
+        "map_query": "",
+    },
+    "legal_privacy": {
+        "title": "Privacy Policy",
+        "body": "Triumph Real Estate Limited (TREL) values your privacy. This policy explains what information we collect, how we use it, and the choices you have.\n\nWe only collect personal data that you provide to us via our forms (name, email, phone, message, property preferences). We use it to respond to your enquiries, match you with properties, and improve our service.\n\nWe do not sell your data. Your data may be shared with our internal staff and third-party service providers strictly for the purposes above. You can request deletion of your data at any time by emailing sales101.trel@gmail.com.",
+    },
+    "legal_terms": {
+        "title": "Terms of Service",
+        "body": "By using the TREL website (\"the Site\"), you agree to these terms.\n\nProperty listings and information on the Site are provided in good faith. While we verify every listing, TREL makes no warranty of accuracy or availability. All prices are indicative and subject to change.\n\nSubmitting a form on the Site does not create a contract of sale or lease. Any transaction must be formalised in a separate written agreement.\n\nAll content on the Site is © Triumph Real Estate Limited and may not be reproduced without permission.",
+    },
+}
+
+
 # Migration: overwrite legacy placeholder branding (PNG Realty) with TREL defaults; preserves user edits.
 LEGACY_AGENCY_NAMES = {"PNG Realty"}
 
@@ -947,6 +1176,16 @@ async def _seed_requirements():
         for s in SAMPLE_REQUIREMENTS:
             await db.requirements.insert_one(Requirement(**s).model_dump())
 
+async def _seed_page_content():
+    """Seed default per-page content — never overwrites existing edits."""
+    for page, defaults in DEFAULT_PAGE_CONTENT.items():
+        await db.page_content.update_one(
+            {"page": page},
+            {"$setOnInsert": {"page": page, "sections": defaults,
+                              "updated_at": now_iso(), "updated_by": None}},
+            upsert=True,
+        )
+
 def _write_test_credentials():
     admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
     admin_email = os.environ.get('ADMIN_EMAIL','admin@trel.com.pg')
@@ -977,11 +1216,13 @@ def _write_test_credentials():
 @app.on_event("startup")
 async def on_startup():
     await db.users.create_index("email", unique=True)
+    await db.page_content.create_index("page", unique=True)
     _init_storage()
     await _migrate_legacy_user_emails()
     await _seed_users()
     await _seed_properties()
     await _seed_content()
+    await _seed_page_content()
     await _seed_requirements()
     _write_test_credentials()
     logger.info("Startup seeding complete")

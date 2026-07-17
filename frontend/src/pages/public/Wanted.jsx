@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { usePage } from "@/lib/usePage";
 import LeadFormPage from "./LeadFormPage";
 import { api } from "@/lib/api";
 
 export default function Wanted() {
+  const { sections } = usePage("wanted");
+  const hero = sections.hero || {};
   const [req, setReq] = useState({ intent: "buy", property_type: "house", min_price: "", max_price: "", min_bedrooms: "", locations: "" });
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/requirements/public").then((r) => setItems(r.data)).catch(() => {}); }, []);
@@ -23,20 +26,20 @@ export default function Wanted() {
         </select>
       </label>
       <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Min price</span>
-        <input type="number" value={req.min_price} onChange={(e) => setReq({ ...req, min_price: e.target.value })} data-testid="wanted_form-min" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Min price (PGK)</span>
+        <input type="number" placeholder="e.g. 400000" value={req.min_price} onChange={(e) => setReq({ ...req, min_price: e.target.value })} data-testid="wanted_form-min" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
       <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Max price</span>
-        <input type="number" value={req.max_price} onChange={(e) => setReq({ ...req, max_price: e.target.value })} data-testid="wanted_form-max" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Max price (PGK)</span>
+        <input type="number" placeholder="e.g. 900000" value={req.max_price} onChange={(e) => setReq({ ...req, max_price: e.target.value })} data-testid="wanted_form-max" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Bedrooms (min)</span>
-        <input type="number" value={req.min_bedrooms} onChange={(e) => setReq({ ...req, min_bedrooms: e.target.value })} data-testid="wanted_form-beds" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <input type="number" placeholder="e.g. 3" value={req.min_bedrooms} onChange={(e) => setReq({ ...req, min_bedrooms: e.target.value })} data-testid="wanted_form-beds" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
       <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Preferred locations (comma)</span>
-        <input value={req.locations} onChange={(e) => setReq({ ...req, locations: e.target.value })} data-testid="wanted_form-locations" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Preferred locations</span>
+        <input placeholder="Comma-separated (e.g. Waigani, Boroko)" value={req.locations} onChange={(e) => setReq({ ...req, locations: e.target.value })} data-testid="wanted_form-locations" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
     </>
   );
@@ -50,11 +53,16 @@ export default function Wanted() {
 
   return (
     <>
-      <LeadFormPage source="wanted_form" kicker="Property Wanted"
-        title="Tell us what you're looking for"
-        intro="Submit your buying or rental brief. Our agents actively source properties from vendors before they hit the open market."
-        extra={extra} extraPayload={payload} />
-      <div className="container-tight pb-16">
+      <LeadFormPage
+        source="wanted_form"
+        kicker={hero.kicker || "PROPERTY WANTED"}
+        title={hero.heading || "Tell us what you're looking for"}
+        intro={hero.intro || ""}
+        heroImage={hero.image}
+        extra={extra}
+        extraPayload={payload}
+      />
+      <div className="container-tight pb-16 max-w-4xl">
         <h2 className="font-serif text-2xl mb-4">Current active requirements</h2>
         <div className="grid md:grid-cols-2 gap-4">
           {items.map((w, i) => (

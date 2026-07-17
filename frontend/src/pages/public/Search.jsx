@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
+import { usePage } from "@/lib/usePage";
 import PropertyCard from "@/components/PropertyCard";
 import { SlidersHorizontal, Search as SearchIcon } from "lucide-react";
 
 export default function Search({ mode }) {
+  const pageSlug = mode === "sale" ? "buy" : "rent";
+  const { sections } = usePage(pageSlug);
+  const hero = sections.hero || {};
+
   const [params, setParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,12 +40,32 @@ export default function Search({ mode }) {
 
   return (
     <div className="container-tight py-10">
-      <div className="flex items-center gap-3 mb-6">
-        <div>
-          <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Browse</div>
-          <h1 className="font-serif text-3xl sm:text-4xl mt-1">{mode === "sale" ? "Properties for sale" : "Properties for rent"}</h1>
+      {/* Optional hero image + copy */}
+      {(hero.image || hero.heading || hero.intro) && (
+        <div className="relative rounded-2xl overflow-hidden mb-8 min-h-[220px]" data-testid={`${pageSlug}-hero`}>
+          {hero.image && (
+            <>
+              <img src={hero.image} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />
+            </>
+          )}
+          <div className={`relative p-8 md:p-10 ${hero.image ? "text-white" : "text-ink-900"}`}>
+            {hero.kicker && <div className={`text-xs uppercase tracking-[0.3em] ${hero.image ? "text-sand-100/80" : "text-muted-foreground"}`}>{hero.kicker}</div>}
+            <h1 className="font-serif text-3xl sm:text-4xl mt-2" data-testid={`${pageSlug}-hero-heading`}>
+              {hero.heading || (mode === "sale" ? "Properties for sale" : "Properties for rent")}
+            </h1>
+            {hero.intro && <p className={`mt-3 max-w-2xl text-sm ${hero.image ? "text-sand-100/90" : "text-ink-700"}`}>{hero.intro}</p>}
+          </div>
         </div>
-      </div>
+      )}
+      {!(hero.image || hero.heading || hero.intro) && (
+        <div className="flex items-center gap-3 mb-6">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Browse</div>
+            <h1 className="font-serif text-3xl sm:text-4xl mt-1">{mode === "sale" ? "Properties for sale" : "Properties for rent"}</h1>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={submit} className="bg-white rounded-2xl border border-border p-4 grid grid-cols-2 md:grid-cols-6 gap-3 mb-8" data-testid="search-filters">
         <div className="col-span-2 md:col-span-2 flex items-center gap-2 border border-border rounded-lg px-3">
