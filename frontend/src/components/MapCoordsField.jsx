@@ -1,21 +1,44 @@
-import React from "react";
-import { MapPin, ExternalLink } from "lucide-react";
+import React, { useMemo } from "react";
+import { MapPin, ExternalLink, AlertCircle } from "lucide-react";
 
 export const MAPS_BASE = "https://www.google.com/maps?q=";
 export const COORDS_HELP =
   "Open Google Maps, drop a pin on your property, right-click the pin, copy the coordinates, and paste them after the link above.";
 
 /**
+ * Extract "lat,lng" from any of the following inputs:
+ *  • Raw coords: "-9.4438,147.1803", "-9.4438, 147.1803", "-9.4438 147.1803"
+ *  • Full Google Maps URL with ?q= param
+ *  • Google Maps place URLs like "/maps/@-9.4438,147.1803,17z"
+ *  • Google Maps search URLs with numeric coord pairs anywhere
+ * Returns null when nothing parseable is found.
+ */
+export function parseCoords(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  // Match a lat,lng pair (allow whitespace, commas, or slashes between)
+  // lat: -90..90, lng: -180..180 (loose regex, we validate below)
+  const re = /(-?\d+(?:\.\d+)?)\s*[,\s/]\s*(-?\d+(?:\.\d+)?)/;
+  const m = s.match(re);
+  if (!m) return null;
+  const lat = parseFloat(m[1]);
+  const lng = parseFloat(m[2]);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return `${lat},${lng}`;
+}
+
+/**
  * Reusable Google Maps coordinate input.
- * - Displays the hard-coded base link `https://www.google.com/maps?q=` as a read-only prefix.
- * - Accepts just the coordinates (e.g. `-9.4438,147.1803`) — the full URL is composed on view.
- * - Shows the standard instructions and a live "Preview on Google Maps" link when coords are entered.
+ *  - Hard-coded read-only prefix `https://www.google.com/maps?q=`
+ *  - Accepts raw coords OR a pasted Google Maps URL — auto-extracts lat,lng
+ *  - Shows the instructions and a live "View on Google Maps" link that
+ *    always opens a clean `https://www.google.com/maps?q=lat,lng` URL
  *
- * Props:
- *  - label (default "Google Maps location")
- *  - value (coordinates string), onChange(str)
- *  - testId
- *  - required (bool, adds red asterisk)
+ * Value: whatever the user typed (raw string). Consumers should read the
+ * raw value; the normalized coords are exposed via `parseCoords(value)` or
+ * `mapsUrlFromCoords(value)` (which now normalizes internally).
  */
 export default function MapCoordsField({
   label = "Google Maps location",
@@ -24,8 +47,10 @@ export default function MapCoordsField({
   testId = "map-coords",
   required = false,
 }) {
-  const clean = (value || "").trim();
-  const previewHref = clean ? `${MAPS_BASE}${encodeURIComponent(clean)}` : "";
+  const raw = (value || "").trim();
+  const coords = useMemo(() => parseCoords(raw), [raw]);
+  const previewHref = coords ? `${MAPS_BASE}${coords}` : "";
+  const invalid = raw.length > 0 && !coords;
 
   return (
     <div className="col-span-1 md:col-span-2" data-testid={testId}>
@@ -34,7 +59,7 @@ export default function MapCoordsField({
         {label}
         {required && <span className="text-destructive ml-0.5" aria-label="required">*</span>}
       </div>
-      <div className="mt-1 flex items-stretch rounded-lg overflow-hidden border border-border bg-white focus-within:ring-1 focus-within:ring-pine-500">
+      <div className={`mt-1 flex items-stretch rounded-lg overflow-hidden border bg-white focus-within:ring-1 ${invalid ? "border-destructive focus-within:ring-destructive" : "border-border focus-within:ring-pine-500"}`}>
         <span
           className="px-3 py-2 bg-sand-50 text-xs font-mono text-muted-foreground border-r border-border select-all whitespace-nowrap"
           aria-label="Base link (auto-prefixed)"
@@ -45,8 +70,8 @@ export default function MapCoordsField({
         <input
           type="text"
           inputMode="text"
-          placeholder="-9.4438,147.1803"
-          value={clean}
+          placeholder="-9.4438,147.1803  (or paste a Google Maps URL)"
+          value={value ?? ""}
           onChange={(e) => onChange?.(e.target.value)}
           className="flex-1 px-3 py-2 text-sm bg-transparent outline-none min-w-0"
           data-testid={`${testId}-input`}
@@ -56,26 +81,38 @@ export default function MapCoordsField({
       <p id={`${testId}-help`} className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground" data-testid={`${testId}-help`}>
         {COORDS_HELP}
       </p>
+      {invalid && (
+        <p className="mt-1 flex items-start gap-1 text-[11px] text-destructive" data-testid={`${testId}-invalid`}>
+          <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+          <span>Couldn't detect coordinates. Please paste them as <code>lat,lng</code> (e.g. <code>-9.4438,147.1803</code>).</span>
+        </p>
+      )}
       {previewHref && (
-        <a
-          href={previewHref}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 inline-flex items-center gap-1 text-xs text-pine-500 hover:text-pine-600"
-          data-testid={`${testId}-preview`}
-        >
-          Preview on Google Maps <ExternalLink className="w-3 h-3" />
-        </a>
+        <div className="mt-2">
+          <a
+            href={previewHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-xs font-medium"
+            data-testid={`${testId}-preview`}
+          >
+            View on Google Maps <ExternalLink className="w-3 h-3" />
+          </a>
+          <div className="mt-1 text-[10px] text-muted-foreground font-mono break-all" data-testid={`${testId}-resolved`}>
+            Opens: {previewHref}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
 /**
- * Given a coords string, returns the full https://www.google.com/maps?q=<coords> URL,
- * or null when coords is blank. Use in "View on Map" buttons.
+ * Given whatever the user stored in map_coords (raw coords OR a full URL),
+ * returns a clean `https://www.google.com/maps?q=lat,lng` URL — or null
+ * when nothing parseable was found. Use in "View on Map" buttons.
  */
-export function mapsUrlFromCoords(coords) {
-  const c = (coords || "").trim();
-  return c ? `${MAPS_BASE}${encodeURIComponent(c)}` : null;
+export function mapsUrlFromCoords(input) {
+  const coords = parseCoords(input);
+  return coords ? `${MAPS_BASE}${coords}` : null;
 }

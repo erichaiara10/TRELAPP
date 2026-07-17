@@ -1,0 +1,37 @@
+{
+  "summary": "Verified re-fix for the /sell 'View on Google Maps' bug (nested-URL / refused-to-connect). MapCoordsField.parseCoords() correctly extracts lat,lng from all 5 input formats (raw coords with/without space, ?q= URL, /maps/@ URL, /maps/place/ URL) and produces a CLEAN `https://www.google.com/maps?q=-9.4438,147.1803` href in every case. Actually clicked the preview for case (c) (the original bug) — new tab opened at exactly https://www.google.com/maps?q=-9.4438,147.1803 with NO 'refused to connect' error. rel='noopener noreferrer' and target='_blank' present. Button label reads 'View on Google Maps'. Invalid inputs ('not-a-coord', 'blah blah') render [data-testid=sell_form-map-coords-invalid] with helpful message and NO preview link. Empty input renders neither. Resolved-URL text exactly 'Opens: https://www.google.com/maps?q=<coords>'. Regression: prefix testid = 'https://www.google.com/maps?q=', help text contains expected copy. Admin property modal: pasting full Google Maps URL into property-map-coords-input yields clean property-map-coords-preview href. Backend: created TEST_MapCoords_Property via POST /api/properties with map_coords set to full URL — stored raw as-is; public /property/<id> detail-map-btn resolves to clean 'https://www.google.com/maps?q=-9.4438,147.1803'. Cleanup DELETE succeeded (404 after). Contact page /contact contact-view-map-btn works with target=_blank, href starts with https://www.google.com/maps?q= (no maps iframe; only a stray 1x1 hidden dev iframe with empty src, unrelated). Backend regression: pytest test_captcha.py + test_page_content.py + test_map_coords.py -> 32/33 passed (same pre-existing flake in test_team_list_append_and_delete, unrelated). Admin login (admin@trel.com.pg / Admin@123) works via API and UI.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/page/about (team list)", "issue": "test_team_list_append_and_delete pre-existing flake (state leakage of TEST_Member_XYZ). Unrelated to this bug fix — persists from iteration 10."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_captcha.py",
+    "/app/backend/tests/test_page_content.py",
+    "/app/backend/tests/test_map_coords.py",
+    "/app/test_reports/pytest/iter11_regression.xml"
+  ],
+  "action_items": [
+    "Optional: PropertyDetail 'View on Google Maps' pill uses rel='noreferrer' only. For strict spec-compliance parity with the /sell field, consider rel='noopener noreferrer' on detail-map-btn (target=_blank + noreferrer already implies noopener in modern browsers; low priority, same note as iter 10).",
+    "Optional: investigate residual flaky pytest test_team_list_append_and_delete (not related to this fix)."
+  ],
+  "critical_code_review_comments": [
+    "parseCoords regex `/(-?\\d+(?:\\.\\d+)?)\\s*[,\\s/]\\s*(-?\\d+(?:\\.\\d+)?)/` correctly matches lat/lng pairs in raw coords, ?q= URLs, /maps/@ URLs, and /maps/place/ URLs. Boundary validation (|lat|<=90, |lng|<=180) is present.",
+    "MapCoordsField label 'View on Google Maps' now consistent with user terminology and matches Contact + PropertyDetail buttons.",
+    "mapsUrlFromCoords normalizes internally, so any consumer (PropertyDetail, Contact fallback) is safe against a full-URL being stored in map_coords."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "97% (32/33 regression; 1 unrelated flake)", "frontend": "100% (all bug-fix scenarios PASS)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (verified working via API + UI login)",
+  "seed_data_creation": "Created 1 test property (title 'TEST_MapCoords_Property', id d469b06d-f5ea-44ad-9ebc-ff5de31a6e37) to verify detail-page URL normalization — DELETED after test (GET returns 404).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Bug re-fix fully verified. parseCoords() handles all 5 input formats and always yields a clean https://www.google.com/maps?q=lat,lng URL. Only outstanding minor items: (1) pre-existing flaky team list test, unrelated; (2) optional consistency polish — detail-map-btn rel attribute is 'noreferrer' only (Contact + Sell now use 'noopener noreferrer').",
+  "rca of the issue": "Original bug RCA: Users pasted full Google Maps URLs into a coords field whose code URL-encoded the entire value and re-appended it after '?q=', producing nested/double-encoded URLs that Chrome refused. Fix: MapCoordsField.parseCoords() runs a lat/lng regex on ANY input (raw coords OR pasted URL) and rebuilds a clean `https://www.google.com/maps?q=lat,lng`. Preview link is only rendered when parse succeeds; invalid input shows a warning instead. mapsUrlFromCoords() applies the same normalization to legacy stored map_coords values (full URLs) on Contact + PropertyDetail buttons."
+}
