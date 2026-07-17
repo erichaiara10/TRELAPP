@@ -15,6 +15,19 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Sell page 'refused to connect' re-fix (Feb 17, 2026)
+- Root cause: users naturally pasted the FULL Google Maps URL into the coords field. The previous code URL-encoded the whole thing and re-appended it after `?q=`, producing broken nested URLs like `.../maps?q=https%3A%2F%2Fwww.google.com%2Fmaps%3Fq%3D...` that Google refused.
+- Fix: `MapCoordsField` now runs a `parseCoords()` regex on whatever the user types/pastes and extracts `lat,lng` from any of these formats:
+  1. Raw coords `-9.4438,147.1803` (with/without spaces)
+  2. Full Google URL `https://www.google.com/maps?q=lat,lng`
+  3. Place URL `.../maps/@lat,lng,17z/...`
+  4. Place URL `.../maps/place/lat,lng`
+- The preview link is now ALWAYS a clean `https://www.google.com/maps?q=lat,lng`.
+- Invalid input shows an inline warning; empty input shows nothing.
+- Renamed link from "Preview on Google Maps" → **"View on Google Maps"** and switched to `rel="noopener noreferrer"`.
+- `mapsUrlFromCoords()` now normalizes internally, so even legacy stored `map_coords` values that contain full URLs render correctly on Property Detail + Contact.
+- Verified in testing agent iteration 11 by actually opening the new tab and confirming successful navigation to google.com/maps.
+
 ### 'Refused to connect' fix — Maps iframe removed (Feb 17, 2026)
 - Contact page no longer embeds Google Maps in an `<iframe>` (Google blocks embedding via X-Frame-Options / CSP → "refused to connect").
 - Replaced with a single big **"View on Google Maps"** button (`[data-testid=contact-view-map-btn]`, `target=_blank rel=noreferrer`) that opens the exact location in a new tab.
