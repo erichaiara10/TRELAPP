@@ -15,6 +15,24 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Google Maps Coordinate Input System (Feb 17, 2026)
+- **New reusable `<MapCoordsField>`** component at `/app/frontend/src/components/MapCoordsField.jsx` with:
+  - Hard-coded read-only prefix `https://www.google.com/maps?q=`
+  - Coordinate text input (e.g. `-9.4438,147.1803`)
+  - Standard instruction text ("Open Google Maps, drop a pin on your property, right-click the pin, copy the coordinates, and paste them after the link above.")
+  - Live "Preview on Google Maps" link
+  - Exported helpers: `MAPS_BASE`, `mapsUrlFromCoords(coords)`, `mapsEmbedFromCoords(coords)`
+- **Property model** gains `map_coords: Optional[str]`
+- Wired into:
+  - Admin Property form (add/edit) — with new `address` text field above it
+  - Public Sell form (extras section, optional)
+  - Admin Content → Branding & Site (office coords)
+  - Admin Content → Contact page (overrides branding coords)
+- **All "View on Map" buttons/iframes** now use `https://www.google.com/maps?q={coords}` when coords are set, falling back to the same base with an encoded address search otherwise:
+  - Property Detail "View on Google Maps" pill
+  - Contact page Google Maps iframe + "Open in Google Maps" link
+- Backend tests: `/app/backend/tests/test_map_coords.py` (4/4) + 29/29 regression tests still pass.
+
 ### PageContent architecture (Feb 17, 2026)
 - **New `page_content` MongoDB collection** — one doc per public page (`home`, `about`, `sell`, `buy`, `rent`, `wanted`, `management`, `corporate`, `contact`, `legal_privacy`, `legal_terms`). Deep-merge with server-side defaults so callers always get a fully-populated object.
 - **New API endpoints** (all `/api`): `GET /page/{slug}` (public), `PUT /page/{slug}` (admin), `POST /page/{slug}/list/{section}` (admin — append), `DELETE /page/{slug}/list/{section}/{index}` (admin — remove).
