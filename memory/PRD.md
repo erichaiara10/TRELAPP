@@ -15,6 +15,13 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### 'Refused to connect' fix — Maps iframe removed (Feb 17, 2026)
+- Contact page no longer embeds Google Maps in an `<iframe>` (Google blocks embedding via X-Frame-Options / CSP → "refused to connect").
+- Replaced with a single big **"View on Google Maps"** button (`[data-testid=contact-view-map-btn]`, `target=_blank rel=noreferrer`) that opens the exact location in a new tab.
+- Coords priority preserved: `contact.map_coords` → `site.map_coords` → encoded `site.address`.
+- Removed the now-unused `mapsEmbedFromCoords` helper.
+- Verified by testing agent iteration 10: 0 Google Maps iframes on all 12 public pages.
+
 ### Google Maps Coordinate Input System (Feb 17, 2026)
 - **New reusable `<MapCoordsField>`** component at `/app/frontend/src/components/MapCoordsField.jsx` with:
   - Hard-coded read-only prefix `https://www.google.com/maps?q=`
