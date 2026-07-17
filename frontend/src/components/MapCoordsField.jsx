@@ -79,11 +79,3 @@ export function mapsUrlFromCoords(coords) {
   const c = (coords || "").trim();
   return c ? `${MAPS_BASE}${encodeURIComponent(c)}` : null;
 }
-
-/**
- * Same but for iframe embed (adds &output=embed).
- */
-export function mapsEmbedFromCoords(coords) {
-  const c = (coords || "").trim();
-  return c ? `${MAPS_BASE}${encodeURIComponent(c)}&output=embed` : null;
-}

@@ -3,7 +3,7 @@ import LeadFormPage from "./LeadFormPage";
 import { api } from "@/lib/api";
 import { usePage } from "@/lib/usePage";
 import { Phone, Mail, MapPin, MessageCircle, ExternalLink, Clock } from "lucide-react";
-import { MAPS_BASE, mapsEmbedFromCoords, mapsUrlFromCoords } from "@/components/MapCoordsField";
+import { MAPS_BASE, mapsUrlFromCoords } from "@/components/MapCoordsField";
 
 export default function Contact() {
   const { sections } = usePage("contact");
@@ -21,18 +21,14 @@ export default function Contact() {
   const telLink = site.phone ? `tel:${site.phone.replace(/\s+/g, "")}` : "#";
   const mailLink = site.email ? `mailto:${site.email}` : "#";
 
-  const { mapEmbed, mapOpen } = useMemo(() => {
-    // Priority: contact page coords → site branding coords → address search fallback
+  // Compose ONE Google Maps URL — prefer coords, else search by address.
+  // We intentionally do NOT use an iframe embed because Google's headers block
+  // it on many browsers ("refused to connect"). The user opens the map in a new tab.
+  const mapOpen = useMemo(() => {
     const coords = (contactCoords || site.map_coords || "").trim();
-    if (coords) {
-      return {
-        mapEmbed: mapsEmbedFromCoords(coords),
-        mapOpen: mapsUrlFromCoords(coords),
-      };
-    }
+    if (coords) return mapsUrlFromCoords(coords);
     const addr = (site.address || "Port Moresby, Papua New Guinea").trim();
-    const q = encodeURIComponent(addr);
-    return { mapEmbed: `${MAPS_BASE}${q}&output=embed`, mapOpen: `${MAPS_BASE}${q}` };
+    return `${MAPS_BASE}${encodeURIComponent(addr)}`;
   }, [contactCoords, site.map_coords, site.address]);
 
   return (
@@ -84,22 +80,27 @@ export default function Contact() {
             </a>
           </div>
 
-          {/* Google Maps embed */}
+          {/* Google Maps — button opens in a new tab (no iframe: Google blocks embeds via X-Frame-Options / CSP). */}
           <div className="mt-8">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Our office</div>
-              <a href={mapOpen} target="_blank" rel="noreferrer" data-testid="contact-open-map"
-                className="inline-flex items-center gap-1 text-xs text-pine-500 hover:text-pine-600">
-                Open in Google Maps <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-            <div className="rounded-2xl overflow-hidden border border-border shadow-sm">
-              <iframe
-                title="TREL Office Location" src={mapEmbed}
-                width="100%" height="320" style={{ border: 0 }} loading="lazy" allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade" data-testid="contact-map-iframe"
-              />
-            </div>
+            <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">Our office</div>
+            <a
+              href={mapOpen}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="contact-view-map-btn"
+              className="group relative flex items-center gap-4 rounded-2xl overflow-hidden border border-border bg-white p-5 hover:border-pine-500 hover:shadow-md transition-all"
+            >
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-pine-500 text-white grid place-items-center">
+                <MapPin className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-ink-900">View on Google Maps</div>
+                <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                  Opens the exact location in a new tab
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-pine-500 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+            </a>
           </div>
         </div>
 

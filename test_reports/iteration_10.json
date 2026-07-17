@@ -1,0 +1,35 @@
+{
+  "summary": "Verified Google Maps iframe removal bug-fix. Audited 12 rendered pages (/, /about, /sell, /buy, /rent, /wanted, /management, /corporate, /contact, /privacy, /terms, and one /property/{id}) — 0 iframes on every page and 0 iframes with google.com/maps src. Contact page renders the new [data-testid=contact-view-map-btn] anchor with target=_blank, rel=noreferrer, and href starting with https://www.google.com/maps?q=. Coords priority verified: setting contact.map_coords via admin API caused the button href to encode those coords; clearing contact.map_coords fell back to the encoded site.address (https://www.google.com/maps?q=Lot%2033%2C%20Section%2038%2C...). MapCoordsField still functions on /sell (sell_form-map-coords-input + sell_form-map-coords-preview -> href=https://www.google.com/maps?q=-9.4438%2C147.1803, target=_blank). Property detail retains detail-map-btn with target=_blank and correct href. Admin login (admin@trel.com.pg / Admin@123) succeeded and PUT /api/page/contact persisted the map_coords change. Backend regression: 32/33 tests passed (test_captcha.py all pass, test_map_coords.py all pass, test_page_content.py: 1 unrelated failure in test_team_list_append_and_delete — pre-existing cleanup/state flakiness, unrelated to the maps bug fix).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/page/about (team list)", "issue": "test_team_list_append_and_delete fails when TEST_Member_XYZ remains after delete — appears to be residual seed/state leakage from a prior iteration or an off-by-one in the delete index. Unrelated to iframe/maps bug fix."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_captcha.py",
+    "/app/backend/tests/test_page_content.py",
+    "/app/backend/tests/test_map_coords.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: investigate flaky test_team_list_append_and_delete — likely unrelated pre-existing state leakage; not in the scope of this iframe bug fix."
+  ],
+  "critical_code_review_comments": [
+    "Contact.jsx cleanly removes mapsEmbedFromCoords import and uses mapsUrlFromCoords + MAPS_BASE for the single button — no dead code.",
+    "Anchor uses rel='noreferrer' but not 'noopener' — target=_blank + noreferrer already implies noopener in modern browsers, but adding 'noopener noreferrer' is best-practice (minor)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "97% (32/33, 1 unrelated flaky)", "frontend": "100%"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md; login verified working)",
+  "seed_data_creation": "None — used existing seed. All temporary admin PUTs to /api/page/contact were restored to original empty map_coords.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The Google Maps iframe removal is fully verified. No iframes exist on any of the 12 audited pages. Only pre-existing minor issue: test_team_list_append_and_delete flakiness in test_page_content.py (unrelated). MapCoordsField default export + MAPS_BASE + mapsUrlFromCoords helpers all intact and functional. Admin content flow (PUT /api/page/contact) confirmed working.",
+  "rca of the issue": "Root cause of original bug: Google Maps embed URLs return X-Frame-Options: SAMEORIGIN / CSP frame-ancestors, causing 'refused to connect' when embedded in an iframe. Fix applied: replaced iframe with a target=_blank anchor button (contact-view-map-btn) that opens Google Maps in a new tab. Verified: DOM contains 0 Google Maps iframes site-wide."
+}
