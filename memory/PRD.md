@@ -15,6 +15,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Customers admin page — full CRUD (Feb 20, 2026)
+- Added **"Add Customer"** button + per-row **Edit** (pencil) and **Delete** (trash) actions
+- Modal form updates: name (required), email, phone, type (Buyer/Seller/Tenant/Landlord/Corporate), company, notes
+- Type badges use distinct colors (buyer=blue, seller=emerald, tenant=purple, landlord=amber, corporate=pine)
+- Case-insensitive search across name/email/phone/company
+- Save-in-flight guard: button shows "Saving…" and modal backdrop close is blocked mid-request
+- Backend endpoints (POST/PUT/DELETE `/api/customers`) unchanged — already existed and wired correctly
+- Backend tests: `/app/backend/tests/test_customers.py` (6/6)
+
 ### Convert Sell-Form Lead → Property (Feb 20, 2026)
 - Admin Leads page: for every lead where `source === 'sell_form'`, shows a new **"Convert to Property"** button
 - Clicking it opens the PropertyModal PRE-FILLED with the lead's payload:

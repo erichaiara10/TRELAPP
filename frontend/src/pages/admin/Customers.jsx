@@ -12,7 +12,7 @@ function CustomerModal({ modal, setModal, onSave, onClose, saving }) {
   const field = "mt-1 w-full border border-border rounded px-3 py-2 text-sm";
   const label = "text-xs uppercase tracking-widest text-muted-foreground";
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => !saving && onClose()}>
       <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} data-testid="customer-modal">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="font-medium">{modal.id ? "Edit customer" : "New customer"}</div>
