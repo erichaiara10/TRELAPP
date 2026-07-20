@@ -15,6 +15,18 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Unified Location System — Province → City → Suburb (Feb 20, 2026)
+- **Backend collections**: `provinces` (unique name), `cities` (name+province_id unique, references province), `suburbs` (name+city_id unique, references city + province, `source: 'admin'|'user'`).
+- **Public read endpoints**: `GET /api/locations/{provinces|cities?province_id=|suburbs?city_id=}`.
+- **Public write** (no auth): `POST /api/locations/suburbs` — idempotent by name+city, tags new records `source='user'`.
+- **Admin CRUD**: `POST/PUT/DELETE /api/admin/locations/{provinces|cities|suburbs}/[id]` with cascade delete.
+- **Seed**: 8 PNG provinces (NCD/Morobe/Madang/WHP/ENB/SHP/E.Sepik/Enga) + Port Moresby + Lae + Madang + Mount Hagen + Kokopo cities + 21 suburbs — all idempotent on restart.
+- **Backfill migration**: existing property records get their `province` filled in by matching their `location` (city name) at startup.
+- **New reusable `<LocationPicker>`** with cascading dropdowns and inline "➕ Add a new suburb…" (`sell_form-location`, `wanted_form-location`, `property-location` prefixes).
+- **New Admin sub-page** `/admin/locations` — 3-column master-detail with rename/delete + user-added badges. Sidebar entry added between Users and Content.
+- **Property model** gains `province`. Sell / Wanted / Admin Property forms all use `LocationPicker` (old free-text fields removed).
+- **Tests**: `/app/backend/tests/test_locations.py` (13/13) + 33/33 regression = **46/46 all backend suites pass**.
+
 ### Sell page redesign — blue theme + icons + valuation CTA (Feb 20, 2026)
 - Blue theme (`#0d50e0`): kicker "WHY SELL WITH TREL", heading, and CTA button
 - Four benefits (up from 3) with uniform lucide SVG icons in soft blue tiles:
