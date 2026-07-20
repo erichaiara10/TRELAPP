@@ -110,6 +110,7 @@ const PAGE_SCHEMAS = [
       { key: "benefits", label: "Benefits", type: "list", itemFields: [
         { key: "title", label: "Title" },
         { key: "body", label: "Body", type: "textarea" },
+        { key: "icon", label: "Icon name (lucide, e.g. BadgeCheck, Camera, Megaphone, Headphones)" },
       ]},
     ],
   },

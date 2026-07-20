@@ -1040,12 +1040,13 @@ DEFAULT_PAGE_CONTENT = {
             "image": "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1600&q=80",
             "kicker": "SELL WITH TREL",
             "heading": "List your property",
-            "intro": "Tell us about your property — a TREL agent will schedule an appraisal and walk you through our marketing plan. Adding photos speeds up appraisal by 2–3 days.",
+            "intro": "Tell us about your property — a TREL agent will schedule a valuation and walk you through our marketing plan. Adding photos speeds up valuation by 2–3 days.",
         },
         "benefits": [
-            {"title": "Free appraisal", "body": "An accurate, market-based price backed by recent comparable sales."},
-            {"title": "Professional photography", "body": "Every listing gets a photo shoot before going live."},
-            {"title": "Verified marketing", "body": "Featured on our homepage, WhatsApp broadcasts and partner networks."},
+            {"title": "Professional valuation", "body": "An accurate, market-based price backed by recent comparable sales. Paid service — turnaround 2–3 days.", "icon": "BadgeCheck"},
+            {"title": "Professional photography", "body": "Every listing gets a professional photo shoot before going live.", "icon": "Camera"},
+            {"title": "Verified marketing", "body": "Featured on our homepage, WhatsApp broadcasts and partner networks.", "icon": "Megaphone"},
+            {"title": "Dedicated agent support", "body": "A single point of contact from listing to keys-in-hand — replies within one business day.", "icon": "Headphones"},
         ],
     },
     "buy": {
@@ -1179,13 +1180,24 @@ async def _seed_requirements():
             await db.requirements.insert_one(Requirement(**s).model_dump())
 
 async def _seed_page_content():
-    """Seed default per-page content — never overwrites existing edits."""
+    """Seed default per-page content — never overwrites existing edits.
+    Also runs one-off migrations for the Sell page 'Free appraisal' → 'Professional valuation' rebrand."""
     for page, defaults in DEFAULT_PAGE_CONTENT.items():
         await db.page_content.update_one(
             {"page": page},
             {"$setOnInsert": {"page": page, "sections": defaults,
                               "updated_at": now_iso(), "updated_by": None}},
             upsert=True,
+        )
+    # Sell page migration: replace legacy "Free appraisal" benefits with the new 4-item set
+    sell = await db.page_content.find_one({"page": "sell"}, {"_id": 0}) or {}
+    sell_benefits = (sell.get("sections") or {}).get("benefits") or []
+    if any((b or {}).get("title", "").lower().startswith("free appraisal") for b in sell_benefits):
+        await db.page_content.update_one(
+            {"page": "sell"},
+            {"$set": {"sections.benefits": DEFAULT_PAGE_CONTENT["sell"]["benefits"],
+                      "sections.hero.intro": DEFAULT_PAGE_CONTENT["sell"]["hero"]["intro"],
+                      "updated_at": now_iso()}},
         )
 
 def _write_test_credentials():

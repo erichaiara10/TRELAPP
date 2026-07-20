@@ -3,6 +3,26 @@ import { usePage } from "@/lib/usePage";
 import LeadFormPage, { RequiredMark } from "./LeadFormPage";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
+import {
+  BadgeCheck, Camera, Megaphone, Headphones,
+  ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
+  Star, Award, Clock, MapPin,
+} from "lucide-react";
+
+const BRAND_BLUE = "#0d50e0";
+
+// Curated lucide icons available for Sell benefits (admin can type any of these
+// names into the Content editor's icon field).
+const ICONS = {
+  BadgeCheck, Camera, Megaphone, Headphones,
+  ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
+  Star, Award, Clock, MapPin,
+};
+
+function BenefitIcon({ name, className = "w-6 h-6" }) {
+  const Cmp = ICONS[name] || BadgeCheck;
+  return <Cmp className={className} strokeWidth={1.75} aria-hidden="true" />;
+}
 
 export default function Sell() {
   const { sections } = usePage("sell");
@@ -45,6 +65,12 @@ export default function Sell() {
   const extraRequired = () =>
     Boolean(prop.property_type && String(prop.price).trim() && prop.location.trim());
 
+  // Smoothly scroll to the LeadFormPage form when "Request a Valuation" is clicked.
+  const scrollToForm = () => {
+    const el = document.querySelector("[data-testid=sell_form-form]");
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div>
       <LeadFormPage
@@ -57,17 +83,72 @@ export default function Sell() {
         extraPayload={() => ({ ...prop, photos })}
         extraRequired={extraRequired}
       />
+
       {benefits.length > 0 && (
-        <section className="container-tight pb-16 max-w-4xl" data-testid="sell-benefits">
-          <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Why list with TREL</div>
-          <h2 className="font-serif text-3xl mt-2">What you get</h2>
-          <div className="mt-6 grid md:grid-cols-3 gap-4">
-            {benefits.map((b, i) => (
-              <div key={i} className="bg-white rounded-2xl p-5 border border-border" data-testid={`sell-benefit-${i}`}>
-                <div className="font-serif text-xl">{b.title}</div>
-                <p className="text-sm text-ink-700 mt-2 whitespace-pre-line">{b.body}</p>
+        <section className="pb-20" data-testid="sell-benefits">
+          <div className="container-tight max-w-5xl">
+            <div className="text-center">
+              <div
+                className="text-xs uppercase tracking-[0.3em] font-semibold"
+                style={{ color: BRAND_BLUE }}
+                data-testid="sell-benefits-kicker"
+              >
+                Why Sell With TREL
               </div>
-            ))}
+              <h2
+                className="font-serif text-3xl sm:text-4xl mt-3"
+                style={{ color: BRAND_BLUE }}
+                data-testid="sell-benefits-heading"
+              >
+                What you get when you list with us
+              </h2>
+              <p className="text-ink-700 mt-3 max-w-2xl mx-auto text-sm">
+                A dedicated team, professional marketing, and a paid valuation service — everything you need to sell with confidence.
+              </p>
+            </div>
+
+            <ul
+              className="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-4"
+              data-testid="sell-benefits-list"
+            >
+              {benefits.map((b, i) => (
+                <li
+                  key={i}
+                  className="group relative rounded-2xl bg-white border border-border p-6 hover:border-transparent hover:shadow-lg transition-all"
+                  data-testid={`sell-benefit-${i}`}
+                >
+                  <div
+                    className="w-11 h-11 rounded-xl grid place-items-center mb-4"
+                    style={{ backgroundColor: `${BRAND_BLUE}15`, color: BRAND_BLUE }}
+                    data-testid={`sell-benefit-${i}-icon`}
+                  >
+                    <BenefitIcon name={b.icon} className="w-5 h-5" />
+                  </div>
+                  <div className="font-serif text-lg leading-tight text-ink-900" data-testid={`sell-benefit-${i}-title`}>
+                    {b.title}
+                  </div>
+                  <p className="text-sm text-ink-700 mt-2 whitespace-pre-line" data-testid={`sell-benefit-${i}-body`}>
+                    {b.body}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            {/* Request a Valuation CTA */}
+            <div className="mt-12 text-center" data-testid="sell-valuation-cta">
+              <button
+                type="button"
+                onClick={scrollToForm}
+                className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-white font-medium shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                style={{ backgroundColor: BRAND_BLUE }}
+                data-testid="sell-valuation-btn"
+              >
+                Request a Valuation
+              </button>
+              <p className="text-xs text-muted-foreground mt-3" data-testid="sell-valuation-subtext">
+                Get your property valuation within 2–3 days.
+              </p>
+            </div>
           </div>
         </section>
       )}
