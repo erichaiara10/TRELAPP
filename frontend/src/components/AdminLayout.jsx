@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, LogOut } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const items = [
@@ -14,6 +14,7 @@ const items = [
   { to: "/admin/tasks", label: "Tasks", icon: ListChecks },
   { to: "/admin/pipeline", label: "Pipeline", icon: KanbanSquare },
   { to: "/admin/users", label: "Users", icon: UserCog },
+  { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/content", label: "Content", icon: FileText },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];

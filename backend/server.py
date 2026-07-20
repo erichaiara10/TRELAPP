@@ -4,6 +4,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import re
 import uuid
 import logging
 import bcrypt
@@ -118,6 +119,7 @@ class Property(BaseModel):
     area_sqm: Optional[float] = None
     location: str
     suburb: Optional[str] = None
+    province: Optional[str] = None
     address: Optional[str] = None
     map_coords: Optional[str] = None
     description: str = ""
@@ -143,6 +145,7 @@ class PropertyCreate(BaseModel):
     area_sqm: Optional[float] = None
     location: str
     suburb: Optional[str] = None
+    province: Optional[str] = None
     address: Optional[str] = None
     map_coords: Optional[str] = None
     description: Optional[str] = ""
@@ -701,6 +704,193 @@ async def match_requirement(requirement_id: str, user: dict = Depends(get_curren
     scored.sort(key=lambda x: x["score"], reverse=True)
     return {"requirement": req, "matches": scored[:20]}
 
+# ---- Locations (Province → City → Suburb) ----
+class ProvinceIn(BaseModel):
+    name: str
+
+class CityIn(BaseModel):
+    name: str
+    province_id: str
+
+class SuburbIn(BaseModel):
+    name: str
+    city_id: str
+
+class RenameIn(BaseModel):
+    name: str
+
+DEFAULT_LOCATIONS = [
+    {"province": "National Capital District", "cities": {
+        "Port Moresby": ["Waigani", "Boroko", "Gordons", "Gerehu", "Ela Beach", "Downtown", "Konedobu", "Hohola"],
+    }},
+    {"province": "Morobe", "cities": {"Lae": ["Eriku", "Milfordhaven", "Top Town", "Bumbu", "China Town"]}},
+    {"province": "Madang", "cities": {"Madang": ["Newtown", "Coronation", "Modilon"]}},
+    {"province": "Western Highlands", "cities": {"Mount Hagen": ["Kagamuga", "Newtown"]}},
+    {"province": "East New Britain", "cities": {"Kokopo": ["Ralum", "Kenabot"]}},
+    {"province": "Southern Highlands", "cities": {"Mendi": []}},
+    {"province": "East Sepik", "cities": {"Wewak": []}},
+    {"province": "Enga", "cities": {"Wabag": []}},
+]
+
+async def _seed_locations():
+    """Idempotently seed the default PNG provinces/cities/suburbs and backfill province on existing properties."""
+    for entry in DEFAULT_LOCATIONS:
+        pname = entry["province"]
+        pdoc = await db.provinces.find_one({"name": pname})
+        if not pdoc:
+            pid = new_id()
+            await db.provinces.insert_one({"id": pid, "name": pname, "created_at": now_iso()})
+        else:
+            pid = pdoc["id"]
+        for cname, suburbs in (entry.get("cities") or {}).items():
+            cdoc = await db.cities.find_one({"name": cname, "province_id": pid})
+            if not cdoc:
+                cid = new_id()
+                await db.cities.insert_one({"id": cid, "name": cname, "province_id": pid, "created_at": now_iso()})
+            else:
+                cid = cdoc["id"]
+            for sname in suburbs:
+                if not await db.suburbs.find_one({"name": sname, "city_id": cid}):
+                    await db.suburbs.insert_one({
+                        "id": new_id(), "name": sname, "city_id": cid, "province_id": pid,
+                        "source": "admin", "created_at": now_iso(),
+                    })
+
+    # Backfill province on existing properties based on their location (city name) → province mapping.
+    # Only touches records where province is None/missing.
+    async for prop in db.properties.find({"$or": [{"province": None}, {"province": {"$exists": False}}, {"province": ""}]}, {"_id": 0, "id": 1, "location": 1}):
+        loc = (prop.get("location") or "").strip()
+        if not loc:
+            continue
+        c = await db.cities.find_one({"name": loc})
+        if not c:
+            continue
+        p = await db.provinces.find_one({"id": c["province_id"]})
+        if p:
+            await db.properties.update_one({"id": prop["id"]}, {"$set": {"province": p["name"], "updated_at": now_iso()}})
+
+# ----- Public read endpoints (no auth) -----
+@api.get("/locations/provinces")
+async def list_provinces():
+    rows = await db.provinces.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return rows
+
+@api.get("/locations/cities")
+async def list_cities(province_id: Optional[str] = None):
+    q = {"province_id": province_id} if province_id else {}
+    rows = await db.cities.find(q, {"_id": 0}).sort("name", 1).to_list(1000)
+    return rows
+
+@api.get("/locations/suburbs")
+async def list_suburbs(city_id: Optional[str] = None):
+    q = {"city_id": city_id} if city_id else {}
+    rows = await db.suburbs.find(q, {"_id": 0}).sort("name", 1).to_list(5000)
+    return rows
+
+@api.post("/locations/suburbs")
+async def create_public_suburb(payload: SuburbIn):
+    """Public endpoint: any user submitting a form can add a new suburb for an existing city."""
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Suburb name is required")
+    if len(name) > 80:
+        raise HTTPException(400, "Suburb name too long")
+    city = await db.cities.find_one({"id": payload.city_id})
+    if not city:
+        raise HTTPException(404, "City not found")
+    existing = await db.suburbs.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "city_id": payload.city_id})
+    if existing:
+        return {"id": existing["id"], "name": existing["name"], "city_id": existing["city_id"],
+                "province_id": existing["province_id"], "source": existing.get("source", "admin"), "created_at": existing["created_at"]}
+    doc = {"id": new_id(), "name": name, "city_id": payload.city_id,
+           "province_id": city["province_id"], "source": "user", "created_at": now_iso()}
+    await db.suburbs.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+# ----- Admin CRUD -----
+@api.post("/admin/locations/provinces")
+async def admin_create_province(payload: ProvinceIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "Province name is required")
+    if await db.provinces.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}):
+        raise HTTPException(409, "Province already exists")
+    doc = {"id": new_id(), "name": name, "created_at": now_iso()}
+    await db.provinces.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api.put("/admin/locations/provinces/{province_id}")
+async def admin_rename_province(province_id: str, payload: RenameIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "Province name is required")
+    r = await db.provinces.update_one({"id": province_id}, {"$set": {"name": name}})
+    if r.matched_count == 0: raise HTTPException(404, "Province not found")
+    return {"ok": True}
+
+@api.delete("/admin/locations/provinces/{province_id}")
+async def admin_delete_province(province_id: str, user: dict = Depends(get_current_user)):
+    r = await db.provinces.delete_one({"id": province_id})
+    if r.deleted_count == 0: raise HTTPException(404, "Province not found")
+    # Cascade delete cities + suburbs
+    city_ids = [c["id"] async for c in db.cities.find({"province_id": province_id}, {"_id": 0, "id": 1})]
+    await db.cities.delete_many({"province_id": province_id})
+    if city_ids:
+        await db.suburbs.delete_many({"city_id": {"$in": city_ids}})
+    return {"ok": True}
+
+@api.post("/admin/locations/cities")
+async def admin_create_city(payload: CityIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "City name is required")
+    if not await db.provinces.find_one({"id": payload.province_id}):
+        raise HTTPException(404, "Province not found")
+    if await db.cities.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "province_id": payload.province_id}):
+        raise HTTPException(409, "City already exists in this province")
+    doc = {"id": new_id(), "name": name, "province_id": payload.province_id, "created_at": now_iso()}
+    await db.cities.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api.put("/admin/locations/cities/{city_id}")
+async def admin_rename_city(city_id: str, payload: RenameIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "City name is required")
+    r = await db.cities.update_one({"id": city_id}, {"$set": {"name": name}})
+    if r.matched_count == 0: raise HTTPException(404, "City not found")
+    return {"ok": True}
+
+@api.delete("/admin/locations/cities/{city_id}")
+async def admin_delete_city(city_id: str, user: dict = Depends(get_current_user)):
+    r = await db.cities.delete_one({"id": city_id})
+    if r.deleted_count == 0: raise HTTPException(404, "City not found")
+    await db.suburbs.delete_many({"city_id": city_id})
+    return {"ok": True}
+
+@api.post("/admin/locations/suburbs")
+async def admin_create_suburb(payload: SuburbIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "Suburb name is required")
+    city = await db.cities.find_one({"id": payload.city_id})
+    if not city: raise HTTPException(404, "City not found")
+    if await db.suburbs.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "city_id": payload.city_id}):
+        raise HTTPException(409, "Suburb already exists in this city")
+    doc = {"id": new_id(), "name": name, "city_id": payload.city_id,
+           "province_id": city["province_id"], "source": "admin", "created_at": now_iso()}
+    await db.suburbs.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api.put("/admin/locations/suburbs/{suburb_id}")
+async def admin_rename_suburb(suburb_id: str, payload: RenameIn, user: dict = Depends(get_current_user)):
+    name = (payload.name or "").strip()
+    if not name: raise HTTPException(400, "Suburb name is required")
+    r = await db.suburbs.update_one({"id": suburb_id}, {"$set": {"name": name}})
+    if r.matched_count == 0: raise HTTPException(404, "Suburb not found")
+    return {"ok": True}
+
+@api.delete("/admin/locations/suburbs/{suburb_id}")
+async def admin_delete_suburb(suburb_id: str, user: dict = Depends(get_current_user)):
+    r = await db.suburbs.delete_one({"id": suburb_id})
+    if r.deleted_count == 0: raise HTTPException(404, "Suburb not found")
+    return {"ok": True}
+
 # ---- Notifications / Content ----
 @api.get("/notifications")
 async def list_notifications(user: dict = Depends(get_current_user)):
@@ -1231,6 +1421,9 @@ def _write_test_credentials():
 async def on_startup():
     await db.users.create_index("email", unique=True)
     await db.page_content.create_index("page", unique=True)
+    await db.provinces.create_index("name", unique=True)
+    await db.cities.create_index([("name", 1), ("province_id", 1)], unique=True)
+    await db.suburbs.create_index([("name", 1), ("city_id", 1)], unique=True)
     _init_storage()
     await _migrate_legacy_user_emails()
     await _seed_users()
@@ -1238,6 +1431,7 @@ async def on_startup():
     await _seed_content()
     await _seed_page_content()
     await _seed_requirements()
+    await _seed_locations()
     _write_test_credentials()
     logger.info("Startup seeding complete")
 

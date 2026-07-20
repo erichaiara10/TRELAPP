@@ -3,6 +3,7 @@ import { usePage } from "@/lib/usePage";
 import LeadFormPage, { RequiredMark } from "./LeadFormPage";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
+import LocationPicker from "@/components/LocationPicker";
 import {
   BadgeCheck, Camera, Megaphone, Headphones,
   ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
@@ -28,7 +29,7 @@ export default function Sell() {
   const { sections } = usePage("sell");
   const hero = sections.hero || {};
   const benefits = sections.benefits || [];
-  const [prop, setProp] = useState({ property_type: "house", price: "", location: "", suburb: "", bedrooms: "", map_coords: "" });
+  const [prop, setProp] = useState({ property_type: "house", price: "", province: "", location: "", suburb: "", bedrooms: "", map_coords: "" });
   const [photos, setPhotos] = useState([]);
 
   const extra = (
@@ -44,14 +45,11 @@ export default function Sell() {
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Expected price (PGK)<RequiredMark /></span>
         <input type="number" placeholder="e.g. 850000" value={prop.price} onChange={(e) => setProp({ ...prop, price: e.target.value })} data-testid="sell_form-price" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Location / City<RequiredMark /></span>
-        <input placeholder="e.g. Port Moresby" value={prop.location} onChange={(e) => setProp({ ...prop, location: e.target.value })} data-testid="sell_form-location" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-      </label>
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Suburb</span>
-        <input placeholder="e.g. Boroko" value={prop.suburb} onChange={(e) => setProp({ ...prop, suburb: e.target.value })} data-testid="sell_form-suburb" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-      </label>
+      <LocationPicker
+        value={{ province: prop.province, city: prop.location, suburb: prop.suburb }}
+        onChange={(v) => setProp({ ...prop, province: v.province, location: v.city, suburb: v.suburb })}
+        testIdPrefix="sell_form-location"
+      />
       <MapCoordsField
         label="Google Maps location (optional)"
         value={prop.map_coords}
@@ -63,7 +61,7 @@ export default function Sell() {
   );
 
   const extraRequired = () =>
-    Boolean(prop.property_type && String(prop.price).trim() && prop.location.trim());
+    Boolean(prop.property_type && String(prop.price).trim() && prop.province && prop.location);
 
   // Smoothly scroll to the LeadFormPage form when "Request a Valuation" is clicked.
   const scrollToForm = () => {

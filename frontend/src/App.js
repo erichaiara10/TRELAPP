@@ -29,6 +29,7 @@ import Tasks from "@/pages/admin/Tasks";
 import Pipeline from "@/pages/admin/Pipeline";
 import Users from "@/pages/admin/Users";
 import Content from "@/pages/admin/Content";
+import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
 
 function Protected({ children }) {
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="tasks" element={<Tasks />} />
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="users" element={<Users />} />
+            <Route path="locations" element={<Locations />} />
             <Route path="content" element={<Content />} />
             <Route path="reports" element={<Reports />} />
           </Route>

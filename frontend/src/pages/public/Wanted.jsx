@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { usePage } from "@/lib/usePage";
 import LeadFormPage from "./LeadFormPage";
+import LocationPicker from "@/components/LocationPicker";
 import { api } from "@/lib/api";
 
 export default function Wanted() {
   const { sections } = usePage("wanted");
   const hero = sections.hero || {};
-  const [req, setReq] = useState({ intent: "buy", property_type: "house", min_price: "", max_price: "", min_bedrooms: "", locations: "" });
+  const [req, setReq] = useState({ intent: "buy", property_type: "house", min_price: "", max_price: "", min_bedrooms: "", province: "", city: "", suburb: "" });
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/requirements/public").then((r) => setItems(r.data)).catch(() => {}); }, []);
 
@@ -37,10 +38,11 @@ export default function Wanted() {
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Bedrooms (min)</span>
         <input type="number" placeholder="e.g. 3" value={req.min_bedrooms} onChange={(e) => setReq({ ...req, min_bedrooms: e.target.value })} data-testid="wanted_form-beds" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Preferred locations</span>
-        <input placeholder="Comma-separated (e.g. Waigani, Boroko)" value={req.locations} onChange={(e) => setReq({ ...req, locations: e.target.value })} data-testid="wanted_form-locations" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-      </label>
+      <LocationPicker
+        value={{ province: req.province, city: req.city, suburb: req.suburb }}
+        onChange={(v) => setReq({ ...req, province: v.province, city: v.city, suburb: v.suburb })}
+        testIdPrefix="wanted_form-location"
+      />
     </>
   );
 
@@ -48,7 +50,8 @@ export default function Wanted() {
     intent: req.intent, property_type: req.property_type,
     min_price: Number(req.min_price) || 0, max_price: Number(req.max_price) || 0,
     min_bedrooms: Number(req.min_bedrooms) || 0,
-    locations: req.locations.split(",").map((s) => s.trim()).filter(Boolean),
+    province: req.province, city: req.city, suburb: req.suburb,
+    locations: [req.city, req.suburb].filter(Boolean),
   });
 
   return (

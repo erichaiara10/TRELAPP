@@ -1,10 +1,11 @@
 import React from "react";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
+import LocationPicker from "@/components/LocationPicker";
 
 const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price"];
 const TEXT_FIELDS = [
-  ["title","Title"], ["price","Price"], ["location","Location"], ["suburb","Suburb"],
+  ["title","Title"], ["price","Price"],
   ["bedrooms","Bedrooms"], ["bathrooms","Bathrooms"], ["parking","Parking"], ["area_sqm","Area (sqm)"],
 ];
 const PROPERTY_TYPES = ["house","apartment","townhouse","land","commercial"];
@@ -77,6 +78,11 @@ export default function PropertyModalFields({ modal, setModal }) {
         options={LISTING_TYPES} />
       <SelectField label="Property type" testId="property-type" value={modal.property_type} onChange={set("property_type")} options={PROPERTY_TYPES} />
       <SelectField label="Status" testId="property-status" value={modal.status} onChange={set("status")} options={STATUSES} />
+      <LocationPicker
+        value={{ province: modal.province || "", city: modal.location || "", suburb: modal.suburb || "" }}
+        onChange={(v) => setModal({ ...modal, province: v.province, location: v.city, suburb: v.suburb })}
+        testIdPrefix="property-location"
+      />
       <label className="block col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Description</span>
         <textarea rows={3} value={modal.description} onChange={set("description")} data-testid="property-description" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
