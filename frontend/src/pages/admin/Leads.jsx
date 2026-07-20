@@ -126,13 +126,14 @@ export default function Leads() {
           </thead>
           <tbody>
             {shown.map((l) => {
-              const alreadyConverted = l.status === "converted" && l.property_id;
+              const alreadyConverted = l.status === "converted";
+              const hasLinkedProperty = alreadyConverted && !!l.property_id;
               return (
                 <tr key={l.id} className="border-t border-border" data-testid={`lead-row-${l.id}`}>
                   <td className="p-3 font-medium">{l.name}</td>
                   <td className="p-3 text-xs">{l.source}</td>
                   <td className="p-3">
-                    {alreadyConverted ? (
+                    {hasLinkedProperty ? (
                       <Link
                         to={`/property/${l.property_id}`}
                         target="_blank"
@@ -142,6 +143,8 @@ export default function Leads() {
                       >
                         {l.property_title || "View listing"} <ExternalLink className="w-3.5 h-3.5" />
                       </Link>
+                    ) : alreadyConverted ? (
+                      <span className="text-xs text-muted-foreground italic">Converted (no linked property)</span>
                     ) : (
                       l.property_title || "—"
                     )}

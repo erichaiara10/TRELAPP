@@ -1,0 +1,48 @@
+{
+  "summary": "Retest of tightened Convert-button visibility rule PASSED. Rule is now `!alreadyConverted` where alreadyConverted = status==='converted' (property_id-agnostic). UI: 13 lead rows scanned — all 11 non-converted rows have visible [data-testid=lead-convert-<id>] button, both converted rows (TEST_Insp7 bfd4c851 & John Seller 7456b1c0) show ONLY the lead-view-property link (no Convert). The two previously-flagged orphan IDs (b0bffa04..., ac1258de...) are absent from DB and table. Alice Vendor (demo) f8bf1733... remains status='new' with a live Convert button. No orphan (status=converted, property_id=null) rows currently exist in DB, so the italic 'Converted (no linked property)' branch is untested-but-acceptable per spec. Reload persists the same set (backend list stable). Regression: test_lead_convert 8/8 PASS, test_captcha PASS, test_map_coords PASS, test_customers PASS, test_locations 20/21 PASS (1 pre-existing province-backfill assertion unrelated), test_page_content 10/11 PASS (1 pre-existing team_list assertion unrelated).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_details": {
+    "rows_scanned": 13,
+    "non_converted_rows_with_convert_btn": 11,
+    "non_converted_rows_missing_convert_btn": 0,
+    "converted_rows": 2,
+    "converted_rows_with_convert_btn": 0,
+    "converted_rows_with_view_property_link": 2,
+    "orphan_lead_b0bffa04_present_in_dom": false,
+    "orphan_lead_ac1258de_present_in_dom": false,
+    "alice_vendor_f8bf1733_status": "new",
+    "alice_vendor_convert_btn_visible": true,
+    "john_seller_view_property_link": "lead-view-property-7456b1c0-aac3-4589-b30f-209e5c196ddd",
+    "italic_converted_no_linked_property_rendered": false,
+    "italic_branch_status": "not-testable-in-current-DB (0 orphan converted rows) — acceptable per spec",
+    "db_check": {
+      "orphan1_in_leads_collection": null,
+      "orphan2_in_leads_collection": null,
+      "orphans_status_converted_property_id_null_count": 0,
+      "total_converted_leads": 2
+    },
+    "backend_pytest": {
+      "test_lead_convert.py": "8/8 PASS",
+      "test_captcha.py": "PASS",
+      "test_map_coords.py": "PASS",
+      "test_customers.py": "PASS",
+      "test_locations.py": "20/21 PASS (pre-existing province backfill failure — unrelated)",
+      "test_page_content.py": "10/11 PASS (pre-existing team_list assertion failure — unrelated)"
+    }
+  },
+  "test_report_links": ["/app/backend/tests/test_lead_convert.py", "/app/test_reports/pytest/iter18.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Visibility rule in Leads.jsx line 129-130 now matches spec: alreadyConverted = status==='converted'; hasLinkedProperty = alreadyConverted && !!property_id. Convert button gated on `!alreadyConverted` (line 171).",
+    "Property/Photos cell branches cleanly: view-link when hasLinkedProperty, italic fallback when alreadyConverted-orphan, else property_title || '—'."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (all target suites; 2 unrelated pre-existing failures unchanged)", "frontend": "100% (13/13 rows conform to spec)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Feature complete. Alice Vendor (demo) preserved with status='new' — do NOT convert or delete. Italic 'Converted (no linked property)' fallback exists in code but no data currently exercises it; if future testing wants to hit it, temporarily set a lead's status='converted' with property_id=null via DB.",
+  "rca of the issue": "N/A — retest confirmed fix works as specified."
+}
