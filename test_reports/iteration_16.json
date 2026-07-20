@@ -1,0 +1,62 @@
+{
+  "summary": "Diagnostic verification of Convert-to-Property flow — feature is fully INTACT. Executed full end-to-end test: bug diagnosis, visibility rule, convert flow, view-property link, no-delete invariant, plus Customers CRUD regression. All assertions passed. Alice Vendor demo lead reverted to 'new' status and created test property cleaned up so the user sees a live Convert button next visit.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_details": {
+    "bug_diagnosis": {
+      "leads_jsx_lines": 201,
+      "contains_Convert_to_Property": true,
+      "contains_lead_convert_testid": true,
+      "contains_lead_view_property_testid": true,
+      "contains_buildPropertyDraftFromLead": true,
+      "contains_saveConverted": true,
+      "conclusion": "Code fully intact; nothing was deleted."
+    },
+    "visibility_rule": {
+      "alice_convert_button_visible": true,
+      "convert_button_on_non_sell_rows": [],
+      "john_seller_no_convert_has_view_link": true
+    },
+    "convert_flow": {
+      "modal_header_new_property": true,
+      "prefill_title": "Waigani apartment",
+      "prefill_property_type": "apartment",
+      "prefill_price": 450000,
+      "prefill_province": "National Capital District",
+      "prefill_city": "Port Moresby",
+      "prefill_suburb": "Waigani",
+      "prefill_map_coords": "-9.4235,147.1856",
+      "prefill_description_contains_Selling_a_2_bed": true,
+      "prefill_description_contains_Original_seller": true,
+      "post_properties_status": 200,
+      "created_property_id": "514e3437-df0f-4f06-83aa-67f76ec8dbf2 (cleaned up)",
+      "lead_after_convert_status": "converted",
+      "lead_after_convert_property_id_set": true,
+      "lead_after_convert_property_title_matches": true,
+      "view_property_link_href": "/property/514e3437-df0f-4f06-83aa-67f76ec8dbf2",
+      "view_property_link_target": "_blank",
+      "linked_property_GET_matches": true
+    },
+    "no_delete_invariant": {"alice_visible_under_converted_filter": true},
+    "customers_crud_regression": {"create": "ok", "list_read": "ok", "update": "ok", "delete": "ok"}
+  },
+  "cleanup_performed": [
+    "Deleted test property 514e3437-df0f-4f06-83aa-67f76ec8dbf2",
+    "Reverted Alice Vendor lead (f8bf1733-73c6-4127-ad29-b4440be6646f) to status='new', property_id=null so Convert button will be visible again",
+    "Deleted TESTCust_Smoke and TESTCust_Smoke2 customer records"
+  ],
+  "test_report_links": ["/app/test_reports/iteration_16.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: /api/customers/{id} GET returns 405 (endpoint doesn't accept GET-by-id). Frontend appears to work via list-fetch pattern so this is not blocking, but adding a proper GET-by-id endpoint would be cleaner.",
+    "saveConverted correctly rolls back the created property if lead PUT fails — good defensive pattern."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "seed_data_creation": "None left behind. Alice Vendor (demo) lead f8bf1733-73c6-4127-ad29-b4440be6646f preserved and reset to unconverted state for the user.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Feature verified working end-to-end. Alice demo lead is intentionally left in 'new' state so the Convert-to-Property button is visible when the user views /admin/leads.",
+  "rca of the issue": "User perceived the Convert-to-Property feature as deleted, but code is fully intact (Leads.jsx 201 lines, all testids and helpers present). Root cause: the Convert button is intentionally hidden on already-converted leads and non-sell_form rows. At the time of user's check, no unconverted sell_form leads existed in DB, so no buttons were visible. Mitigation: a fresh sell_form demo lead 'Alice Vendor (demo)' was seeded (and after testing, reverted to unconverted state) so the user sees the button live."
+}
