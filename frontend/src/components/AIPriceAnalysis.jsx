@@ -1,0 +1,202 @@
+import React, { useState } from "react";
+import { Sparkles, ChevronDown, ChevronUp, TrendingUp, TrendingDown, CheckCircle2, Loader2, AlertCircle, X } from "lucide-react";
+import { api, formatError } from "@/lib/api";
+
+const BRAND_BLUE = "#0d50e0";
+
+const fmtK = (n) => {
+  if (n == null || isNaN(n)) return "K —";
+  return `K ${Math.round(Number(n)).toLocaleString()}`;
+};
+
+const VERDICT_META = {
+  fair: { label: "Fair price", tone: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: CheckCircle2 },
+  overpriced: { label: "Overpriced", tone: "bg-terracotta-50 text-terracotta-600 border-terracotta-200", Icon: TrendingUp },
+  underpriced: { label: "Underpriced", tone: "bg-amber-50 text-amber-700 border-amber-200", Icon: TrendingDown },
+};
+
+/** Panel body — used inline (Sell/PropertyDetail) or inside a modal (PropertyCard). */
+function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing }) {
+  if (loading) {
+    return (
+      <div className="p-5 flex items-center gap-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-loading`}>
+        <Loader2 className="w-4 h-4 animate-spin" style={{ color: BRAND_BLUE }} />
+        Analysing comparable listings…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="p-5 flex items-start gap-2 text-sm text-destructive" data-testid={`${testIdPrefix}-error`}>
+        <AlertCircle className="w-4 h-4 mt-0.5" /> {error}
+      </div>
+    );
+  }
+  if (!data) return null;
+  const v = VERDICT_META[data.verdict] || VERDICT_META.fair;
+  // For buyer-facing (Buy/Rent), swap "fair/overpriced/underpriced" wording to be neutral
+  const buyerVerdict = buyerFacing
+    ? (data.verdict === "overpriced" ? "Above market" : data.verdict === "underpriced" ? "Below market" : "In line with market")
+    : v.label;
+
+  return (
+    <div className="p-5 space-y-4" data-testid={`${testIdPrefix}-body`}>
+      {onClose && (
+        <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded hover:bg-sand-100" aria-label="Close" data-testid={`${testIdPrefix}-close`}>
+          <X className="w-4 h-4" />
+        </button>
+      )}
+      {/* Verdict banner */}
+      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${v.tone}`} data-testid={`${testIdPrefix}-verdict`}>
+        <v.Icon className="w-3.5 h-3.5" /> {buyerVerdict}
+      </div>
+
+      {/* Range + average */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-lg bg-sand-50 border border-border p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Estimated range</div>
+          <div className="text-sm font-semibold text-ink-900 mt-1" data-testid={`${testIdPrefix}-range`}>
+            {fmtK(data.range_min)} – {fmtK(data.range_max)}
+          </div>
+        </div>
+        <div className="rounded-lg bg-sand-50 border border-border p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Area average</div>
+          <div className="text-sm font-semibold text-ink-900 mt-1" data-testid={`${testIdPrefix}-average`}>{fmtK(data.average)}</div>
+        </div>
+        <div className="rounded-lg bg-sand-50 border border-border p-3 col-span-2 sm:col-span-1">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Comparables</div>
+          <div className="text-sm font-semibold text-ink-900 mt-1">{data.comparables?.length || 0} matched</div>
+        </div>
+      </div>
+
+      {/* Recommendation */}
+      {data.recommendation && (
+        <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: `${BRAND_BLUE}10`, color: BRAND_BLUE }} data-testid={`${testIdPrefix}-recommendation`}>
+          <span className="font-medium">Recommendation: </span>{data.recommendation}
+        </div>
+      )}
+
+      {/* Comparables */}
+      {data.comparables?.length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Similar properties</div>
+          <ul className="space-y-1" data-testid={`${testIdPrefix}-comparables`}>
+            {data.comparables.map((c, i) => (
+              <li key={i} className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-white border border-border text-sm">
+                <div className="min-w-0 flex-1 truncate">
+                  <span className="text-ink-900">{c.title || `${c.property_type} in ${c.suburb}`}</span>
+                  <span className="text-xs text-muted-foreground ml-2">· {c.suburb}</span>
+                </div>
+                <span className="font-medium text-ink-900 shrink-0">{fmtK(c.price)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reusable AI Price Analysis component.
+ *
+ * Props:
+ *  - property_type, listing_type ('sale'|'rent'), price, province, city, suburb, bedrooms
+ *  - variant: 'inline' (default — expandable panel) or 'compact' (icon button that opens a modal)
+ *  - buyerFacing: true when embedded on Buy/Rent (softens verdict wording)
+ *
+ * The button is only shown when both `property_type` AND (city or suburb) are set.
+ */
+export default function AIPriceAnalysis({
+  property_type, listing_type = "sale", price, province, city, suburb, bedrooms,
+  variant = "inline",
+  buyerFacing = false,
+  testIdPrefix = "ai-price",
+}) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const canRun = Boolean(property_type && (city || suburb) && Number(price) > 0);
+
+  const run = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (data) return; // already fetched — just re-expand
+    setLoading(true);
+    setError("");
+    try {
+      const { data: resp } = await api.post("/ai/price-analysis", {
+        property_type, listing_type, price: Number(price) || 0,
+        province: province || null, city: city || null, suburb: suburb || null,
+        bedrooms: Number(bedrooms) || null,
+      });
+      setData(resp);
+    } catch (e) {
+      setError(formatError(e));
+    } finally { setLoading(false); }
+  };
+
+  if (!canRun) return null;
+
+  const btnLabel = buyerFacing ? "AI Price Comparison" : "AI Price Estimate";
+  const testId = `${testIdPrefix}-btn`;
+
+  if (variant === "compact") {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={run}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-[11px] font-medium shadow-sm hover:shadow-md transition-all"
+          style={{ backgroundColor: BRAND_BLUE }}
+          title={btnLabel}
+          data-testid={testId}
+        >
+          <Sparkles className="w-3 h-3" /> AI
+        </button>
+        {open && (
+          <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => setOpen(false)}>
+            <div
+              className="relative bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`${testIdPrefix}-modal`}
+            >
+              <div className="px-5 pt-5 pb-2 flex items-center gap-2">
+                <Sparkles className="w-4 h-4" style={{ color: BRAND_BLUE }} />
+                <div className="font-medium text-ink-900">{btnLabel}</div>
+              </div>
+              <AnalysisBody data={data} loading={loading} error={error} onClose={() => setOpen(false)} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Inline (default) — button expands a panel below
+  return (
+    <div className="w-full" data-testid={`${testIdPrefix}-container`}>
+      <button
+        type="button"
+        onClick={run}
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm hover:shadow-md transition-all"
+        style={{ backgroundColor: BRAND_BLUE }}
+        data-testid={testId}
+      >
+        <Sparkles className="w-4 h-4" /> {btnLabel}
+        {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+      {open && (
+        <div
+          className="mt-3 rounded-xl border relative bg-white shadow-sm"
+          style={{ borderColor: `${BRAND_BLUE}30` }}
+          data-testid={`${testIdPrefix}-panel`}
+        >
+          <AnalysisBody data={data} loading={loading} error={error} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} />
+        </div>
+      )}
+    </div>
+  );
+}

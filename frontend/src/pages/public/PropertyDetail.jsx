@@ -5,6 +5,7 @@ import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, Ch
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
 import { mapsUrlFromCoords, MAPS_BASE } from "@/components/MapCoordsField";
+import AIPriceAnalysis from "@/components/AIPriceAnalysis";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -90,8 +91,21 @@ export default function PropertyDetail() {
               View on Google Maps <ExternalLink className="w-3 h-3" />
             </a>
           </div>
-          <div className="mt-4 text-3xl font-semibold text-pine-500">
-            {money(p.price, p.currency || "PGK")}{p.listing_type === "rent" && <span className="text-base text-muted-foreground"> / month</span>}
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+            <div className="text-3xl font-semibold text-pine-500">
+              {money(p.price, p.currency || "PGK")}{p.listing_type === "rent" && <span className="text-base text-muted-foreground"> / month</span>}
+            </div>
+            <AIPriceAnalysis
+              buyerFacing
+              property_type={p.property_type}
+              listing_type={p.listing_type}
+              price={p.price}
+              province={p.province}
+              city={p.location}
+              suburb={p.suburb}
+              bedrooms={p.bedrooms}
+              testIdPrefix="detail-ai-price"
+            />
           </div>
           <div className="mt-6 flex flex-wrap gap-6 text-sm text-ink-700 border-y border-border py-4">
             {p.bedrooms > 0 && <span className="flex items-center gap-2"><Bed className="w-4 h-4" /><b>{p.bedrooms}</b> bedrooms</span>}

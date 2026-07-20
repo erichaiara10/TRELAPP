@@ -5,6 +5,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import re
+import json as _json
 import uuid
 import logging
 import bcrypt
@@ -890,6 +891,136 @@ async def admin_delete_suburb(suburb_id: str, user: dict = Depends(get_current_u
     r = await db.suburbs.delete_one({"id": suburb_id})
     if r.deleted_count == 0: raise HTTPException(404, "Suburb not found")
     return {"ok": True}
+
+# ---- AI Price Analysis (Claude Sonnet 4.5 via Emergent LLM Key) ----
+class PriceAnalysisIn(BaseModel):
+    property_type: str
+    listing_type: str  # 'sale' | 'rent'
+    price: float
+    province: Optional[str] = None
+    city: Optional[str] = None
+    suburb: Optional[str] = None
+    bedrooms: Optional[int] = None
+
+def _fmt_pgk(n) -> str:
+    try: return f"K{int(round(float(n))):,}"
+    except Exception: return f"K{n}"
+
+@api.post("/ai/price-analysis")
+async def ai_price_analysis(payload: PriceAnalysisIn):
+    """Public endpoint — takes a user's property parameters, retrieves similar
+    active listings from Mongo, asks Claude Sonnet 4.5 for a structured
+    valuation, and returns a curated JSON response. Data sources (raw property
+    IDs, agents, owners) are stripped before returning to the client."""
+    if payload.price <= 0:
+        raise HTTPException(400, "Price must be greater than zero")
+    if not payload.city and not payload.suburb:
+        raise HTTPException(400, "City or suburb is required for a meaningful analysis")
+
+    # Retrieve up to 20 similar active properties for the LLM to reason about.
+    query = {"status": "active", "listing_type": payload.listing_type, "property_type": payload.property_type}
+    or_locs = []
+    if payload.city: or_locs.append({"location": payload.city})
+    if payload.suburb: or_locs.append({"suburb": payload.suburb})
+    if or_locs: query["$or"] = or_locs
+    similar = await db.properties.find(
+        query, {"_id": 0, "title": 1, "property_type": 1, "suburb": 1, "location": 1, "price": 1, "bedrooms": 1}
+    ).sort("created_at", -1).to_list(20)
+
+    # Compute local average for reference (fallback when LLM is unavailable)
+    prices = [p["price"] for p in similar if isinstance(p.get("price"), (int, float))]
+    local_avg = sum(prices) / len(prices) if prices else payload.price
+
+    prompt = f"""You are a Papua New Guinea real estate valuation analyst. Given the seller's own listing
+and a list of similar active listings in the same area, return a STRICT JSON object with these keys:
+{{
+  "range_min": <number, currency PGK>,
+  "range_max": <number, currency PGK>,
+  "average":   <number, currency PGK>,
+  "verdict":   "fair" | "overpriced" | "underpriced",
+  "recommendation": <short actionable sentence, max 25 words>,
+  "comparables": [ {{ "title": <string>, "property_type": <string>, "suburb": <string>, "price": <number> }}, ... 3 to 5 items ]
+}}
+
+RULES:
+- All prices are in PGK (Papua New Guinean Kina).
+- Base your range on the comparable data supplied — do NOT invent listings.
+- If there are fewer than 3 comparables, pick the closest ones to the seller's price.
+- Never include agent names, owner names, listing IDs, or URLs.
+- Verdict rules (against the average of comparables):
+  * fair       = user_price is within ±10% of the average
+  * overpriced = user_price is > 10% above average
+  * underpriced= user_price is > 10% below average
+- Output ONLY the JSON object, no markdown, no prose.
+
+SELLER LISTING:
+  property_type = {payload.property_type}
+  listing_type  = {payload.listing_type}
+  bedrooms      = {payload.bedrooms}
+  city          = {payload.city}
+  suburb        = {payload.suburb}
+  price_PGK     = {payload.price}
+
+SIMILAR ACTIVE LISTINGS (JSON):
+{_json.dumps(similar, default=str)}
+"""
+
+    key = os.environ.get("EMERGENT_LLM_KEY")
+    if not key:
+        raise HTTPException(500, "AI service is not configured")
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = (LlmChat(
+            api_key=key, session_id=new_id(),
+            system_message="You are a real estate valuation analyst that returns strict JSON only.",
+        ).with_model("anthropic", "claude-sonnet-4-5-20250929"))
+        raw = await chat.send_message(UserMessage(text=prompt))
+        text = (raw or "").strip()
+        if text.startswith("```"):
+            # strip ```json ... ``` fences if the model added them
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```\s*$", "", text)
+        data = _json.loads(text)
+    except Exception as e:
+        logger.warning("AI price analysis fell back to statistical baseline: %s", e)
+        # Deterministic statistical fallback so the feature never fails visibly
+        rng = 0.15
+        data = {
+            "range_min": round(local_avg * (1 - rng)),
+            "range_max": round(local_avg * (1 + rng)),
+            "average": round(local_avg),
+            "verdict": ("overpriced" if payload.price > local_avg * 1.10
+                        else "underpriced" if payload.price < local_avg * 0.90
+                        else "fair"),
+            "recommendation": "Statistical estimate — request an in-person valuation for a firm figure.",
+            "comparables": [
+                {"title": p.get("title") or "Comparable listing",
+                 "property_type": p.get("property_type") or payload.property_type,
+                 "suburb": p.get("suburb") or (payload.suburb or payload.city or ""),
+                 "price": p.get("price") or 0}
+                for p in similar[:5]
+            ],
+        }
+
+    # Sanitise the response: strip any keys we don't want leaving the server.
+    safe_comps = []
+    for c in (data.get("comparables") or [])[:5]:
+        safe_comps.append({
+            "title": str(c.get("title", ""))[:120],
+            "property_type": str(c.get("property_type", "")),
+            "suburb": str(c.get("suburb", "")),
+            "price": float(c.get("price") or 0),
+        })
+    return {
+        "range_min": float(data.get("range_min") or 0),
+        "range_max": float(data.get("range_max") or 0),
+        "average":   float(data.get("average") or local_avg),
+        "verdict":   data.get("verdict") if data.get("verdict") in {"fair","overpriced","underpriced"} else "fair",
+        "recommendation": str(data.get("recommendation", ""))[:280],
+        "comparables": safe_comps,
+        "sample_size": len(similar),
+    }
 
 # ---- Notifications / Content ----
 @api.get("/notifications")

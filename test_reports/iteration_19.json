@@ -1,0 +1,43 @@
+{
+  "summary": "Full regression on Unified AI Price Analysis (Claude Sonnet 4.5 via emergentintegrations) + sanity pass on critical flows. Backend: 6/6 new tests in test_ai_price_analysis.py PASS (valid sale, valid rent, zero-price 400, missing-location 400, missing-required 422, no PII in comparables). Endpoint returns full schema {range_min,range_max,average,verdict,recommendation,comparables[],sample_size}. Frontend: verified data-testid coverage on AIPriceAnalysis (btn/panel/modal/body/verdict/range/average/recommendation/comparables/error/loading/close). Live end-to-end: (1) Sell page — AI panel opens on click after property_type+price+city set, returns 'Fair price' with recommendation, no console errors. (2) Buy page — 4 PropertyCard AI buttons render (compact modal variant); clicking opens modal, calls /api/ai/price-analysis with that listing's props, returns e.g. 'Below market' with 4 comparables, grid layout intact, no navigation triggered. (3) Rent page — 2 rent cards each with AI btn, page loads clean. (4) PropertyDetail page (Boroko house 850k) — AI btn adjacent to price, expands inline, returns 'In line with market' K 780k–850k with 3 comparables, no console errors. (5) Zero-price property correctly hides AI btn (canRun guard). Regression: admin login admin@trel.com.pg/Admin@123 works, all admin nav visible (Dashboard/Properties/Customers/Leads/Requirements/Matching/Inspections/Tasks/Pipeline/Users/Locations/Content/Reports), Leads page shows 13 Convert-to-Property buttons matching iter18 spec. Google Maps: PropertyDetail uses <a target=_blank href='...google.com/maps?q=...'> (iframes with google.com/maps src = 0). Backend regression suite: test_ai_price_analysis 6/6, test_captcha PASS, test_customers PASS, test_map_coords PASS, test_sell_migration PASS, test_page_content 10/11 PASS (1 pre-existing team_list assertion — unrelated), test_locations 20/21 (pre-existing province backfill — unrelated). backend_test.py 50 tests pass unauthenticated, 11 auth-gated tests error because that file uses stale creds admin@pngrealty.pg (pre-existing test hygiene issue, unrelated to feature). test_lead_convert.py errors on missing REACT_APP_BACKEND_URL env in shell — passes via pytest.ini or explicit env; also unrelated.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_details": {
+    "endpoint_schema_ok": true,
+    "endpoint_verdicts_seen": ["fair", "underpriced", "overpriced/fair-mix"],
+    "no_pii_in_comparables": true,
+    "fallback_when_no_llm_or_no_comps": "verified via 850k solo listing → deterministic statistical fallback",
+    "sell_page_ai": "PASS - Fair price, K 850,000 range, 0 matched fallback",
+    "buy_card_ai": "PASS - 4/5 cards have AI btn (5th has price=0 → intentionally hidden), modal opens with comparables",
+    "rent_card_ai": "PASS - 2/2 rent cards with AI btn",
+    "property_detail_ai": "PASS - Boroko house shows 'In line with market' K 780k-850k, 3 comparables, recommendation shown",
+    "google_maps_no_iframe": "verified: 0 iframes with google.com/maps src; 1 external <a target=_blank> present",
+    "admin_login": "PASS admin@trel.com.pg/Admin@123",
+    "admin_pages_load": ["dashboard","properties","customers","leads","requirements","matching","inspections","tasks","pipeline","users","locations","content","reports"],
+    "leads_convert_flow": "13 Convert buttons visible (unchanged from iter18)",
+    "data_testid_coverage_ai_panel": ["ai-price-btn","ai-price-panel","ai-price-modal","ai-price-body","ai-price-loading","ai-price-error","ai-price-verdict","ai-price-range","ai-price-average","ai-price-recommendation","ai-price-comparables","ai-price-close","ai-price-container"]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ai_price_analysis.py",
+    "/app/test_reports/pytest/iter19_ai.xml",
+    "/app/test_reports/pytest/iter19_regression.xml"
+  ],
+  "action_items": [
+    "Optional (test hygiene, not user-facing): /app/backend/tests/backend_test.py still uses stale ADMIN=admin@pngrealty.pg — update to admin@trel.com.pg to make its 11 auth-gated tests runnable. Not a product bug.",
+    "Optional: test_lead_convert.py and test_locations.py read os.environ['REACT_APP_BACKEND_URL'] at import time and error under pytest-xdist worker init; fall back to os.environ.get(...) with the prod URL default like test_ai_price_analysis.py does."
+  ],
+  "critical_code_review_comments": [
+    "AIPriceAnalysis.jsx is clean 203 LOC, single component, dual-variant (inline/compact), well-tested testids. Good server-side sanitisation in server.py (safe_comps strips agent/owner/id/urls, caps title 120ch, recommendation 280ch, comparables to 5).",
+    "Backend fallback in server.py L988-1004 is deterministic and never surfaces a 500 when Claude fails — good defensive design.",
+    "canRun guard (L121) requires property_type AND (city||suburb) AND price>0 — properly hides button on zero-price/incomplete listings.",
+    "PropertyCard AI is absolute-positioned with e.preventDefault() on wrapper to stop click-through to link — nice UX."
+  ],
+  "updated_files": ["/app/backend/tests/test_ai_price_analysis.py (new)"],
+  "success_rate": {"backend": "100% (6/6 new AI tests + all target regression)", "frontend": "100% (Sell, Buy card, Rent card, PropertyDetail, Admin login+nav, Leads convert flow, Google Maps external-anchor)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Unified AI Price Analysis feature is production-ready. AI panel test IDs follow pattern `<prefix>-btn|-panel|-modal|-body|-verdict|-range|-average|-recommendation|-comparables|-error|-loading`. Prefixes in use: 'sell-ai-price', 'detail-ai-price', 'card-ai-<propertyId>'. Buy/Rent AI is 'compact' modal variant; Sell/Detail is 'inline' expandable panel. Zero-price listings (e.g. property 26288fb9) intentionally hide AI btn — do not flag as missing.",
+  "rca of the issue": "N/A — no issues found in the AI feature or the regression scope."
+}

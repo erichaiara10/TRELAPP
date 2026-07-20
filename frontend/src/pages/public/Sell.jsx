@@ -4,6 +4,7 @@ import LeadFormPage, { RequiredMark } from "./LeadFormPage";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
 import LocationPicker from "@/components/LocationPicker";
+import AIPriceAnalysis from "@/components/AIPriceAnalysis";
 import {
   BadgeCheck, Camera, Megaphone, Headphones,
   ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
@@ -41,9 +42,22 @@ export default function Sell() {
           <option value="townhouse">Townhouse</option><option value="land">Land</option><option value="commercial">Commercial</option>
         </select>
       </label>
-      <label className="block">
+      <label className="block md:col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Expected price (PGK)<RequiredMark /></span>
-        <input type="number" placeholder="e.g. 850000" value={prop.price} onChange={(e) => setProp({ ...prop, price: e.target.value })} data-testid="sell_form-price" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <div className="mt-1 flex flex-col sm:flex-row sm:items-start gap-2">
+          <input type="number" placeholder="e.g. 850000" value={prop.price} onChange={(e) => setProp({ ...prop, price: e.target.value })} data-testid="sell_form-price" className="w-full sm:flex-1 border border-border rounded-lg px-3 py-2.5 bg-white" />
+          <div className="w-full sm:w-auto">
+            <AIPriceAnalysis
+              property_type={prop.property_type}
+              listing_type="sale"
+              price={prop.price}
+              province={prop.province}
+              city={prop.location}
+              suburb={prop.suburb}
+              testIdPrefix="sell-ai-price"
+            />
+          </div>
+        </div>
       </label>
       <LocationPicker
         value={{ province: prop.province, city: prop.location, suburb: prop.suburb }}
