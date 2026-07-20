@@ -1,0 +1,34 @@
+{
+  "summary": "End-to-end verified the new 'Convert Sell-Form Lead to Property' flow on Admin Leads. Backend suite (9/9) and full UI walkthrough (create sell + contact leads via captcha, login, verify Convert button visibility, open PropertyModal, verify all prefills, save, verify status=converted, view-property link with target=_blank and /property/<id>, converted-filter retention, convert-button hidden post-conversion). All existing regression suites (46 tests) still pass. Cleanup of test data confirmed via bulk API DELETE (51 residual TEST_ leads/properties removed).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "PropertyModal open from Convert button — LocationPicker city/suburb prefill",
+        "issue": "MINOR/INTERMITTENT: When Convert modal opens immediately after page load (before LocationPicker has finished fetching cities/suburbs for the pre-filled province), the city (Port Moresby) and suburb (Boroko) <select> elements briefly display '-- Select a city --' and 'Pick a city first' because their option lists are populated asynchronously and the assigned value has no matching <option> yet. A ~1.5s wait resolves it. Users manually opening the modal are unlikely to hit it, but automated/quick clicks may see empty selects and Save without the city/suburb. Suggest LocationPicker either (a) prefetch all provinces+cities+suburbs into a memoized store at admin-shell mount, or (b) re-sync selected value after options load.",
+        "affected_selectors": ["property-location-city", "property-location-suburb"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lead_convert.py",
+    "/app/test_reports/pytest/lead_convert.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Address the LocationPicker race condition described above so the Convert modal's city/suburb prefills reliably on first paint."
+  ],
+  "critical_code_review_comments": [
+    "Leads.jsx buildPropertyDraftFromLead uses `Number(p.price) || 0` — 0 sneaks in silently if the seller submitted price=0/null. Consider warning admin in the modal, or leaving price blank so admin must set it.",
+    "Leads.jsx saveConverted has no loading/disabled state on the Save button while POST /properties + PUT /leads/{id} are in-flight — a rage-click will fire two property creations. Add a guard (e.g., setSaving state or disable data-testid='prop-save').",
+    "Leads.jsx saveConverted: if property POST succeeds but lead PUT fails (network blip), the property is created without the lead being marked converted — orphaned data. Consider a) do lead update inside try/catch with rollback DELETE /properties/{id}, or b) surface a clearer partial-failure toast."
+  ],
+  "updated_files": ["/app/backend/tests/test_lead_convert.py"],
+  "success_rate": { "backend": "100% (9/9 new + 46/46 regression)", "frontend": "100% (all UI assertions passed)" },
+  "test_credentials": "Admin admin@trel.com.pg / Admin@123 — confirmed working",
+  "seed_data_creation": "Test leads with TEST/TESTSeller prefix created via /api/public/leads + captcha. All cleaned up after run (51 residuals also purged).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Convert-to-Property feature is stable. Reusable API test at /app/backend/tests/test_lead_convert.py — run with `REACT_APP_BACKEND_URL=... pytest -o addopts='' backend/tests/test_lead_convert.py`. If tests fail to pick up REACT_APP_BACKEND_URL, note the module-level env read (I did not use fixtures for BASE)."
+}
