@@ -4,7 +4,7 @@ import PropertyModalFields, { serializeProperty } from "@/components/admin/Prope
 
 export { serializeProperty };
 
-export default function PropertyModal({ modal, setModal, onSave, onClose }) {
+export default function PropertyModal({ modal, setModal, onSave, onClose, saving = false }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={onClose}>
       <div className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} data-testid="prop-modal">
@@ -14,8 +14,10 @@ export default function PropertyModal({ modal, setModal, onSave, onClose }) {
         </div>
         <PropertyModalFields modal={modal} setModal={setModal} />
         <div className="p-4 border-t border-border flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border border-border">Cancel</button>
-          <button onClick={onSave} data-testid="prop-save" className="px-3 py-2 rounded-md bg-[#0F172A] text-white">Save</button>
+          <button onClick={onClose} disabled={saving} className="px-3 py-2 rounded-md border border-border disabled:opacity-60">Cancel</button>
+          <button onClick={onSave} disabled={saving} data-testid="prop-save" className="px-3 py-2 rounded-md bg-[#0F172A] text-white disabled:opacity-60">
+            {saving ? "Saving…" : "Save"}
+          </button>
         </div>
       </div>
     </div>

@@ -15,6 +15,19 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Convert Sell-Form Lead → Property (Feb 20, 2026)
+- Admin Leads page: for every lead where `source === 'sell_form'`, shows a new **"Convert to Property"** button
+- Clicking it opens the PropertyModal PRE-FILLED with the lead's payload:
+  - title = `<suburb> <property_type>` (editable), listing_type = 'sale'
+  - property_type, price, province, location (city), suburb, map_coords all copied from `lead.payload`
+  - photos array preserved
+  - description auto-composed from lead.message + "Original seller: name (email) — phone" so admins retain the source
+- On Save: creates the property AND updates the lead with `status='converted'`, `property_id=<new id>`, `property_title=<new title>`. Property creation is rolled back if the lead-link PUT fails
+- Save button disables while in-flight to prevent double-submits
+- Lead is **NOT deleted** — appears under the Converted filter with a clickable link to `/property/{new_id}` (opens in new tab)
+- Convert button auto-hides on already-converted leads
+- Backend tests: `/app/backend/tests/test_lead_convert.py` (9/9) + 46/46 regression
+
 ### Unified Location System — Province → City → Suburb (Feb 20, 2026)
 - **Backend collections**: `provinces` (unique name), `cities` (name+province_id unique, references province), `suburbs` (name+city_id unique, references city + province, `source: 'admin'|'user'`).
 - **Public read endpoints**: `GET /api/locations/{provinces|cities?province_id=|suburbs?city_id=}`.

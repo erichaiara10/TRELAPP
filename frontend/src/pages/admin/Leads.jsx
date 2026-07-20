@@ -55,6 +55,7 @@ export default function Leads() {
   const [filter, setFilter] = useState("");
   const [commLead, setCommLead] = useState(null);
   const [convertModal, setConvertModal] = useState(null); // property draft including __source_lead_id
+  const [savingConvert, setSavingConvert] = useState(false);
   const load = useCallback(() => api.get("/leads").then((r) => setItems(r.data)), []);
   useEffect(() => { load(); }, [load]);
 
@@ -67,22 +68,31 @@ export default function Leads() {
   const openConvert = (lead) => setConvertModal(buildPropertyDraftFromLead(lead));
 
   const saveConverted = async () => {
+    if (savingConvert) return;
     const leadId = convertModal.__source_lead_id;
+    setSavingConvert(true);
     try {
       const body = serializeProperty({ ...convertModal });
       delete body.__source_lead_id;
       // 1) create the property
       const { data: created } = await api.post("/properties", body);
-      // 2) mark the lead as converted and link it to the new property
-      await api.put(`/leads/${leadId}`, {
-        status: "converted",
-        property_id: created.id,
-        property_title: created.title,
-      });
+      // 2) mark the lead as converted and link it to the new property (rollback the
+      //    property on failure so we don't leave orphaned data)
+      try {
+        await api.put(`/leads/${leadId}`, {
+          status: "converted",
+          property_id: created.id,
+          property_title: created.title,
+        });
+      } catch (linkErr) {
+        try { await api.delete(`/properties/${created.id}`); } catch { /* best-effort */ }
+        throw linkErr;
+      }
       toast.success("Property created and lead marked as Converted");
       setConvertModal(null);
       load();
     } catch (e) { toast.error(formatError(e)); }
+    finally { setSavingConvert(false); }
   };
 
   const shown = filter ? items.filter((i) => i.status === filter) : items;
@@ -182,7 +192,8 @@ export default function Leads() {
           modal={convertModal}
           setModal={setConvertModal}
           onSave={saveConverted}
-          onClose={() => setConvertModal(null)}
+          onClose={() => !savingConvert && setConvertModal(null)}
+          saving={savingConvert}
         />
       )}
     </div>
