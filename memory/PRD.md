@@ -15,6 +15,19 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Sell page redesign — blue theme + icons + valuation CTA (Feb 20, 2026)
+- Blue theme (`#0d50e0`): kicker "WHY SELL WITH TREL", heading, and CTA button
+- Four benefits (up from 3) with uniform lucide SVG icons in soft blue tiles:
+  - Professional valuation (BadgeCheck) — paid service, 2–3 day turnaround
+  - Professional photography (Camera)
+  - Verified marketing (Megaphone)
+  - Dedicated agent support (Headphones)
+- New **"Request a Valuation"** CTA button — blue background, white text, subtext "Get your property valuation within 2–3 days.", smooth-scrolls to the form
+- All "Free appraisal" wording replaced with "Professional valuation" / "Request a Valuation"
+- Backend migration in `_seed_page_content` idempotently overwrites legacy Sell benefits on startup
+- Admin Content editor for Sell benefits now includes an `icon` field (lucide name)
+- Verified by testing agent iteration 12: 36/36 backend, 100% frontend, responsive 375px→1440px
+
 ### Sell page 'refused to connect' re-fix (Feb 17, 2026)
 - Root cause: users naturally pasted the FULL Google Maps URL into the coords field. The previous code URL-encoded the whole thing and re-appended it after `?q=`, producing broken nested URLs like `.../maps?q=https%3A%2F%2Fwww.google.com%2Fmaps%3Fq%3D...` that Google refused.
 - Fix: `MapCoordsField` now runs a `parseCoords()` regex on whatever the user types/pastes and extracts `lat,lng` from any of these formats:
