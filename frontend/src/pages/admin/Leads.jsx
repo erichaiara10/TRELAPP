@@ -23,21 +23,26 @@ const NEW_PROPERTY_DEFAULTS = {
   status: "active", featured: false, verified: false,
 };
 
-/** Prefill a New Property modal from a Sell-form lead's payload + message. */
+/** Prefill a New Property modal from ANY lead — sell-form leads carry a full
+ * property payload; contact/inspection leads carry minimal info so most fields
+ * arrive blank for the admin to fill in. Description always includes the lead's
+ * original message + seller/enquirer contact info. */
 function buildPropertyDraftFromLead(lead) {
   const p = lead.payload || {};
   const photos = Array.isArray(p.photos) ? p.photos : [];
   const propertyType = p.property_type || "house";
   const suburb = p.suburb || "";
-  const title = [suburb, propertyType].filter(Boolean).join(" ").trim() || `Sell submission from ${lead.name || "seller"}`;
+  const title = [suburb, propertyType].filter(Boolean).join(" ").trim()
+    || (p.price ? `${propertyType} listing` : `Property from ${lead.name || "lead"}`);
   const description = [
     lead.message || "",
-    lead.name ? `Original seller: ${lead.name}${lead.email ? ` (${lead.email})` : ""}${lead.phone ? ` — ${lead.phone}` : ""}` : "",
+    lead.name ? `Original contact: ${lead.name}${lead.email ? ` (${lead.email})` : ""}${lead.phone ? ` — ${lead.phone}` : ""}` : "",
+    `Source: ${lead.source || "manual"}`,
   ].filter(Boolean).join("\n\n");
   return {
     ...NEW_PROPERTY_DEFAULTS,
     title,
-    listing_type: "sale",
+    listing_type: p.listing_type || "sale",
     property_type: propertyType,
     price: Number(p.price) || 0,
     province: p.province || "",
@@ -121,7 +126,6 @@ export default function Leads() {
           </thead>
           <tbody>
             {shown.map((l) => {
-              const isSell = l.source === "sell_form";
               const alreadyConverted = l.status === "converted" && l.property_id;
               return (
                 <tr key={l.id} className="border-t border-border" data-testid={`lead-row-${l.id}`}>
@@ -161,12 +165,12 @@ export default function Leads() {
                   </td>
                   <td className="p-3">
                     <div className="flex items-center gap-1">
-                      {isSell && !alreadyConverted && (
+                      {!alreadyConverted && (
                         <button
                           onClick={() => openConvert(l)}
                           data-testid={`lead-convert-${l.id}`}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-pine-500 hover:bg-pine-600 text-white text-xs font-medium"
-                          title="Convert this sell submission into a new property listing"
+                          title="Convert this lead into a new property listing (details will be prefilled from the lead)"
                         >
                           <ArrowRightCircle className="w-3.5 h-3.5" /> Convert to Property
                         </button>
