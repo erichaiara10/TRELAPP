@@ -15,6 +15,18 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Unified AI Price Analysis — Claude Sonnet 4.5 (Feb 21, 2026)
+- Backend endpoint `POST /api/ai/price-analysis` powered by `emergentintegrations` + Claude Sonnet 4.5 via the Emergent LLM key
+- Returns structured schema: `{range_min, range_max, average, verdict, recommendation, comparables[], sample_size}`
+- Deterministic statistical fallback if LLM call fails or no comparables — never surfaces a 500
+- Server-side sanitisation: strips PII (agent/owner/id/urls) from comparables, caps title 120ch, recommendation 280ch, comparables to 5
+- Frontend component `AIPriceAnalysis.jsx` (203 LOC, dual-variant: inline expandable panel + compact modal)
+- Wired into: Sell page (inline), Buy/Rent PropertyCards (compact modal, absolute-positioned with `preventDefault` to avoid link click-through), PropertyDetail page (inline next to price)
+- `canRun` guard: requires property_type AND (city||suburb) AND price>0 — hides button on zero-price/incomplete listings
+- Full data-testid coverage: `ai-price-btn|-panel|-modal|-body|-verdict|-range|-average|-recommendation|-comparables|-error|-loading|-close|-container`
+- Backend tests: `/app/backend/tests/test_ai_price_analysis.py` (6/6) — valid sale, valid rent, zero-price 400, missing-location 400, missing-required 422, no-PII assertion
+- Regression tested via iteration_19: 100% pass across backend AI + all critical frontend flows
+
 ### Customers admin page — full CRUD (Feb 20, 2026)
 - Added **"Add Customer"** button + per-row **Edit** (pencil) and **Delete** (trash) actions
 - Modal form updates: name (required), email, phone, type (Buyer/Seller/Tenant/Landlord/Corporate), company, notes
@@ -152,25 +164,27 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Seed script (idempotent) — 6 properties, 5 users, 2 requirements, site/about/why content
 
 ## Test Credentials
-- Admin: `admin@pngrealty.pg` / `Admin@123`
+- Admin: `admin@trel.com.pg` / `Admin@123`
 - All other staff: `Password@123`
 
 ## Testing
 - Iteration 1: 23/23 backend tests passed, 100% of tested frontend flows verified (see `/app/test_reports/iteration_1.json`).
+- Iteration 19 (Feb 21, 2026): Full regression on Unified AI Price Analysis — 6/6 new AI tests + 100% frontend flow coverage (Sell/Buy/Rent/Detail/Admin/Leads/Maps). No issues.
 
 ## Backlog (deferred to V2)
+- P1 — Refactor `/app/backend/server.py` (>1500 lines) into routers (`routes/ai.py`, `routes/locations.py`, `routes/admin.py`, `routes/page_content.py`)
 - P1 — Real email provider (Resend/SendGrid) for confirmations
 - P1 — WhatsApp Business API integration (currently `wa.me` deep links)
-- P1 — Image upload (currently image URLs entered manually; object storage available)
 - P1 — Communication history log per customer/lead (calls, notes, timeline)
 - P2 — Advanced reporting (revenue, agent performance, conversion funnel)
 - P2 — Data export (CSV/Excel)
 - P2 — Audit log UI (records currently written to Mongo but no UI yet)
 - P2 — SEO metadata per property, search-friendly URLs
 - P2 — Mobile app, tenant/owner portals, online rent payment (explicitly out-of-scope in V1)
+- P2 — Test hygiene: update `/app/backend/tests/backend_test.py` stale admin creds (`admin@pngrealty.pg` → `admin@trel.com.pg`); make `test_lead_convert.py` / `test_locations.py` use `os.environ.get(...)` at import time
 
 ## Next Actions
 1. Provide branded logo/photography if not using placeholders
 2. Add real email + WhatsApp Business API integration when keys available
-3. Add object-storage image uploads to the property editor
+3. Split `server.py` into modular routers for maintainability
 4. Implement Communication History module (calls/notes timeline)
