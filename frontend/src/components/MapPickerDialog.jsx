@@ -36,11 +36,16 @@ function Recenter({ center, zoom }) {
   return null;
 }
 
-async function geocodeNominatim(query) {
+async function geocodeNominatim(query, timeoutMs = 5000) {
   if (!query) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "Accept-Language": "en" },
+      signal: ctrl.signal,
+    });
     if (!res.ok) return null;
     const arr = await res.json();
     if (!Array.isArray(arr) || arr.length === 0) return null;
@@ -51,6 +56,8 @@ async function geocodeNominatim(query) {
     return { lat: nlat, lng: nlng };
   } catch {
     return null;
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -88,40 +95,47 @@ export default function MapPickerDialog({
     return { lat, lng };
   }, [initialCoords]);
 
-  // Auto-center chain (only runs when dialog opens with new session id)
+  // Auto-center chain (only runs when dialog opens with new session id).
+  // We ALWAYS set an initial center synchronously so the map renders straight
+  // away — geocoding then runs in the background and silently upgrades the
+  // view if it succeeds. This prevents a stuck "Locating…" state when
+  // Nominatim is blocked, slow, or rate-limited.
   useEffect(() => {
     if (!open) return;
     const sessionKey = `${initialCoords}|${city}|${suburb}|${province}`;
     if (initedFor.current === sessionKey) return;
     initedFor.current = sessionKey;
 
-    // Reset UI state each open
+    // Reset UI state on each fresh open
     setSearch("");
-    setPin(null);
     setContextLabel("");
+    setLocating(false);
 
-    // 1. Existing coords win
+    // 1. Existing coords win — show them immediately, no geocode needed
     if (parsedInitial) {
       setCenter(parsedInitial);
       setZoom(16);
       setPin(parsedInitial);
       return;
     }
-    // Build geocode queries in priority order
+
+    // Otherwise: render the map at Port Moresby fallback IMMEDIATELY so the
+    // user can interact even if geocoding fails. Clear any stale pin.
+    setPin(null);
+    setCenter({ lat: PORT_MORESBY.lat, lng: PORT_MORESBY.lng });
+    setZoom(PORT_MORESBY.zoom);
+
+    // Build the priority-ordered geocode queries
     const queries = [];
     if (suburb && city) queries.push({ q: `${suburb}, ${city}, ${province || ""}, Papua New Guinea`.replace(/,\s*,/g, ","), z: 15, label: `${suburb}, ${city}` });
     if (city) queries.push({ q: `${city}, ${province || ""}, Papua New Guinea`.replace(/,\s*,/g, ","), z: 13, label: city });
     if (province) queries.push({ q: `${province}, Papua New Guinea`, z: 10, label: province });
 
-    if (queries.length === 0) {
-      setCenter({ lat: PORT_MORESBY.lat, lng: PORT_MORESBY.lng });
-      setZoom(PORT_MORESBY.zoom);
-      return;
-    }
+    if (queries.length === 0) return; // nothing to geocode; PoM is already set
 
     let cancelled = false;
+    setLocating(true);
     (async () => {
-      setLocating(true);
       for (const { q, z, label } of queries) {
         const hit = await geocodeNominatim(q);
         if (cancelled) return;
@@ -129,17 +143,12 @@ export default function MapPickerDialog({
           setCenter(hit);
           setZoom(z);
           setContextLabel(label);
-          setLocating(false);
-          return;
+          break;
         }
       }
-      if (!cancelled) {
-        setCenter({ lat: PORT_MORESBY.lat, lng: PORT_MORESBY.lng });
-        setZoom(PORT_MORESBY.zoom);
-        setLocating(false);
-      }
+      if (!cancelled) setLocating(false);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; setLocating(false); };
   }, [open, initialCoords, city, suburb, province, parsedInitial]);
 
   // Reset session key when dialog closes so next open re-evaluates
@@ -227,11 +236,11 @@ export default function MapPickerDialog({
           </div>
         )}
 
-        {/* Map area */}
+        {/* Map area — always renders; geocoding overlay is non-blocking */}
         <div className="relative flex-1 min-h-[320px] sm:min-h-[420px]" data-testid="map-picker-map">
-          {locating && !center && (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground z-[500] bg-white/70">
-              Locating…
+          {locating && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[500] px-3 py-1 rounded-full bg-white/95 shadow text-xs text-muted-foreground border" data-testid="map-picker-locating">
+              Locating area…
             </div>
           )}
           {center && (
