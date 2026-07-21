@@ -1096,7 +1096,15 @@ LOCATION:
         logger.warning("AI nearby amenities failed: %s", e)
         raise HTTPException(502, "Amenities service is temporarily unavailable")
 
-    # Sanitise: strip unknown categories, clamp counts and string lengths
+    # Sanitise: strip unknown categories, clamp counts and string lengths, and
+    # defence-in-depth strip URLs / long digit runs from item notes/names.
+    _url_re = re.compile(r"https?://\S+", re.IGNORECASE)
+    _phone_re = re.compile(r"\+?\d[\d\s\-().]{6,}")
+    def _clean(txt: str, cap: int) -> str:
+        t = _url_re.sub("", txt or "")
+        t = _phone_re.sub("", t)
+        return re.sub(r"\s{2,}", " ", t).strip()[:cap]
+
     safe_categories = []
     for cat in (data.get("categories") or [])[:6]:
         ckey = str(cat.get("key", "")).lower().strip()
@@ -1105,9 +1113,9 @@ LOCATION:
         items = []
         for it in (cat.get("items") or [])[:4]:
             items.append({
-                "name": str(it.get("name", ""))[:80],
-                "distance_hint": str(it.get("distance_hint", ""))[:40],
-                "note": str(it.get("note", ""))[:140],
+                "name": _clean(str(it.get("name", "")), 80),
+                "distance_hint": _clean(str(it.get("distance_hint", "")), 40),
+                "note": _clean(str(it.get("note", "")), 140),
             })
         if not items:
             continue

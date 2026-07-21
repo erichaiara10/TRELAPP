@@ -15,6 +15,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### AI Nearby Amenities (Feb 21, 2026)
+- Backend `POST /api/ai/nearby-amenities` powered by Claude Sonnet 4.5 via `emergentintegrations`.
+- Returns 6 possible categories (schools, hospitals, shopping, beaches, transport, recreation) with `{name, distance_hint, note}` items — capped at 4 items/cat, 6 cats, and length-clamped.
+- Defence-in-depth server-side sanitiser strips URLs and long digit runs (phone numbers) from names/notes.
+- Frontend `NearbyAmenities.jsx` — collapsible panel on PropertyDetail under Description/Features, blue `#0d50e0` theming, category icons (GraduationCap, HeartPulse, ShoppingBag, Waves, Bus, TreePine).
+- Lazy fetch on first open; cached in component state; disclaimer at bottom.
+- `canRun` guard hides the panel entirely on properties without suburb or city.
+- Tests: `/app/backend/tests/test_nearby_amenities.py` (6/6). Iteration 21: 100% pass on backend + frontend + mobile + edge cases.
+
 ### Interactive Map Picker + "No coords" empty state (Feb 21, 2026)
 - **Global `MapPickerDialog.jsx`** — Leaflet + OpenStreetMap picker (no API key). Blue `#0d50e0` "Pick on Map" button on every `MapCoordsField` (Sell page, Admin PropertyModal, Contact, Content). Click-to-drop-pin, draggable pin, Nominatim search box.
 - **Smart auto-center chain**: existing coords → `suburb, city, province` → `city, province` → `province` → Port Moresby fallback (all geocoded via Nominatim).
