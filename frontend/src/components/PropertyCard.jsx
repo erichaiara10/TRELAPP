@@ -1,8 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Bed, Bath, Car, MapPin, ShieldCheck } from "lucide-react";
+import { Bed, Bath, Car, MapPin, ShieldCheck, ExternalLink, Info } from "lucide-react";
 import { money } from "@/lib/api";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 
 const FALLBACK_IMG = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
 
@@ -30,6 +31,7 @@ function PropertyBadges({ p }) {
 
 export default function PropertyCard({ p }) {
   const isRent = p.listing_type === "rent";
+  const mapHref = mapsUrlFromCoords(p.map_coords);
   return (
     <div data-testid={`property-card-${p.id}`}
       className="group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow duration-300">
@@ -55,6 +57,29 @@ export default function PropertyCard({ p }) {
             {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
           <PropertySpecs p={p} />
+          <div className="mt-3">
+            {mapHref ? (
+              <a
+                href={mapHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-xs font-medium"
+                data-testid={`card-map-btn-${p.id}`}
+              >
+                View on Google Maps <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : (
+              <div
+                role="note"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-border text-[11px] text-muted-foreground"
+                data-testid={`card-map-empty-${p.id}`}
+              >
+                <Info className="w-3 h-3" />
+                Google location not registered for this property
+              </div>
+            )}
+          </div>
         </div>
       </Link>
       {/* AI price comparison — sits on top of the link so clicks don't navigate */}

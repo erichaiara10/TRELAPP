@@ -69,6 +69,9 @@ export default function Sell() {
         value={prop.map_coords}
         onChange={(v) => setProp({ ...prop, map_coords: v })}
         testId="sell_form-map-coords"
+        city={prop.location}
+        suburb={prop.suburb}
+        province={prop.province}
       />
       <PhotoUploader value={photos} onChange={setPhotos} testId="sell_form-photos" />
     </>

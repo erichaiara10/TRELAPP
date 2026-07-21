@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, money, formatError } from "@/lib/api";
-import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, CheckCircle2, ExternalLink } from "lucide-react";
+import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, CheckCircle2, ExternalLink, Info } from "lucide-react";
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
-import { mapsUrlFromCoords, MAPS_BASE } from "@/components/MapCoordsField";
+import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
 
 export default function PropertyDetail() {
@@ -47,10 +47,8 @@ export default function PropertyDetail() {
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
   const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi TREL, I'm interested in "${p.title}" (${window.location.href})`)}`;
-  // Prefer precise coordinates when set on the property; fall back to address search.
-  const coordsLink = mapsUrlFromCoords(p.map_coords);
-  const mapQuery = encodeURIComponent([p.address, p.suburb, p.location, "Papua New Guinea"].filter(Boolean).join(", "));
-  const mapLink = coordsLink || `${MAPS_BASE}${mapQuery}`;
+  // Show precise Google Maps link only when the property has parseable coords.
+  const mapLink = mapsUrlFromCoords(p.map_coords);
 
   return (
     <div className="container-tight py-8">
@@ -81,15 +79,26 @@ export default function PropertyDetail() {
           <h1 className="font-serif text-4xl mt-3">{p.title}</h1>
           <div className="flex items-center gap-3 text-sm text-muted-foreground mt-2 flex-wrap">
             <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}</span>
-            <a
-              href={mapLink}
-              target="_blank"
-              rel="noreferrer"
-              data-testid="detail-map-btn"
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-pine-500 text-pine-500 hover:bg-pine-500 hover:text-white transition-colors text-xs font-medium"
-            >
-              View on Google Maps <ExternalLink className="w-3 h-3" />
-            </a>
+            {mapLink ? (
+              <a
+                href={mapLink}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="detail-map-btn"
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-pine-500 text-pine-500 hover:bg-pine-500 hover:text-white transition-colors text-xs font-medium"
+              >
+                View on Google Maps <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : (
+              <span
+                role="note"
+                data-testid="detail-map-empty"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-dashed border-border text-[11px] text-muted-foreground"
+              >
+                <Info className="w-3 h-3" />
+                Google location not registered for this property
+              </span>
+            )}
           </div>
           <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
             <div className="text-3xl font-semibold text-pine-500">

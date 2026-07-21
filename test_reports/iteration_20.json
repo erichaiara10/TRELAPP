@@ -1,0 +1,46 @@
+{
+  "summary": "Frontend-only testing for TREL Map Picker + 'Google location not registered' empty-state features. All primary flows PASS on Sell page, Buy/Rent listings, Property Detail (with & without coords), and Admin Edit Property modal. Mobile viewport dialog is full-screen. Two very minor issues noted.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MapPickerDialog (mobile 390x844)", "issues": ["Confirm/Cancel buttons are 38px tall — below the 44px minimum tappable size requested in the spec. Suggest bumping py padding on mobile (e.g. py-3) to reach 44px."]},
+      {"screen": "Sell page (mobile)", "issues": ["Document horizontal scroll width > client width (likely underlying page content, not the dialog itself — dialog is position:fixed full-screen so does not overflow). Worth a quick audit of the Sell page container/wrappers on mobile."]}
+    ]
+  },
+  "verified_flows": [
+    "Sell: [data-testid=sell_form-map-coords-pick-btn] visible, bg #0d50e0 (rgb(13,80,224))",
+    "Dialog opens (map-picker-dialog), 42 leaflet tiles load, click drops pin, coords shown in map-picker-selected",
+    "Confirm writes 'lat,lng' back into sell_form-map-coords-input (verified value -9.443728,147.180319)",
+    "Reopening dialog with existing coords pre-places pin (no geocode) — sessionKey logic works",
+    "Search 'Boroko' recenters map + drops a pin (Nominatim geocode successful)",
+    "Cancel and backdrop-click both close without mutating input",
+    "Buy page: 2 cards with card-map-btn-<id> pill (pine-green), 3 cards with card-map-empty-<id> dashed note — matches DB (e15624b0,6046a70a have coords; 26288fb9,400beadf,63b0bfac empty)",
+    "Rent page: pill + empty note pattern renders correctly",
+    "PropertyCard map link href=https://www.google.com/maps?q=lat,lng, target=_blank, e.stopPropagation prevents parent Link navigation",
+    "PropertyDetail 6046a70a (has coords): detail-map-btn present, empty absent, href correct",
+    "PropertyDetail 26288fb9 (no coords): detail-map-empty present with 'Google location not registered for this property' text, no fallback URL",
+    "Admin login (admin@trel.com.pg / Admin@123) → /admin/properties → Edit → property-map-coords-pick-btn visible with bg #0d50e0, dialog opens and closes",
+    "Mobile viewport (390x844): dialog dims 390x844 (full-screen), sticky header/footer intact"
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "Consider increasing MapPickerDialog Cancel/Confirm button vertical padding on mobile to meet the 44px min-tap-target guideline (currently 38px).",
+    "Investigate small horizontal overflow on Sell page at 390px width (likely a container, not the dialog)."
+  ],
+  "critical_code_review_comments": [
+    "MapPickerDialog cleanly gates auto-center behind a sessionKey so it does not re-geocode on every re-render — good.",
+    "Nominatim rate-limit respected (1 request per dialog open + 1 per explicit user search).",
+    "parseCoords() correctly handles pasted URLs and rejects out-of-range values (regression preserved).",
+    "PropertyCard uses e.stopPropagation() on the maps link so parent <Link> navigation is not triggered — correct.",
+    "MapCoordsField lazy-loads MapPickerDialog via React.lazy — good for bundle size since Leaflet is heavy."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100% functional, 2 minor design nits"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md — verified working)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Two features fully functional. Only nits are (1) 38px mobile button height and (2) sell page mobile horizontal overflow. Real property IDs in prod DB are UUIDs — the task's short ids (e.g. 6046a70a) are prefixes; full IDs like 6046a70a-ef4e-41f7-9b22-169633de1ea0 must be used for /property/:id navigation."
+}

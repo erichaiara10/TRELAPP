@@ -1,5 +1,7 @@
-import React, { useMemo } from "react";
-import { MapPin, ExternalLink, AlertCircle } from "lucide-react";
+import React, { useMemo, useState, lazy, Suspense } from "react";
+import { MapPin, ExternalLink, AlertCircle, Map as MapIcon } from "lucide-react";
+
+const MapPickerDialog = lazy(() => import("@/components/MapPickerDialog"));
 
 export const MAPS_BASE = "https://www.google.com/maps?q=";
 export const COORDS_HELP =
@@ -46,11 +48,15 @@ export default function MapCoordsField({
   onChange,
   testId = "map-coords",
   required = false,
+  city = "",
+  suburb = "",
+  province = "",
 }) {
   const raw = (value || "").trim();
   const coords = useMemo(() => parseCoords(raw), [raw]);
   const previewHref = coords ? `${MAPS_BASE}${coords}` : "";
   const invalid = raw.length > 0 && !coords;
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div className="col-span-1 md:col-span-2" data-testid={testId}>
@@ -87,8 +93,16 @@ export default function MapCoordsField({
           <span>Couldn't detect coordinates. Please paste them as <code>lat,lng</code> (e.g. <code>-9.4438,147.1803</code>).</span>
         </p>
       )}
-      {previewHref && (
-        <div className="mt-2">
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#0d50e0] hover:bg-[#0b44c2] text-white text-xs font-medium"
+          data-testid={`${testId}-pick-btn`}
+        >
+          <MapIcon className="w-3 h-3" /> Pick on Map
+        </button>
+        {previewHref && (
           <a
             href={previewHref}
             target="_blank"
@@ -98,10 +112,25 @@ export default function MapCoordsField({
           >
             View on Google Maps <ExternalLink className="w-3 h-3" />
           </a>
-          <div className="mt-1 text-[10px] text-muted-foreground font-mono break-all" data-testid={`${testId}-resolved`}>
-            Opens: {previewHref}
-          </div>
+        )}
+      </div>
+      {previewHref && (
+        <div className="mt-1 text-[10px] text-muted-foreground font-mono break-all" data-testid={`${testId}-resolved`}>
+          Opens: {previewHref}
         </div>
+      )}
+      {pickerOpen && (
+        <Suspense fallback={null}>
+          <MapPickerDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            initialCoords={value}
+            city={city}
+            suburb={suburb}
+            province={province}
+            onConfirm={(latlng) => onChange?.(latlng)}
+          />
+        </Suspense>
       )}
     </div>
   );

@@ -100,6 +100,9 @@ export default function PropertyModalFields({ modal, setModal }) {
         value={modal.map_coords ?? ""}
         onChange={(v) => setModal({ ...modal, map_coords: v })}
         testId="property-map-coords"
+        city={modal.location}
+        suburb={modal.suburb}
+        province={modal.province}
       />
       <PhotoUploader
         value={modal.photos || []}
