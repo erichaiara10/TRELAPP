@@ -15,6 +15,16 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Interactive Map Picker + "No coords" empty state (Feb 21, 2026)
+- **Global `MapPickerDialog.jsx`** — Leaflet + OpenStreetMap picker (no API key). Blue `#0d50e0` "Pick on Map" button on every `MapCoordsField` (Sell page, Admin PropertyModal, Contact, Content). Click-to-drop-pin, draggable pin, Nominatim search box.
+- **Smart auto-center chain**: existing coords → `suburb, city, province` → `city, province` → `province` → Port Moresby fallback (all geocoded via Nominatim).
+- **Responsive**: full-screen dialog on mobile with sticky header/footer; 44px min-tap-target buttons; 640×85vh on desktop.
+- **`MapCoordsField` API extended** with optional `city`/`suburb`/`province` props. Sell.jsx + PropertyModalFields.jsx pass them from their form state.
+- **Bundle-friendly**: `MapPickerDialog` is `React.lazy`-loaded — Leaflet only downloads when the picker is opened.
+- **"Not registered" empty state** on public Buy/Rent PropertyCards and PropertyDetail: when `map_coords` is missing/unparseable, show a dashed "Google location not registered for this property" note (`card-map-empty-{id}` / `detail-map-empty`) instead of a broken fallback URL. Properties with coords show the pine-green "View on Google Maps" pill.
+- Deps: `leaflet@1.9.4`, `react-leaflet@5.0.0` (React 19 compatible).
+- Tested: iteration 20 — 100% functional pass on Sell/Buy/Rent/Detail/Admin edit + mobile viewport.
+
 ### Unified AI Price Analysis — Claude Sonnet 4.5 (Feb 21, 2026)
 - Backend endpoint `POST /api/ai/price-analysis` powered by `emergentintegrations` + Claude Sonnet 4.5 via the Emergent LLM key
 - Returns structured schema: `{range_min, range_max, average, verdict, recommendation, comparables[], sample_size}`

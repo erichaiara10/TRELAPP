@@ -280,7 +280,7 @@ export default function MapPickerDialog({
             <button
               type="button"
               onClick={() => onOpenChange?.(false)}
-              className="px-4 py-2 rounded border text-sm hover:bg-sand-50"
+              className="px-4 py-2.5 min-h-[44px] rounded border text-sm hover:bg-sand-50"
               data-testid="map-picker-cancel"
             >
               Cancel
@@ -289,7 +289,7 @@ export default function MapPickerDialog({
               type="button"
               onClick={confirm}
               disabled={!pin}
-              className="px-4 py-2 rounded text-sm bg-[#0d50e0] hover:bg-[#0b44c2] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2.5 min-h-[44px] rounded text-sm bg-[#0d50e0] hover:bg-[#0b44c2] text-white disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="map-picker-confirm"
             >
               Use these coords
