@@ -45,7 +45,7 @@ export default function PropertyCard({ p }) {
             </div>
           )}
         </div>
-        <div className="p-5">
+        <div className="px-5 pt-5 pb-3">
           <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
             <MapPin className="w-3.5 h-3.5" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}
           </div>
@@ -57,31 +57,33 @@ export default function PropertyCard({ p }) {
             {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
           <PropertySpecs p={p} />
-          <div className="mt-3">
-            {mapHref ? (
-              <a
-                href={mapHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-xs font-medium"
-                data-testid={`card-map-btn-${p.id}`}
-              >
-                View on Google Maps <ExternalLink className="w-3 h-3" />
-              </a>
-            ) : (
-              <div
-                role="note"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-border text-[11px] text-muted-foreground"
-                data-testid={`card-map-empty-${p.id}`}
-              >
-                <Info className="w-3 h-3" />
-                Google location not registered for this property
-              </div>
-            )}
-          </div>
         </div>
       </Link>
+      {/* Map link — MUST live OUTSIDE the router <Link> above, otherwise the
+          nested anchor makes browsers route the click through the current
+          iframe and Google refuses with X-Frame-Options / ERR_BLOCKED_BY_RESPONSE. */}
+      <div className="px-5 pb-5">
+        {mapHref ? (
+          <a
+            href={mapHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-xs font-medium"
+            data-testid={`card-map-btn-${p.id}`}
+          >
+            View on Google Maps <ExternalLink className="w-3 h-3" />
+          </a>
+        ) : (
+          <div
+            role="note"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-border text-[11px] text-muted-foreground"
+            data-testid={`card-map-empty-${p.id}`}
+          >
+            <Info className="w-3 h-3" />
+            Google location not registered for this property
+          </div>
+        )}
+      </div>
       {/* AI price comparison — sits on top of the link so clicks don't navigate */}
       <div className="absolute top-3 right-3" onClick={(e) => e.preventDefault()}>
         <AIPriceAnalysis
