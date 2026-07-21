@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import NearbyAmenities from "@/components/NearbyAmenities";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -134,6 +135,13 @@ export default function PropertyDetail() {
               </div>
             </div>
           )}
+          <NearbyAmenities
+            suburb={p.suburb}
+            city={p.location}
+            province={p.province}
+            property_type={p.property_type}
+            testId="detail-nearby-amenities"
+          />
         </div>
 
         {/* Sidebar */}

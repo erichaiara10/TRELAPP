@@ -1,0 +1,39 @@
+{
+  "summary": "Nearby Amenities feature (POST /api/ai/nearby-amenities + PropertyDetail collapsible panel) fully validated. Backend 6/6 pytest passing, frontend UX/mobile/edge-case all pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "POST /api/ai/nearby-amenities {Boroko/Port Moresby/NCD/house} -> 200; 6 categories returned (all allowed keys); each item has name+distance_hint+note as strings; location_label includes 'Boroko'; disclaimer present; response ~7s.",
+    "Missing both city AND suburb -> 400 'City or suburb is required'.",
+    "Only city (Lae) -> 200 with non-empty categories.",
+    "No URLs / phone numbers detected in item notes (regex check on live Claude output).",
+    "Server-side sanitiser enforces allowed keys, <=4 items/category, <=6 categories, string length caps."
+  ],
+  "verified_frontend": [
+    "Panel [data-testid=detail-nearby-amenities] renders below Description/Features on 6046a70a Boroko property.",
+    "Toggle [data-testid=detail-nearby-amenities-toggle] is collapsed by default (aria-expanded=false, body not in DOM).",
+    "Click toggle -> loading indicator [detail-nearby-amenities-loading] appears, then location badge 'Around Boroko, Port Moresby, National Capital District' + 6 category cards (schools, hospitals, shopping, transport, recreation, beaches) + disclaimer.",
+    "Chevron rotates 180deg on expand.",
+    "Collapse -> aria-expanded=false. Reopen -> NO loading, cached data renders immediately (component-state cache verified).",
+    "Property 26288fb9 (no suburb/city) -> panel is entirely hidden (canRun guard).",
+    "Mobile 390x844: single-column stacking (grid-cols-1 at <sm), panel width 350px inside 390 viewport - no horizontal overflow.",
+    "Blue theming: icon backgrounds use bg-[#0d50e0]/10 with #0d50e0 text; header sparkle chip matches brand."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_nearby_amenities.py",
+    "/app/test_reports/pytest/nearby_amenities.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Server-side sanitiser only length-caps notes; it relies on the prompt to keep URLs/phones out. If Claude ever leaks one, it will pass through. Consider a regex strip on note (URLs, digit runs >=7) as belt-and-braces. Not blocking - live Claude output was clean across two invocations.",
+    "NearbyAmenities component correctly gates fetch behind `next && !data && !loading && canRun` so re-opening after error also won't retry - user has to reload page. Minor UX nit only.",
+    "Prompt explicitly forbids markdown but code still strips ``` fences defensively - good."
+  ],
+  "updated_files": ["/app/backend/tests/test_nearby_amenities.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all flows incl. mobile + edge case)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (not needed - endpoint is public)",
+  "seed_data_creation": "None. Used existing UUIDs 6046a70a-ef4e-41f7-9b22-169633de1ea0 (Boroko) and 26288fb9-48b4-4b9f-b897-56c06767824c (no suburb).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Nearby Amenities feature complete. Only forward-looking nit: consider server-side regex sanitisation of notes for URLs/phone numbers as defence-in-depth. Regressions (AI Price Analysis, Map Picker, empty states, admin login) were NOT re-tested in this iteration - if main agent needs assurance, run existing suites in /app/backend/tests/."
+}
