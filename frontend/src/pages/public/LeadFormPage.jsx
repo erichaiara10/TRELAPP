@@ -3,6 +3,9 @@ import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { CheckCircle2 } from "lucide-react";
 import HumanVerification from "@/components/HumanVerification";
+import NameInput from "@/components/NameInput";
+import PhoneInput from "@/components/PhoneInput";
+import { validateForm, isValidEmail } from "@/lib/validators";
 
 const REQUIRED_ERROR = "Please fill in all required fields marked with a red asterisk before submitting.";
 const SUCCESS_MESSAGE = "You have successfully submitted your form. An agent will attend to you shortly.";
@@ -40,17 +43,21 @@ function Area({ label, required, ...props }) {
  */
 export function LeadFormPage({
   source, title, kicker, intro, heroImage,
-  extra = null, extraPayload = () => ({}), extraRequired = () => true,
+  extra = null, extraPayload = () => ({}), extraRequired = () => true, extraValidator = () => ({}),
 }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
+  const [errors, setErrors] = useState({});
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const captchaRef = useRef(null);
 
   const submit = async (e) => {
     e.preventDefault();
-    const missingBase = !form.name.trim() || !form.email.trim() || !form.phone.trim();
-    if (missingBase || !extraRequired()) {
+    const base = validateForm(form, ["name", "email", "phone"], { phoneKey: "phone" });
+    const extraErrs = extraValidator() || {};
+    const merged = { ...base.errors, ...extraErrs };
+    setErrors(merged);
+    if (Object.keys(merged).length > 0 || !extraRequired()) {
       toast.error(REQUIRED_ERROR);
       return;
     }
@@ -103,9 +110,20 @@ export function LeadFormPage({
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="mt-10 grid md:grid-cols-2 gap-4" data-testid={`${source}-form`}>
-          <Field label="Full name" required placeholder="e.g. Jane Doe" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${source}-name`} />
-          <Field label="Email" required type="email" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid={`${source}-email`} />
-          <Field label="Phone" required placeholder="+675 …" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid={`${source}-phone`} />
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Full name<RequiredMark /></span>
+            <div className="mt-1"><NameInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} error={errors.name} testId={`${source}-name`} /></div>
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Email<RequiredMark /></span>
+            <input type="email" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid={`${source}-email`}
+              className={`mt-1 w-full border rounded-lg px-3 py-2.5 bg-white ${errors.email ? "border-destructive" : "border-border"}`} />
+            {errors.email && <p className="mt-1 text-[11px] text-destructive" data-testid={`${source}-email-error`}>{errors.email}</p>}
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Phone<RequiredMark /></span>
+            <div className="mt-1"><PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} error={errors.phone} testId={`${source}-phone`} /></div>
+          </label>
           {extra}
           <Area label="Tell us more" placeholder="Share any details that will help us respond faster." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} data-testid={`${source}-message`} />
           <div className="md:col-span-2">

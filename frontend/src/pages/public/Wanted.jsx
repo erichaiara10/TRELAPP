@@ -2,7 +2,11 @@ import React, { useEffect, useState } from "react";
 import { usePage } from "@/lib/usePage";
 import LeadFormPage from "./LeadFormPage";
 import LocationPicker from "@/components/LocationPicker";
+import PriceInput from "@/components/PriceInput";
 import { api } from "@/lib/api";
+import { isPlaceholder } from "@/lib/validators";
+
+function RequiredMark() { return <span className="text-destructive ml-0.5" aria-label="required">*</span>; }
 
 export default function Wanted() {
   const { sections } = usePage("wanted");
@@ -11,10 +15,17 @@ export default function Wanted() {
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/requirements/public").then((r) => setItems(r.data)).catch(() => {}); }, []);
 
+  const priceErr = (() => {
+    const min = Number(req.min_price) || 0;
+    const max = Number(req.max_price) || 0;
+    if (min > 0 && max > 0 && max < min) return "Max price must be greater than or equal to min price";
+    return "";
+  })();
+
   const extra = (
     <>
       <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">I want to</span>
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">I want to<RequiredMark /></span>
         <select value={req.intent} onChange={(e) => setReq({ ...req, intent: e.target.value })} data-testid="wanted_form-intent" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white">
           <option value="buy">Buy</option><option value="rent">Rent</option><option value="either">Either</option>
         </select>
@@ -27,21 +38,22 @@ export default function Wanted() {
         </select>
       </label>
       <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Min price (PGK)</span>
-        <input type="number" placeholder="e.g. 400000" value={req.min_price} onChange={(e) => setReq({ ...req, min_price: e.target.value })} data-testid="wanted_form-min" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Min price (PGK)<RequiredMark /></span>
+        <div className="mt-1"><PriceInput value={req.min_price} onChange={(v) => setReq({ ...req, min_price: v })} testId="wanted_form-min" /></div>
       </label>
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Max price (PGK)</span>
-        <input type="number" placeholder="e.g. 900000" value={req.max_price} onChange={(e) => setReq({ ...req, max_price: e.target.value })} data-testid="wanted_form-max" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <div className="mt-1"><PriceInput value={req.max_price} onChange={(v) => setReq({ ...req, max_price: v })} testId="wanted_form-max" error={priceErr} /></div>
       </label>
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Bedrooms (min)</span>
-        <input type="number" placeholder="e.g. 3" value={req.min_bedrooms} onChange={(e) => setReq({ ...req, min_bedrooms: e.target.value })} data-testid="wanted_form-beds" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+        <input type="number" min="0" placeholder="e.g. 3" value={req.min_bedrooms} onChange={(e) => setReq({ ...req, min_bedrooms: e.target.value.replace(/\D/g, "") })} data-testid="wanted_form-beds" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
       </label>
       <LocationPicker
         value={{ province: req.province, city: req.city, suburb: req.suburb }}
         onChange={(v) => setReq({ ...req, province: v.province, city: v.city, suburb: v.suburb })}
         testIdPrefix="wanted_form-location"
+        required
       />
     </>
   );
@@ -54,6 +66,18 @@ export default function Wanted() {
     locations: [req.city, req.suburb].filter(Boolean),
   });
 
+  // Validate Wanted-specific rules: intent, min_price>0, province, city, plus min≤max.
+  const extraValidator = () => {
+    const errs = {};
+    if (!req.intent) errs.intent = "Please select what you'd like to do";
+    if (!(Number(req.min_price) > 0)) errs.min_price = "Please enter a minimum price";
+    if (isPlaceholder(req.province)) errs.province = "Please select a province";
+    if (isPlaceholder(req.city)) errs.city = "Please select a city";
+    if (priceErr) errs.max_price = priceErr;
+    return errs;
+  };
+  const extraRequired = () => Object.keys(extraValidator()).length === 0;
+
   return (
     <>
       <LeadFormPage
@@ -64,6 +88,8 @@ export default function Wanted() {
         heroImage={hero.image}
         extra={extra}
         extraPayload={payload}
+        extraRequired={extraRequired}
+        extraValidator={extraValidator}
       />
       <div className="container-tight pb-16 max-w-4xl">
         <h2 className="font-serif text-2xl mb-4">Current active requirements</h2>

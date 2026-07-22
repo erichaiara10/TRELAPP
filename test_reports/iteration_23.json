@@ -1,0 +1,45 @@
+{
+  "summary": "Frontend-only iteration validating new shared sanitised inputs (NameInput/PhoneInput/PriceInput) and form-level required/max>=min validation across Wanted, Sell, PropertyDetail (contact + inspection), Admin Customers modal and Admin Property modal. After a webpack restart (stale bundle again, as in iter-22) all flows PASS. One minor UX oddity noted with PhoneInput's country dropdown resetting to PNG when the digits are cleared.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PhoneInput", "issue": "When the digits field is emptied, parsePhone(\"\") always returns DEFAULT_COUNTRY (PNG) so the country dropdown visually snaps back to +675 even if the user had just selected +61. If the user types digits before clearing, the AU selection is preserved; only the empty-value edge case is affected.", "selector": "[data-testid$='-phone-country']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_frontend": [
+    "Wanted form: NameInput 'O\\'Brien-Anna 123!@#' → 'O\\'Brien-Anna ' (apostrophe + hyphen kept, digits/symbols stripped); 40 A's truncated to 25.",
+    "Wanted form: PhoneInput default = PNG (+675); typing 'abc12345678901234' → '12345678' (PNG 8-digit cap, letters stripped); AU switch with 3 more digits typed = 9-digit cap enforced (see PropertyDetail test: '762815529').",
+    "Wanted form: PriceInput min 'abc500,000.55' → '50000055', preview 'K 50,000,055'; '999999999999' → '100000000' (K100M cap) with toast 'Prices cannot exceed K 100,000,000.'.",
+    "Wanted form: min=500000, max=100000 → inline error '[data-testid=wanted_form-max-error]' = 'Max price must be greater than or equal to min price'.",
+    "Wanted form: submit with blank required fields → toast 'Please fill in all required fields marked with a red asterisk before submitting.' and NO /public/leads request fired.",
+    "Wanted form: submit with name/email/phone filled but province placeholder → still blocked, no API call (extraValidator's isPlaceholder(province/city) works).",
+    "Sell form: sell_form-name is NameInput; sell_form-phone-country + sell_form-phone-input rendered; sell_form-price-input digits-only ('abc123,000' → '123000'); blank submit and no-province submit both blocked with no /public/leads request.",
+    "PropertyDetail contact-agent form: contact-name sanitised ('John5-Doe!' → 'John-Doe'), contact-phone-country dropdown visible, AU switch preserves existing digits and enforces 9-digit cap ('762815529').",
+    "PropertyDetail Request-inspection form: insp-name/insp-phone-country/insp-phone-input all present; PNG 8-digit cap enforced ('76281552abc99' → '76281552').",
+    "Admin Customers modal: customer-name sanitised ('Test123-User!' → 'Test-User' with throttled toast); customer-phone-country dropdown + customer-phone-input digits-only rendered.",
+    "Admin Property modal: property-price-input digits-only ('abc250,000.99' → '25000099'), K100M cap ('999999999999' → '100000000') with toast; property-bedrooms/bathrooms/parking/area_sqm inputs strip all non-digits ('abc3.5-2xyz' → '352'); Title/Province/City/Suburb labels show required '*' markers.",
+    "Toast throttling: after entering many invalid keystrokes across fields only one warning toast is visible at a time (2s throttle from warnOnce works)."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL/LOW: In PhoneInput, remember the last-selected country locally instead of re-parsing an empty string. e.g. useState for country initialised from parsePhone(value).country, updated on select, and used to derive `country` when national is empty. Prevents dropdown snap-back to PNG when the user clears the digits.",
+    "OPS-note (context): first run showed contact-name/contact-phone rendered as plain inputs on PropertyDetail despite source using NameInput/PhoneInput. `sudo supervisorctl restart frontend` re-emitted the bundle and everything worked. Same webpack stale-bundle behaviour flagged in iter-22 — future prop-only/import-only additions may need a manual frontend restart in this preview env."
+  ],
+  "critical_code_review_comments": [
+    "validators.js warnOnce uses a module-level throttler shared across all inputs — good for UX (single toast per 2s globally) but means one field's rejected keystroke suppresses another field's toast within the window. Acceptable per spec.",
+    "PhoneInput.onKeyDown blocks non-digit keystrokes with preventDefault but does NOT fire the toast for direct key events (comment acknowledges this). Paste path via sanitizeDigits(..., {notify:true}) does fire — asymmetry is intentional but worth documenting to future devs.",
+    "LeadFormPage validateForm requires 'name','email','phone' — but Wanted's extraValidator does not enforce name/email/phone (relies on base). That's fine because merged errors are combined; still, if extraRequired ever returns false while merged errors are empty the toast still fires (safe belt-and-braces).",
+    "PriceInput maxLength = String(PRICE_MAX).length = 9. That equals 100000000 (9 chars). Typing '999999999' (9 nines) is capped to 100000000 correctly; typing '9999999999' (10 chars) is prevented by maxLength — but paste of a 12-digit number still works via sanitizePrice cap. OK.",
+    "sanitizeName replaces multiple spaces with single space (`\\s{2,} -> ' '`). Combined with maxLength=25 this is fine, but consider trimming leading spaces on blur for cleaner data."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only)", "frontend": "100% functional; 1 low-priority UX oddity in PhoneInput country-reset on empty value"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (used for admin flows)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All new shared validators/components verified end-to-end. If any public/admin form appears to render a 'plain' input where NameInput/PhoneInput/PriceInput is expected (missing -country / -input / -preview testids), the webpack dev bundle is stale — `sudo supervisorctl restart frontend` and re-test. Recurring pattern noted in iter-22 and iter-23.",
+  "rca of the issue": "During first PropertyDetail test contact-name/contact-phone rendered as plain inputs (no -country/-input suffix testids) even though PropertyDetail.jsx source imports and renders NameInput + PhoneInput. Root cause: same webpack dev-server stale-bundle issue seen in iter-22 — the JSX that mounted was compiled before the new components were introduced. Mitigation: `sudo supervisorctl restart frontend`; after ~15s all forms rendered NameInput/PhoneInput/PriceInput correctly and every sanitisation/validation assertion passed."
+}

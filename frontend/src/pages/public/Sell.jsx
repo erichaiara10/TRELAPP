@@ -5,6 +5,8 @@ import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
 import LocationPicker from "@/components/LocationPicker";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceInput from "@/components/PriceInput";
+import { isPlaceholder } from "@/lib/validators";
 import {
   BadgeCheck, Camera, Megaphone, Headphones,
   ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
@@ -45,7 +47,9 @@ export default function Sell() {
       <label className="block md:col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Expected price (PGK)<RequiredMark /></span>
         <div className="mt-1 flex flex-col sm:flex-row sm:items-start gap-2">
-          <input type="number" placeholder="e.g. 850000" value={prop.price} onChange={(e) => setProp({ ...prop, price: e.target.value })} data-testid="sell_form-price" className="w-full sm:flex-1 border border-border rounded-lg px-3 py-2.5 bg-white" />
+          <div className="w-full sm:flex-1">
+            <PriceInput value={prop.price} onChange={(v) => setProp({ ...prop, price: v })} testId="sell_form-price" />
+          </div>
           <div className="w-full sm:w-auto">
             <AIPriceAnalysis
               audience="seller"
@@ -64,6 +68,7 @@ export default function Sell() {
         value={{ province: prop.province, city: prop.location, suburb: prop.suburb }}
         onChange={(v) => setProp({ ...prop, province: v.province, location: v.city, suburb: v.suburb })}
         testIdPrefix="sell_form-location"
+        required
       />
       <MapCoordsField
         label="Google Maps location (optional)"
@@ -79,7 +84,7 @@ export default function Sell() {
   );
 
   const extraRequired = () =>
-    Boolean(prop.property_type && String(prop.price).trim() && prop.province && prop.location);
+    Boolean(prop.property_type && Number(prop.price) > 0 && !isPlaceholder(prop.province) && !isPlaceholder(prop.location));
 
   // Smoothly scroll to the LeadFormPage form when "Request a Valuation" is clicked.
   const scrollToForm = () => {

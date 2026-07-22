@@ -2,10 +2,12 @@ import React from "react";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
 import LocationPicker from "@/components/LocationPicker";
+import PriceInput from "@/components/PriceInput";
+import { sanitizeDigits } from "@/lib/validators";
 
 const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price"];
 const TEXT_FIELDS = [
-  ["title","Title"], ["price","Price"],
+  ["title","Title"],
   ["bedrooms","Bedrooms"], ["bathrooms","Bathrooms"], ["parking","Parking"], ["area_sqm","Area (sqm)"],
 ];
 const PROPERTY_TYPES = ["house","apartment","townhouse","land","commercial"];
@@ -41,11 +43,11 @@ export function serializeProperty(modal) {
   return out;
 }
 
-function TextField({ label, testId, value, onChange }) {
+function TextField({ label, testId, value, onChange, digitsOnly = false, required = false }) {
   return (
     <label className="block col-span-1">
-      <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
-      <input value={value ?? ""} onChange={onChange} data-testid={testId} className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+      <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}{required && <span className="text-destructive ml-0.5">*</span>}</span>
+      <input value={value ?? ""} onChange={digitsOnly ? (e) => onChange({ ...e, target: { ...e.target, value: sanitizeDigits(e.target.value, { notify: true }) } }) : onChange} data-testid={testId} className="mt-1 w-full border border-border rounded px-2 py-1.5" />
     </label>
   );
 }
@@ -71,8 +73,13 @@ export default function PropertyModalFields({ modal, setModal }) {
   const setPhotos = (photos) => setModal({ ...modal, photos });
   return (
     <div className="p-4 grid md:grid-cols-2 gap-3 text-sm">
-      {TEXT_FIELDS.map(([k, l]) => (
-        <TextField key={k} label={l} testId={`property-${k}-input`} value={modal[k]} onChange={set(k)} />
+      <TextField label="Title" testId="property-title-input" value={modal.title} onChange={set("title")} required />
+      <label className="block col-span-1">
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Price<span className="text-destructive ml-0.5">*</span></span>
+        <div className="mt-1"><PriceInput value={modal.price ?? ""} onChange={(v) => setModal({ ...modal, price: v })} testId="property-price" showPreview={false} /></div>
+      </label>
+      {TEXT_FIELDS.filter(([k]) => k !== "title").map(([k, l]) => (
+        <TextField key={k} label={l} testId={`property-${k}-input`} value={modal[k]} onChange={set(k)} digitsOnly />
       ))}
       <SelectField label="Listing type" testId="property-listing-type" value={modal.listing_type} onChange={set("listing_type")}
         options={LISTING_TYPES} />
@@ -82,6 +89,7 @@ export default function PropertyModalFields({ modal, setModal }) {
         value={{ province: modal.province || "", city: modal.location || "", suburb: modal.suburb || "" }}
         onChange={(v) => setModal({ ...modal, province: v.province, location: v.city, suburb: v.suburb })}
         testIdPrefix="property-location"
+        required
       />
       <label className="block col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Description</span>

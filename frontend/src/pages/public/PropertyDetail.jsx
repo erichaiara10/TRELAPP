@@ -7,6 +7,8 @@ import HumanVerification from "@/components/HumanVerification";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
 import NearbyAmenities from "@/components/NearbyAmenities";
+import NameInput from "@/components/NameInput";
+import PhoneInput from "@/components/PhoneInput";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -170,9 +172,9 @@ export default function PropertyDetail() {
                 </div>
               ) : (
                 <>
-                  <input required placeholder="Your name" value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} data-testid="contact-name" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <NameInput value={contact.name} onChange={(v) => setContact({ ...contact, name: v })} testId="contact-name" placeholder="Your name" />
                   <input required type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} data-testid="contact-email" className="w-full border border-border rounded-lg px-3 py-2" />
-                  <input placeholder="Phone" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} data-testid="contact-phone" className="w-full border border-border rounded-lg px-3 py-2" />
+                  <PhoneInput value={contact.phone} onChange={(v) => setContact({ ...contact, phone: v })} testId="contact-phone" />
                   <textarea placeholder="Message" rows={3} value={contact.message} onChange={(e) => setContact({ ...contact, message: e.target.value })} data-testid="contact-msg" className="w-full border border-border rounded-lg px-3 py-2" />
                   <HumanVerification ref={contactCaptchaRef} />
                   <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
@@ -195,8 +197,8 @@ export default function PropertyDetail() {
               </div>
             ) : (
               <div className="mt-4 space-y-2">
-                <input required placeholder="Your name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} data-testid="insp-name" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-                <input placeholder="Phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} data-testid="insp-phone" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <NameInput value={form.customer_name} onChange={(v) => setForm({ ...form, customer_name: v })} testId="insp-name" placeholder="Your name" />
+                <PhoneInput value={form.customer_phone} onChange={(v) => setForm({ ...form, customer_phone: v })} testId="insp-phone" />
                 <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
                 <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
                 <HumanVerification ref={inspectionCaptchaRef} />

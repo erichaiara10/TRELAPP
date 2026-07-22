@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, X, Loader2, Search } from "lucide-react";
+import NameInput from "@/components/NameInput";
+import PhoneInput from "@/components/PhoneInput";
 
 const CUSTOMER_TYPES = ["buyer", "seller", "tenant", "landlord", "corporate"];
 
@@ -21,7 +23,7 @@ function CustomerModal({ modal, setModal, onSave, onClose, saving }) {
         <div className="p-4 grid md:grid-cols-2 gap-3">
           <label className="block md:col-span-2">
             <span className={label}>Full name <span className="text-destructive">*</span></span>
-            <input value={modal.name} onChange={set("name")} placeholder="e.g. Jane Doe" data-testid="customer-name" className={field} required />
+            <div className="mt-1"><NameInput value={modal.name} onChange={(v) => setModal({ ...modal, name: v })} testId="customer-name" /></div>
           </label>
           <label className="block">
             <span className={label}>Email</span>
@@ -29,7 +31,7 @@ function CustomerModal({ modal, setModal, onSave, onClose, saving }) {
           </label>
           <label className="block">
             <span className={label}>Phone</span>
-            <input value={modal.phone || ""} onChange={set("phone")} placeholder="+675 …" data-testid="customer-phone" className={field} />
+            <div className="mt-1"><PhoneInput value={modal.phone || ""} onChange={(v) => setModal({ ...modal, phone: v })} testId="customer-phone" /></div>
           </label>
           <label className="block">
             <span className={label}>Type <span className="text-destructive">*</span></span>
