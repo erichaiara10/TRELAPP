@@ -15,6 +15,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Global Data Validation (Feb 22, 2026)
+- **Shared validators** at `/app/frontend/src/lib/validators.js`: `sanitizeName`, `sanitizeDigits`, `sanitizePrice`, `parsePhone/joinPhone/isValidPhone`, `validateForm`, `isPlaceholder`, `warnOnce` (throttled toast, 1 per 2 s).
+- **Shared inputs**: `NameInput.jsx` (A–Z + spaces + `'` + `-`, max 25 chars); `PhoneInput.jsx` (country dropdown PNG +675 (8 digits) / AU +61 (9 digits), digit-only, country selection preserved on empty digits); `PriceInput.jsx` (K prefix, digits only, 0..K100M cap, live formatted preview).
+- **Wanted form**: min/max PriceInputs with `max ≥ min` inline validation, `intent`/`min_price`/`province`/`city` required, submit blocked on any missing.
+- **Sell form**: PriceInput + LocationPicker `required`, `extraRequired` uses `isPlaceholder`.
+- **PropertyDetail** contact + inspection forms use NameInput + PhoneInput.
+- **Admin** Customer modal and Property modal both use the shared sanitised inputs; Bed/Bath/Parking/Area strip non-digits.
+- Tests: iteration 23 — 100% functional pass across every form + edge cases (25-char truncation, PNG/AU country switch, max<min error, blank submit blocked, no API request on invalid).
+
 ### AI Price Analysis — Audience-aware copy + repositioned badge (Feb 22, 2026)
 - Added `audience: 'buyer' | 'seller' | 'admin'` prop to `AIPriceAnalysis`.
 - Recommendation text is now **replaced** with cautious, audience-specific canned copy (matrix of 9 sentences) — Claude's raw recommendation is intentionally overridden to keep tone consistent and safe.
