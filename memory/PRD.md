@@ -15,6 +15,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### AI Price Analysis — Audience-aware copy + repositioned badge (Feb 22, 2026)
+- Added `audience: 'buyer' | 'seller' | 'admin'` prop to `AIPriceAnalysis`.
+- Recommendation text is now **replaced** with cautious, audience-specific canned copy (matrix of 9 sentences) — Claude's raw recommendation is intentionally overridden to keep tone consistent and safe.
+- Universal disclaimer *"This analysis is based on available data and should be used as a guide only."* appended to every panel/modal (italic, muted, `data-testid=*-disclaimer`).
+- Softer verdict labels: buyer sees "Below market / Above market / In line with market"; seller sees "Below market range / Above market range / Aligned with market"; admin keeps raw analyst labels.
+- **PropertyCard restructured (variant B1)**: AI badge moved from `absolute top-3 right-3` (floating over image) to **inline right-aligned in the price row** (`flex items-baseline justify-between`). The Price + AI wrapper is a **sibling to the `<Link>`** — preserves nested-anchor bug fix.
+- Wired `audience` at all call sites: PropertyCard/PropertyDetail = "buyer", Sell = "seller".
+- Tested: iteration 22 — 100% pass across Buy/Rent card layout, PropertyDetail buyer copy, Sell seller copy, mobile viewport, no nested anchors, no regression on Nearby Amenities/Map link.
+
 ### AI Nearby Amenities (Feb 21, 2026)
 - Backend `POST /api/ai/nearby-amenities` powered by Claude Sonnet 4.5 via `emergentintegrations`.
 - Returns 6 possible categories (schools, hospitals, shopping, beaches, transport, recreation) with `{name, distance_hint, note}` items — capped at 4 items/cat, 6 cats, and length-clamped.

@@ -62,15 +62,26 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
   }
   if (!data) return null;
   const v = VERDICT_META[data.verdict] || VERDICT_META.fair;
-  // For buyer-facing (Buy/Rent), swap "fair/overpriced/underpriced" wording to be neutral
-  const buyerVerdict = buyerFacing
-    ? (data.verdict === "overpriced" ? "Above market" : data.verdict === "underpriced" ? "Below market" : "In line with market")
-    : v.label;
+  // Softened verdict wording per audience so the label doesn't read harshly.
+  // Buyer & seller both see neutral language; admin keeps the raw analyst label.
+  const softVerdict = (() => {
+    if (audience === "seller") {
+      return data.verdict === "overpriced" ? "Above market range"
+           : data.verdict === "underpriced" ? "Below market range"
+           : "Aligned with market";
+    }
+    if (buyerFacing || audience === "buyer") {
+      return data.verdict === "overpriced" ? "Above market"
+           : data.verdict === "underpriced" ? "Below market"
+           : "In line with market";
+    }
+    return v.label; // admin — keep raw label
+  })();
   // Audience-aware, cautious recommendation copy (overrides whatever the LLM returned)
   const recommendation = pickRecommendation(audience, data.verdict);
 
   return (
-    <div className="p-5 space-y-4" data-testid={`${testIdPrefix}-body`}>
+    <div className="relative p-5 space-y-4" data-testid={`${testIdPrefix}-body`}>
       {onClose && (
         <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded hover:bg-sand-100" aria-label="Close" data-testid={`${testIdPrefix}-close`}>
           <X className="w-4 h-4" />
@@ -78,7 +89,7 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
       )}
       {/* Verdict banner */}
       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${v.tone}`} data-testid={`${testIdPrefix}-verdict`}>
-        <v.Icon className="w-3.5 h-3.5" /> {buyerVerdict}
+        <v.Icon className="w-3.5 h-3.5" /> {softVerdict}
       </div>
 
       {/* Range + average */}
