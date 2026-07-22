@@ -48,6 +48,7 @@ export default function Sell() {
           <input type="number" placeholder="e.g. 850000" value={prop.price} onChange={(e) => setProp({ ...prop, price: e.target.value })} data-testid="sell_form-price" className="w-full sm:flex-1 border border-border rounded-lg px-3 py-2.5 bg-white" />
           <div className="w-full sm:w-auto">
             <AIPriceAnalysis
+              audience="seller"
               property_type={prop.property_type}
               listing_type="sale"
               price={prop.price}

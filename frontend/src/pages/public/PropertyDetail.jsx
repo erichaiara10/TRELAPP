@@ -107,6 +107,7 @@ export default function PropertyDetail() {
             </div>
             <AIPriceAnalysis
               buyerFacing
+              audience="buyer"
               property_type={p.property_type}
               listing_type={p.listing_type}
               price={p.price}

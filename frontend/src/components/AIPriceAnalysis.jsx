@@ -15,8 +15,36 @@ const VERDICT_META = {
   underpriced: { label: "Underpriced", tone: "bg-amber-50 text-amber-700 border-amber-200", Icon: TrendingDown },
 };
 
+// Audience-aware, cautious language for the recommendation sentence.
+// The AI's raw text is intentionally REPLACED with these safe strings so the
+// tone stays consistent regardless of what Claude returns.
+const RECOMMENDATION_COPY = {
+  buyer: {
+    underpriced: "Based on similar listings, this appears to be a competitive offer.",
+    overpriced:  "This price suggests it may be above the current area average.",
+    fair:        "This price appears aligned with similar listings in the area.",
+  },
+  seller: {
+    underpriced: "Your pricing appears competitive for the current market.",
+    overpriced:  "Available data suggests this price may be higher than average for this location.",
+    fair:        "Your pricing appears aligned with the current market for this area.",
+  },
+  admin: {
+    underpriced: "Current analysis suggests room for value capture — review market data.",
+    overpriced:  "Pricing appears high compared to similar records — consider a strategy review.",
+    fair:        "Pricing appears aligned with comparable records in the market.",
+  },
+};
+
+const DISCLAIMER = "This analysis is based on available data and should be used as a guide only.";
+
+function pickRecommendation(audience, verdict) {
+  const bucket = RECOMMENDATION_COPY[audience] || RECOMMENDATION_COPY.buyer;
+  return bucket[verdict] || bucket.fair;
+}
+
 /** Panel body — used inline (Sell/PropertyDetail) or inside a modal (PropertyCard). */
-function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing }) {
+function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing, audience }) {
   if (loading) {
     return (
       <div className="p-5 flex items-center gap-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-loading`}>
@@ -38,6 +66,8 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
   const buyerVerdict = buyerFacing
     ? (data.verdict === "overpriced" ? "Above market" : data.verdict === "underpriced" ? "Below market" : "In line with market")
     : v.label;
+  // Audience-aware, cautious recommendation copy (overrides whatever the LLM returned)
+  const recommendation = pickRecommendation(audience, data.verdict);
 
   return (
     <div className="p-5 space-y-4" data-testid={`${testIdPrefix}-body`}>
@@ -69,12 +99,10 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
         </div>
       </div>
 
-      {/* Recommendation */}
-      {data.recommendation && (
-        <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: `${BRAND_BLUE}10`, color: BRAND_BLUE }} data-testid={`${testIdPrefix}-recommendation`}>
-          <span className="font-medium">Recommendation: </span>{data.recommendation}
-        </div>
-      )}
+      {/* Audience-aware Recommendation */}
+      <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: `${BRAND_BLUE}10`, color: BRAND_BLUE }} data-testid={`${testIdPrefix}-recommendation`}>
+        <span className="font-medium">Recommendation: </span>{recommendation}
+      </div>
 
       {/* Comparables */}
       {data.comparables?.length > 0 && (
@@ -93,6 +121,11 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
           </ul>
         </div>
       )}
+
+      {/* Universal cautious-tone disclaimer */}
+      <p className="text-[11px] italic text-muted-foreground leading-relaxed" data-testid={`${testIdPrefix}-disclaimer`}>
+        {DISCLAIMER}
+      </p>
     </div>
   );
 }
@@ -111,6 +144,7 @@ export default function AIPriceAnalysis({
   property_type, listing_type = "sale", price, province, city, suburb, bedrooms,
   variant = "inline",
   buyerFacing = false,
+  audience = "buyer",
   testIdPrefix = "ai-price",
 }) {
   const [open, setOpen] = useState(false);
@@ -167,7 +201,7 @@ export default function AIPriceAnalysis({
                 <Sparkles className="w-4 h-4" style={{ color: BRAND_BLUE }} />
                 <div className="font-medium text-ink-900">{btnLabel}</div>
               </div>
-              <AnalysisBody data={data} loading={loading} error={error} onClose={() => setOpen(false)} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} />
+              <AnalysisBody data={data} loading={loading} error={error} onClose={() => setOpen(false)} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} audience={audience} />
             </div>
           </div>
         )}
@@ -194,7 +228,7 @@ export default function AIPriceAnalysis({
           style={{ borderColor: `${BRAND_BLUE}30` }}
           data-testid={`${testIdPrefix}-panel`}
         >
-          <AnalysisBody data={data} loading={loading} error={error} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} />
+          <AnalysisBody data={data} loading={loading} error={error} testIdPrefix={testIdPrefix} buyerFacing={buyerFacing} audience={audience} />
         </div>
       )}
     </div>

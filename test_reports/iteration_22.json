@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only iteration validating (a) repositioned AI badge inline with price on PropertyCard (variant B1) and (b) audience-aware cautious-tone recommendation copy across Buy/Rent/PropertyDetail (buyer) + Sell (seller) with universal disclaimer. All flows PASS after a frontend restart forced webpack to pick up the audience prop change.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_frontend": [
+    "Buy page card (e15624b0): AI badge rect.top (881) > image.bottom (795) and AI.left > price.right — inline right of price, not floating over image. Same-row check passes (|dy|<40).",
+    "Rent page card: same layout — AI right of price, below image (aiBelowImg=true, aiRightOfPrice=true, sameRow=true).",
+    "PropertyCard nested <a> check: 2 anchors per card (Link + map anchor), 0 nested. AI button is a <button>, outside <Link> — no nested-anchor bug.",
+    "Click AI badge on Buy card: URL does NOT change (page.url pre==post), modal [data-testid=card-ai-{id}-modal] opens, buyer verdict label 'Below market' rendered, buyer-copy recommendation 'Based on similar listings, this appears to be a competitive offer.' shown, disclaimer 'This analysis is based on available data and should be used as a guide only.' present.",
+    "Card image/title link still navigates to /property/{id}.",
+    "PropertyDetail (e15624b0): [detail-ai-price-btn] expands panel → verdict 'Below market' (buyer-facing), recommendation matches BUYER copy, disclaimer present.",
+    "Sell page (province=National Capital District, city=Port Moresby, suburb=Boroko, price=500000, type=house): button label = 'AI Price Estimate' (buyerFacing=false), verdict='Underpriced' (raw seller label), recommendation = 'Your pricing appears competitive for the current market.' (SELLER copy for underpriced), disclaimer present.",
+    "Regression PropertyDetail: Nearby Amenities panel [detail-nearby-amenities] still present; map link/empty state still present.",
+    "Mobile 390x844 on Buy: 4 cards render, AI badge below image (aiBelowImg=true), no horizontal overflow (aiOverflow=false), both price and AI badge visible."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "None functional. Note for context: after code was pushed with `audience` prop on Sell.jsx, the running webpack dev server had stale output — the compiled bundle omitted `audience:\"seller\"` from the Sell AIPriceAnalysis JSX until `supervisorctl restart frontend`. If similar stale-bundle behaviour recurs after prop-only edits, restart frontend to force re-emit."
+  ],
+  "critical_code_review_comments": [
+    "AIPriceAnalysis.pickRecommendation falls back to buyer bucket for unknown audience — safe default. Consider validating `audience` prop via PropTypes/TS to catch typos early.",
+    "PropertyCard: AI badge is a <button> nested inside a wrapping div that is a sibling to <Link>. Good — avoids nested anchors. The wrapping card div (`data-testid=property-card-*`) is NOT itself an <a>, so click bubbling to the badge doesn't propagate to a router navigation. Verified via URL-unchanged assertion.",
+    "AnalysisBody appends the disclaimer inside {onClose && close button} wrapper — close button uses `absolute top-3 right-3` but the parent `.p-5.space-y-4` lacks `relative`. On modal it still works because the modal container itself is `relative`. On inline (panel) usage there is no onClose so no button rendered — not an issue but worth a comment.",
+    "Sell.jsx passes audience='seller' but leaves buyerFacing at default false, so verdict shows raw 'Underpriced/Overpriced/Fair price' labels — this reads harsh to a seller; consider a softer verdict wording variant for seller audience (e.g., 'Below market range' instead of 'Underpriced').",
+    "Recommendation text is unconditionally replaced with the hard-coded copy — this ignores any nuance from the LLM. Intentional per spec but limits the analysis usefulness."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only iteration)", "frontend": "100% (Buy card layout, Rent card layout, PropertyCard modal buyer copy, PropertyDetail buyer copy, Sell seller copy, mobile, no nested anchors, non-navigation on badge click, regression Nearby Amenities+map link)"},
+  "test_credentials": "admin@trel.com.pg / Admin@123 (not exercised — admin regression not required for this UI-only change)",
+  "seed_data_creation": "None — used existing property e15624b0-7cda-4865-b73a-02e2f514a5cc for card + detail tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Feature 'audience-aware AI recommendation copy + repositioned AI badge on PropertyCard' is verified end-to-end. If Sell page ever regresses to buyer copy, first check the compiled bundle at /static/js/bundle.js for `audience:\"seller\"` near `sell-ai-price`; if missing, restart frontend (webpack dev server hot-reload occasionally misses prop-only additions in this env).",
+  "rca of the issue": "During first Sell-page test the recommendation showed buyer copy despite audience='seller' in source. Root cause: webpack dev server had a stale compiled bundle from before the audience prop was added to Sell.jsx — verified by grepping /static/js/bundle.js which lacked `audience:\"seller\"` in the Sell.jsx-emitted JSX (line-number x-line=50). Mitigation: `sudo supervisorctl restart frontend` (rebuilt bundle now contains the prop). Re-tested — seller copy 'Your pricing appears competitive for the current market.' now renders correctly."
+}

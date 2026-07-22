@@ -45,23 +45,42 @@ export default function PropertyCard({ p }) {
             </div>
           )}
         </div>
-        <div className="px-5 pt-5 pb-3">
+        <div className="px-5 pt-5 pb-2">
           <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
             <MapPin className="w-3.5 h-3.5" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}
           </div>
           <h3 className="font-serif text-xl leading-snug text-ink-900 line-clamp-2 group-hover:text-pine-500">
             {p.title}
           </h3>
-          <div className="mt-3 flex items-baseline gap-2 flex-wrap">
+        </div>
+      </Link>
+
+      {/* Price + AI badge — SIBLING to the <Link>. Right-aligned via justify-between (variant B1).
+          Keeping interactive elements (AI button) outside the router Link avoids nested-anchor / iframe issues. */}
+      <div className="px-5 pb-2">
+        <div className="flex items-baseline justify-between gap-2 flex-wrap">
+          <div className="flex items-baseline gap-2">
             <span className="text-2xl font-semibold text-pine-500">{money(p.price, p.currency || "PGK")}</span>
             {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
-          <PropertySpecs p={p} />
+          <AIPriceAnalysis
+            variant="compact"
+            buyerFacing
+            audience="buyer"
+            property_type={p.property_type}
+            listing_type={p.listing_type}
+            price={p.price}
+            province={p.province}
+            city={p.location}
+            suburb={p.suburb}
+            bedrooms={p.bedrooms}
+            testIdPrefix={`card-ai-${p.id}`}
+          />
         </div>
-      </Link>
-      {/* Map link — MUST live OUTSIDE the router <Link> above, otherwise the
-          nested anchor makes browsers route the click through the current
-          iframe and Google refuses with X-Frame-Options / ERR_BLOCKED_BY_RESPONSE. */}
+        <PropertySpecs p={p} />
+      </div>
+
+      {/* Map link — sibling to <Link>, prevents nested-anchor bug (see PropertyDetail history). */}
       <div className="px-5 pb-5">
         {mapHref ? (
           <a
@@ -83,21 +102,6 @@ export default function PropertyCard({ p }) {
             Google location not registered for this property
           </div>
         )}
-      </div>
-      {/* AI price comparison — sits on top of the link so clicks don't navigate */}
-      <div className="absolute top-3 right-3" onClick={(e) => e.preventDefault()}>
-        <AIPriceAnalysis
-          variant="compact"
-          buyerFacing
-          property_type={p.property_type}
-          listing_type={p.listing_type}
-          price={p.price}
-          province={p.province}
-          city={p.location}
-          suburb={p.suburb}
-          bedrooms={p.bedrooms}
-          testIdPrefix={`card-ai-${p.id}`}
-        />
       </div>
     </div>
   );
