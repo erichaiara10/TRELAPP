@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { COUNTRIES, parsePhone, joinPhone, sanitizeDigits, DEFAULT_COUNTRY } from "@/lib/validators";
+import { COUNTRIES, parsePhone, joinPhone, sanitizeDigits, DEFAULT_COUNTRY, formatPhoneNational } from "@/lib/validators";
 
 /**
  * Phone input with a country-code dropdown (PNG +675 / Australia +61).
@@ -60,14 +60,15 @@ export default function PhoneInput({
           {...rest}
           type="tel"
           inputMode="numeric"
-          value={national}
+          value={formatPhoneNational(national, country)}
           placeholder={placeholder ?? `${country.digits} digits`}
           onChange={(e) => setDigits(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key.length === 1 && !/[0-9]/.test(e.key)) e.preventDefault();
+            // Allow standard editing keys; block any non-digit printable character.
+            if (e.key.length === 1 && !/[0-9\s]/.test(e.key)) e.preventDefault();
           }}
           data-testid={`${testId}-input`}
-          className="flex-1 px-3 py-2.5 text-sm bg-transparent outline-none min-w-0"
+          className="flex-1 px-3 py-2.5 text-sm bg-transparent outline-none min-w-0 font-mono"
         />
       </div>
       {error && (

@@ -138,6 +138,31 @@ export default function PropertyDetail() {
               </div>
             </div>
           )}
+          {(p.land_category || p.total_area_ha || p.street_name || p.nearby_landmark) && (
+            <div className="mt-6" data-testid="detail-legal-block">
+              <h2 className="font-serif text-2xl mb-3">Legal &amp; location details</h2>
+              <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                {p.land_category === "subdivided_town_land" && (
+                  <>
+                    <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Allotment</dt><dd className="text-ink-900">{p.allotment_number || "—"}</dd></div>
+                    <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Section</dt><dd className="text-ink-900">{p.section_number || "—"}</dd></div>
+                  </>
+                )}
+                {p.land_category === "large_portion" && (
+                  <div className="sm:col-span-2"><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Full portion number</dt><dd className="text-ink-900">{p.full_portion_number || "—"}</dd></div>
+                )}
+                {p.total_area_ha ? (
+                  <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Total area</dt><dd className="text-ink-900">{Number(p.total_area_ha).toLocaleString()} ha</dd></div>
+                ) : null}
+                {p.street_name && (
+                  <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Street</dt><dd className="text-ink-900">{p.street_name}</dd></div>
+                )}
+                {p.nearby_landmark && (
+                  <div className="sm:col-span-2"><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Nearby landmark</dt><dd className="text-ink-900">{p.nearby_landmark}</dd></div>
+                )}
+              </dl>
+            </div>
+          )}
           <NearbyAmenities
             suburb={p.suburb}
             city={p.location}

@@ -131,6 +131,14 @@ class Property(BaseModel):
     verified: bool = False
     owner_customer_id: Optional[str] = None
     assigned_agent_id: Optional[str] = None
+    # Legal & location details (added Feb 22, 2026)
+    land_category: Optional[str] = None            # "large_portion" | "subdivided_town_land"
+    full_portion_number: Optional[str] = None      # required when land_category=large_portion
+    allotment_number: Optional[str] = None         # required when land_category=subdivided_town_land
+    section_number: Optional[str] = None           # required when land_category=subdivided_town_land
+    total_area_ha: Optional[float] = None          # required when listing_type=sale
+    street_name: Optional[str] = None
+    nearby_landmark: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -157,6 +165,13 @@ class PropertyCreate(BaseModel):
     verified: bool = False
     owner_customer_id: Optional[str] = None
     assigned_agent_id: Optional[str] = None
+    land_category: Optional[str] = None
+    full_portion_number: Optional[str] = None
+    allotment_number: Optional[str] = None
+    section_number: Optional[str] = None
+    total_area_ha: Optional[float] = None
+    street_name: Optional[str] = None
+    nearby_landmark: Optional[str] = None
 
 class Customer(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -226,6 +241,9 @@ class Lead(BaseModel):
     priority: str = "medium"
     assigned_agent_id: Optional[str] = None
     payload: dict = {}
+    # Lock fields — set once a lead is converted to a property (audit trail)
+    converted_at: Optional[str] = None
+    converted_property_id: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 class LeadCreate(BaseModel):
@@ -531,12 +549,25 @@ async def list_leads(user: dict = Depends(get_current_user)):
 
 @api.put("/leads/{lid}")
 async def update_lead(lid: str, payload: dict, user: dict = Depends(get_current_user)):
-    payload.pop("id",None); payload.pop("_id",None)
+    payload.pop("id", None); payload.pop("_id", None)
+    existing = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Lead not found")
+    # Locked after conversion — no further edits allowed
+    if existing.get("converted_at"):
+        raise HTTPException(409, f"Lead is locked — already converted to property {existing.get('converted_property_id')}")
+    # Auto-stamp lock fields when the lead transitions to 'converted' with a linked property
+    if payload.get("status") == "converted" and payload.get("property_id") and not existing.get("converted_at"):
+        payload["converted_at"] = now_iso()
+        payload["converted_property_id"] = payload["property_id"]
     await db.leads.update_one({"id": lid}, {"$set": payload})
-    return await db.leads.find_one({"id": lid}, {"_id":0})
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leads/{lid}")
 async def delete_lead(lid: str, user: dict = Depends(get_current_user)):
+    existing = await db.leads.find_one({"id": lid}, {"_id": 0, "converted_at": 1, "converted_property_id": 1})
+    if existing and existing.get("converted_at"):
+        raise HTTPException(409, f"Lead is locked — already converted to property {existing.get('converted_property_id')}")
     await db.leads.delete_one({"id": lid})
     await db.communications.delete_many({"lead_id": lid})
     return {"ok": True}

@@ -43,10 +43,23 @@ export function sanitizeDigits(raw, opts = {}) {
 
 // ---- Phone ------------------------------------------------------------------
 export const COUNTRIES = [
-  { code: "PG", dial: "+675", label: "PNG (+675)", digits: 8 },
-  { code: "AU", dial: "+61",  label: "Australia (+61)", digits: 9 },
+  { code: "PG", dial: "+675", label: "PNG (+675)",       digits: 8, groups: [4, 4] },
+  { code: "AU", dial: "+61",  label: "Australia (+61)",  digits: 9, groups: [1, 4, 4] },
 ];
 export const DEFAULT_COUNTRY = COUNTRIES[0];
+
+/** Format a national-number string like "412345678" as "4 1234 5678" per country groups. */
+export function formatPhoneNational(digits, country = DEFAULT_COUNTRY) {
+  const only = String(digits || "").replace(/\D/g, "").slice(0, country.digits);
+  const parts = [];
+  let i = 0;
+  for (const g of country.groups) {
+    if (i >= only.length) break;
+    parts.push(only.slice(i, i + g));
+    i += g;
+  }
+  return parts.join(" ");
+}
 
 export function parsePhone(full) {
   const s = String(full || "").trim();

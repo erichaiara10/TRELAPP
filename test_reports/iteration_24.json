@@ -1,0 +1,51 @@
+{
+  "summary": "Iter-24 tested (1) backend lead-lock semantics + property legal fields and (2) frontend PhoneInput 4-4 / 1-4-4 grouping, admin Property modal conditional legal & Location Details, admin Leads locked-row treatment + LockedLeadModal, and public PropertyDetail 'Legal & location details' block. All 6 pytest tests PASS; all frontend assertions PASS after one supervisorctl restart of the frontend (recurring webpack stale-bundle issue also seen in iter-22 and iter-23). One minor precision bug found in the public detail total_area_ha rendering.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PropertyDetail — Legal block", "issue": "Total area is rendered via Number(p.total_area_ha).toLocaleString() which defaults to max 3 fraction digits, so 0.0824 ha is displayed as '0.082 ha' (loss of precision). Recommend toLocaleString(undefined,{maximumFractionDigits:4}) or a dedicated small-area formatter.", "selector": "[data-testid='detail-legal-block']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_backend": [
+    "PUT /api/leads/{id} with {status:'converted', property_id:<id>} on an unconverted lead → 200; response has converted_at (ISO stamp) and converted_property_id == property_id.",
+    "PUT /api/leads/{id} on a locked lead → 409 with detail containing 'locked'.",
+    "DELETE /api/leads/{id} on a locked lead → 409 AND lead is still present in GET /api/leads (no soft-delete).",
+    "POST /api/properties accepts land_category=subdivided_town_land + allotment_number + section_number + total_area_ha + street_name + nearby_landmark and persists them; GET /api/properties/{id} returns them.",
+    "POST /api/properties accepts land_category=large_portion + full_portion_number + total_area_ha and persists them."
+  ],
+  "verified_frontend": [
+    "PhoneInput display grouping: PNG '76281552' → '7628 1552'; AU 9-digit '762815529' → '7 6281 5529'; AU cap of 9 enforced (extra digit blocked).",
+    "PhoneInput country preservation: after switching PNG→AU and clearing the digits, the country dropdown REMAINS on '+61' (iter-23 low-pri UX oddity now fixed via useState country).",
+    "Admin Property modal 'Legal & Location Details' section renders on New: property-land-category dropdown + property-total-area-ha input visible when listing_type=sale.",
+    "Toggling listing_type to 'rent' HIDES property-total-area-ha; switching back to 'sale' shows it again.",
+    "Selecting land_category='subdivided_town_land' surfaces property-allotment-number + property-section-number as required inputs.",
+    "Selecting land_category='large_portion' surfaces property-full-portion-number as required input.",
+    "Admin Leads locked row: 🔒 'Converted · <date>' chip present (data-testid lead-locked-<id>); Convert-to-Property button ABSENT; Status column shows 'Read-only' italic; row Go-to-Property link data-testid lead-goto-property-<id> present with href=/property/<pid> and target=_blank.",
+    "Clicking lead-view-<id> opens locked-lead-modal (data-testid). Modal contains: locked-lead-banner (blue banner text 'This lead has been converted to a Property record on 7/24/2026 …'), locked-lead-goto-property inner Link with href=/property/<pid> target=_blank, locked-lead-summary dl with Full name/Email/Phone/Source/Property type/Listing type/Price/Province/City/Suburb/Bedrooms/Message rendered as plain text. ZERO form inputs (input/textarea/select count = 0). Close button dismisses.",
+    "Public PropertyDetail: creating a property with land_category=subdivided_town_land + allotment/section + total_area_ha + street_name + nearby_landmark and navigating to /property/{id} renders detail-legal-block containing Allotment '15', Section '42', Street 'Waigani Drive', Nearby landmark 'next to Vision City', and total area."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_lock_and_legal.py",
+    "/app/test_reports/pytest/iter24.xml"
+  ],
+  "action_items": [
+    "LOW: In PropertyDetail.jsx line ~155, replace `Number(p.total_area_ha).toLocaleString()` with `Number(p.total_area_ha).toLocaleString(undefined,{maximumFractionDigits:4})` (or a helper) so small hectare values like 0.0824 are not truncated to 0.082 when shown to the buyer."
+  ],
+  "critical_code_review_comments": [
+    "server.py PUT /api/leads auto-stamp block correctly guards on `not existing.get('converted_at')` before setting converted_at, and returns 409 for later edits — good idempotency. However DELETE returns 409 even when the caller may legitimately want to force-delete a mis-linked lead; consider a system_admin override header for future.",
+    "Leads.jsx uses row-level testids `lead-view-<id>` AND `lead-view-property-<id>` which both share the `lead-view-` prefix. Any prefix-based test selector may match the wrong element (the property Link). Consider renaming the property-view Link testid to `lead-open-property-<id>` for clarity; documented in test script.",
+    "LockedLeadModal renders `String(value)` for every dl cell — for `bedrooms == 0` (falsy but valid) this yields '0'. Acceptable; noted for future.",
+    "PropertyDetail.jsx: conditional `p.total_area_ha ?` treats 0 as falsy — a listing with total_area_ha=0 would not render the row; unlikely but worth a null-check if 0 is meaningful.",
+    "PhoneInput useState(country) fixes the iter-23 dropdown-reset bug elegantly; the useEffect adopts a new country only when the incoming value actually starts with that dial-prefix — safe."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% functional; 1 LOW-priority precision issue in total_area_ha display"},
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "seed_data_creation": "Backend test suite creates TEST_IT24_* leads (locked) and TEST_IT24_stub / TEST_IT24_legal / TEST_IT24_legal_lp properties. Properties cleaned up in-fixture. Locked leads cannot be deleted (409) and are left in the DB — one such lead created per pytest run. Consider a mongo-level cleanup script or a system_admin override endpoint if this accumulates.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "1) Frontend still exhibits webpack stale-bundle behaviour on new component additions in the emergent preview — if a data-testid you expect is missing on the first probe, run `sudo supervisorctl restart frontend` and re-check. 2) Two distinct testids on locked-lead rows share the `lead-view-` prefix (`lead-view-<id>` = View modal button, `lead-view-property-<id>` = property Link) — always filter or use exact match. 3) Locked leads accumulate in DB across test runs because DELETE returns 409 by design; use direct mongo cleanup if needed. 4) All new Feb-22 features (Lead lock backend, Property legal fields, PhoneInput 4-4 / 1-4-4 grouping, admin Property modal Legal & Location section, LockedLeadModal, PropertyDetail Legal block) are verified end-to-end.",
+  "rca of the issue": "N/A — no unresolved defects. Minor total_area_ha rounding is a two-character fix in PropertyDetail.jsx."
+}

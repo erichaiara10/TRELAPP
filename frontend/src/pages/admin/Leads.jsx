@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
-import { MessageSquare, ArrowRightCircle, ExternalLink } from "lucide-react";
+import { MessageSquare, ArrowRightCircle, ExternalLink, Lock, Eye, X } from "lucide-react";
 import CommunicationsPanel from "@/components/admin/CommunicationsPanel";
 import PropertyModal, { serializeProperty } from "@/components/admin/PropertyModal";
 
@@ -55,12 +55,81 @@ function buildPropertyDraftFromLead(lead) {
   };
 }
 
+function LockedLeadModal({ lead, onClose }) {
+  const p = lead.payload || {};
+  const photos = Array.isArray(p.photos) ? p.photos : [];
+  const rows = [
+    ["Full name", lead.name],
+    ["Email", lead.email || "—"],
+    ["Phone", lead.phone || "—"],
+    ["Source", lead.source],
+    ["Property type", p.property_type || "—"],
+    ["Listing type", p.listing_type || "—"],
+    ["Price (PGK)", p.price ? Number(p.price).toLocaleString() : "—"],
+    ["Province", p.province || "—"],
+    ["City", p.location || "—"],
+    ["Suburb", p.suburb || "—"],
+    ["Bedrooms", p.bedrooms ?? "—"],
+    ["Message", lead.message || "—"],
+  ];
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" data-testid="locked-lead-modal">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <div className="font-medium flex items-center gap-2"><Lock className="w-4 h-4 text-muted-foreground" /> Lead — {lead.name}</div>
+          <button onClick={onClose} aria-label="Close" className="p-1 hover:bg-sand-100 rounded"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4">
+          <div className="rounded-lg bg-[#0d50e0]/10 border border-[#0d50e0]/30 text-[#0d50e0] p-3 text-sm flex items-start gap-2" data-testid="locked-lead-banner">
+            <Lock className="w-4 h-4 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div>This lead has been converted to a Property record{lead.converted_at ? ` on ${new Date(lead.converted_at).toLocaleDateString()}` : ""} and can no longer be edited.</div>
+              {lead.property_id && (
+                <Link to={`/property/${lead.property_id}`} target="_blank" rel="noreferrer"
+                  data-testid="locked-lead-goto-property"
+                  className="inline-flex items-center gap-1 mt-2 px-3 py-1.5 rounded-md bg-[#0d50e0] hover:bg-[#0b44c2] text-white text-xs font-medium">
+                  <ExternalLink className="w-3.5 h-3.5" /> Go to Property
+                </Link>
+              )}
+            </div>
+          </div>
+          <dl className="mt-4 grid sm:grid-cols-2 gap-x-4 gap-y-2 text-sm" data-testid="locked-lead-summary">
+            {rows.map(([label, value]) => (
+              <div key={label} className="border-b border-border/60 py-1.5">
+                <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
+                <dd className="text-ink-900 mt-0.5 break-words">{String(value)}</dd>
+              </div>
+            ))}
+          </dl>
+          {photos.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Photos submitted</div>
+              <div className="flex flex-wrap gap-2" data-testid="locked-lead-photos">
+                {photos.map((ph) => (
+                  <a key={ph.id || ph.url} href={`${process.env.REACT_APP_BACKEND_URL}${ph.url}`} target="_blank" rel="noreferrer"
+                    className="block w-20 h-20 rounded overflow-hidden border border-border">
+                    <img src={`${process.env.REACT_APP_BACKEND_URL}${ph.url}`} alt="" className="w-full h-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-border flex justify-end">
+          <button onClick={onClose} data-testid="locked-lead-close" className="px-3 py-2 rounded-md border border-border text-sm">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Leads() {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("");
   const [commLead, setCommLead] = useState(null);
   const [convertModal, setConvertModal] = useState(null); // property draft including __source_lead_id
   const [savingConvert, setSavingConvert] = useState(false);
+  const [viewLead, setViewLead] = useState(null);
   const load = useCallback(() => api.get("/leads").then((r) => setItems(r.data)), []);
   useEffect(() => { load(); }, [load]);
 
@@ -126,11 +195,18 @@ export default function Leads() {
           </thead>
           <tbody>
             {shown.map((l) => {
-              const alreadyConverted = l.status === "converted";
-              const hasLinkedProperty = alreadyConverted && !!l.property_id;
+              const isLocked = Boolean(l.converted_at) || (l.status === "converted" && !!l.property_id);
+              const hasLinkedProperty = isLocked && !!l.property_id;
               return (
                 <tr key={l.id} className="border-t border-border" data-testid={`lead-row-${l.id}`}>
-                  <td className="p-3 font-medium">{l.name}</td>
+                  <td className="p-3 font-medium">
+                    {l.name}
+                    {isLocked && (
+                      <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sand-100 border border-border text-[10px] text-muted-foreground" data-testid={`lead-locked-${l.id}`}>
+                        <Lock className="w-3 h-3" /> Converted{l.converted_at ? ` · ${new Date(l.converted_at).toLocaleDateString()}` : ""}
+                      </div>
+                    )}
+                  </td>
                   <td className="p-3 text-xs">{l.source}</td>
                   <td className="p-3">
                     {hasLinkedProperty ? (
@@ -143,7 +219,7 @@ export default function Leads() {
                       >
                         {l.property_title || "View listing"} <ExternalLink className="w-3.5 h-3.5" />
                       </Link>
-                    ) : alreadyConverted ? (
+                    ) : isLocked ? (
                       <span className="text-xs text-muted-foreground italic">Converted (no linked property)</span>
                     ) : (
                       l.property_title || "—"
@@ -162,13 +238,31 @@ export default function Leads() {
                   <td className="p-3 text-xs">{l.email}<br />{l.phone}</td>
                   <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs capitalize ${badge[l.status]}`}>{l.status}</span></td>
                   <td className="p-3">
-                    <select value={l.status} onChange={(e) => setStatus(l.id, e.target.value)} data-testid={`lead-status-${l.id}`} className="border border-border rounded px-2 py-1 text-xs">
-                      {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    {isLocked ? (
+                      <span className="text-[11px] text-muted-foreground italic">Read-only</span>
+                    ) : (
+                      <select value={l.status} onChange={(e) => setStatus(l.id, e.target.value)} data-testid={`lead-status-${l.id}`} className="border border-border rounded px-2 py-1 text-xs">
+                        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    )}
                   </td>
                   <td className="p-3">
-                    <div className="flex items-center gap-1">
-                      {!alreadyConverted && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {isLocked ? (
+                        <>
+                          {hasLinkedProperty && (
+                            <Link to={`/property/${l.property_id}`} target="_blank" rel="noreferrer"
+                              data-testid={`lead-goto-property-${l.id}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d50e0] hover:bg-[#0b44c2] text-white text-xs font-medium">
+                              <ExternalLink className="w-3.5 h-3.5" /> Go to Property
+                            </Link>
+                          )}
+                          <button onClick={() => setViewLead(l)} data-testid={`lead-view-${l.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border text-xs" title="View original lead details">
+                            <Eye className="w-3.5 h-3.5" /> View
+                          </button>
+                        </>
+                      ) : (
                         <button
                           onClick={() => openConvert(l)}
                           data-testid={`lead-convert-${l.id}`}
@@ -194,6 +288,7 @@ export default function Leads() {
         </table>
       </div>
       {commLead && <CommunicationsPanel lead={commLead} onClose={() => setCommLead(null)} />}
+      {viewLead && <LockedLeadModal lead={viewLead} onClose={() => setViewLead(null)} />}
       {convertModal && (
         <PropertyModal
           modal={convertModal}

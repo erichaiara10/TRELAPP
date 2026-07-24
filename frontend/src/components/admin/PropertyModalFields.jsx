@@ -5,7 +5,7 @@ import LocationPicker from "@/components/LocationPicker";
 import PriceInput from "@/components/PriceInput";
 import { sanitizeDigits } from "@/lib/validators";
 
-const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price"];
+const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price", "total_area_ha"];
 const TEXT_FIELDS = [
   ["title","Title"],
   ["bedrooms","Bedrooms"], ["bathrooms","Bathrooms"], ["parking","Parking"], ["area_sqm","Area (sqm)"],
@@ -92,13 +92,63 @@ export default function PropertyModalFields({ modal, setModal }) {
         required
       />
       <label className="block col-span-2">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Description</span>
+        <span className="text-xs uppercase tracking-widest text-muted-foreground">Description{modal.land_category === "large_portion" ? <span className="text-destructive ml-0.5">*</span> : null}</span>
         <textarea rows={3} value={modal.description} onChange={set("description")} data-testid="property-description" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
       </label>
       <label className="block col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Features (comma)</span>
         <input value={modal.features} onChange={set("features")} data-testid="property-features" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
       </label>
+
+      {/* ---- Legal & Location details (Feb 22, 2026) ---- */}
+      <div className="col-span-2 pt-2 mt-1 border-t border-border">
+        <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Legal & location details</div>
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Land category{modal.listing_type === "sale" ? <span className="text-destructive ml-0.5">*</span> : null}</span>
+            <select value={modal.land_category || ""} onChange={set("land_category")} data-testid="property-land-category" className="mt-1 w-full border border-border rounded px-2 py-1.5">
+              <option value="">— Not specified —</option>
+              <option value="large_portion">Large Portion</option>
+              <option value="subdivided_town_land">Subdivided Town Land</option>
+            </select>
+          </label>
+          {modal.listing_type === "sale" && (
+            <label className="block">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Total area (hectares)<span className="text-destructive ml-0.5">*</span></span>
+              <input type="text" inputMode="decimal" value={modal.total_area_ha ?? ""}
+                onChange={(e) => setModal({ ...modal, total_area_ha: e.target.value.replace(/[^0-9.]/g, "") })}
+                placeholder="e.g. 0.0824" data-testid="property-total-area-ha" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+            </label>
+          )}
+          {modal.land_category === "large_portion" && (
+            <label className="block col-span-2">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Full portion number<span className="text-destructive ml-0.5">*</span></span>
+              <input value={modal.full_portion_number ?? ""} onChange={set("full_portion_number")} data-testid="property-full-portion-number" placeholder="e.g. 2145C" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+            </label>
+          )}
+          {modal.land_category === "subdivided_town_land" && (
+            <>
+              <label className="block">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Allotment number<span className="text-destructive ml-0.5">*</span></span>
+                <input value={modal.allotment_number ?? ""} onChange={set("allotment_number")} data-testid="property-allotment-number" placeholder="e.g. 15" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Section number<span className="text-destructive ml-0.5">*</span></span>
+                <input value={modal.section_number ?? ""} onChange={set("section_number")} data-testid="property-section-number" placeholder="e.g. 42" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+              </label>
+            </>
+          )}
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Street name (optional)</span>
+            <input value={modal.street_name ?? ""} onChange={set("street_name")} data-testid="property-street-name" placeholder="e.g. Waigani Drive" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Nearby landmark (optional)</span>
+            <input value={modal.nearby_landmark ?? ""} onChange={set("nearby_landmark")} data-testid="property-nearby-landmark" placeholder="e.g. next to Vision City" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
+          </label>
+        </div>
+      </div>
+
       <label className="block col-span-2">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Street address</span>
         <input value={modal.address ?? ""} onChange={set("address")} data-testid="property-address" placeholder="e.g. 12 Ela Beach Road" className="mt-1 w-full border border-border rounded px-2 py-1.5" />
