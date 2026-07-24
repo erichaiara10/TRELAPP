@@ -15,6 +15,17 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Lead lock + Property legal fields + Phone formatting (Feb 22, 2026)
+- **AU phone updated to 9 digits** (leading `0` dropped). PhoneInput now displays formatted groups: PNG `7628 1552` (4-4), AU `4 1234 5678` (1-4-4). Digit-only storage on the wire.
+- **Property legal & location fields** added: `land_category` (large_portion / subdivided_town_land), `full_portion_number`, `allotment_number`, `section_number`, `total_area_ha`, `street_name`, `nearby_landmark`. Total area (hectares) is required only when `listing_type='sale'`. Admin Property modal conditionally shows the appropriate mandatory fields.
+- **Public PropertyDetail** now renders a "Legal & location details" block with allotment/section OR full portion, total area (up to 4 dp), street name, and nearby landmark.
+- **Lead lock** on conversion:
+  - Backend `PUT /api/leads/{id}` on a converted lead → **409 Conflict**. Same for `DELETE`.
+  - Backend auto-stamps `converted_at` + `converted_property_id` when a PUT transitions status→`converted` with a `property_id`.
+  - Admin Leads UI shows a 🔒 chip on locked rows, replaces the status dropdown with **Read-only**, hides the Convert button, and shows **Go to Property** + **View** buttons.
+  - Locked-lead modal (`LockedLeadModal`) is a plain read-only summary card — banner + `dl` list, no form inputs.
+- Tests: iter-24 backend 6/6 pytest pass; frontend 100% functional pass. LOW-priority precision fix on total_area_ha display applied post-report.
+
 ### Global Data Validation (Feb 22, 2026)
 - **Shared validators** at `/app/frontend/src/lib/validators.js`: `sanitizeName`, `sanitizeDigits`, `sanitizePrice`, `parsePhone/joinPhone/isValidPhone`, `validateForm`, `isPlaceholder`, `warnOnce` (throttled toast, 1 per 2 s).
 - **Shared inputs**: `NameInput.jsx` (A–Z + spaces + `'` + `-`, max 25 chars); `PhoneInput.jsx` (country dropdown PNG +675 (8 digits) / AU +61 (9 digits), digit-only, country selection preserved on empty digits); `PriceInput.jsx` (K prefix, digits only, 0..K100M cap, live formatted preview).

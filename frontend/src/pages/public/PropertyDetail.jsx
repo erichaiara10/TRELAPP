@@ -152,7 +152,7 @@ export default function PropertyDetail() {
                   <div className="sm:col-span-2"><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Full portion number</dt><dd className="text-ink-900">{p.full_portion_number || "—"}</dd></div>
                 )}
                 {p.total_area_ha ? (
-                  <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Total area</dt><dd className="text-ink-900">{Number(p.total_area_ha).toLocaleString()} ha</dd></div>
+                  <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Total area</dt><dd className="text-ink-900">{Number(p.total_area_ha).toLocaleString(undefined, { maximumFractionDigits: 4 })} ha</dd></div>
                 ) : null}
                 {p.street_name && (
                   <div><dt className="text-[10px] uppercase tracking-widest text-muted-foreground">Street</dt><dd className="text-ink-900">{p.street_name}</dd></div>
