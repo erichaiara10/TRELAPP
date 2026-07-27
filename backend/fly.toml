@@ -12,7 +12,7 @@ primary_region = 'syd'
   force_https = true
   internal_port = 8000
   min_machines_running = 0
-  processes = ['app']
+ # processes = ['app']
 
 #[processes]
  # app = ''
