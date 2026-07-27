@@ -15,6 +15,24 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Backend refactor + Customer Communications (Feb 27, 2026)
+- **Server refactor** — `server.py` shrunk **1850 → 60 lines**. Broken out into:
+  - `/app/backend/core/` — `db.py` (mongo + helpers), `security.py` (JWT + bcrypt + captcha + honeypot), `notify.py` (auto-assign + in-DB email sim)
+  - `/app/backend/models.py` — all Pydantic schemas (single file, 341 lines)
+  - `/app/backend/routes/` — 15 focused router files (auth, properties, property_types, customers, requirements, leads, inspections, tasks, matching, locations, ai, content, reports, public, files) averaging ~110 lines each
+  - `/app/backend/seed.py` — startup migrations & seeding (`run_startup()`)
+  - `/app/backend/seed_data.py` — static defaults (page content, sample properties, users)
+  - Absolute imports throughout (uvicorn command unchanged: `server:app`)
+- **Customer Communications** — extended existing lead-only communications to also work for customers:
+  - Backend: added `GET/POST /api/customers/{cid}/communications`. `Communication` schema now uses `parent_type` + `parent_id` (with `lead_id` / `customer_id` mirror fields kept for convenience + backward compat).
+  - Legacy-doc fallback: `GET /api/leads/{lid}/communications` matches both new (`parent_type='lead', parent_id`) AND legacy docs (`lead_id` only) via `$or`.
+  - Cascade delete: deleting a customer removes their communications; deleting a lead removes both legacy + new-schema comms.
+  - Frontend: `CommunicationsPanel` now accepts a generic `parent={type,id,name,subtitle}` prop in addition to the legacy `lead={...}`. Admin Customers page renders a per-row `MessageSquare` icon (`data-testid=customer-comms-{id}`) that opens the drawer targeting `/api/customers/{cid}/communications`.
+- **Fixes this iteration**:
+  - Backend `POST /api/property-types` `TypeError` (duplicate `name` kwarg) — refactored dict build.
+  - `Wanted.jsx` legacy `property_type: "house"` default reset to blank.
+- Tests: iteration 26 — **28/28 pytest** (`test_iter26_communications.py`) + **62/62 regression** across all previously-passing suites. **100% frontend flows** for customer + lead communications drawer with cross-parent isolation verified.
+
 ### Property Type consolidation — dynamic property_types + legal_scheme (Feb 27, 2026)
 - **`land_category` REMOVED** — replaced by a single dynamic `property_types` MongoDB collection. Each type carries a `legal_scheme` of `"lot_section_street"` (requires allotment_number + section_number + street_name) OR `"portion"` (requires full_portion_number).
 - **6 default types seeded idempotently on startup**: House, Apartment, Town House, Commercial, Vacant Land – Urban Subdivided (all lot_section_street); Large Land – Portion / Customary (portion).
@@ -236,16 +254,15 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Iteration 19 (Feb 21, 2026): Full regression on Unified AI Price Analysis — 6/6 new AI tests + 100% frontend flow coverage (Sell/Buy/Rent/Detail/Admin/Leads/Maps). No issues.
 
 ## Backlog (deferred to V2)
-- P1 — Refactor `/app/backend/server.py` (>1500 lines) into routers (`routes/ai.py`, `routes/locations.py`, `routes/admin.py`, `routes/page_content.py`)
 - P1 — Real email provider (Resend/SendGrid) for confirmations
 - P1 — WhatsApp Business API integration (currently `wa.me` deep links)
-- P1 — Communication history log per customer/lead (calls, notes, timeline)
+- P1 — Communication history — external channels (auto-log outbound email/SMS/WhatsApp once providers wired)
 - P2 — Advanced reporting (revenue, agent performance, conversion funnel)
 - P2 — Data export (CSV/Excel)
 - P2 — Audit log UI (records currently written to Mongo but no UI yet)
 - P2 — SEO metadata per property, search-friendly URLs
 - P2 — Mobile app, tenant/owner portals, online rent payment (explicitly out-of-scope in V1)
-- P2 — Test hygiene: update `/app/backend/tests/backend_test.py` stale admin creds (`admin@pngrealty.pg` → `admin@trel.com.pg`); make `test_lead_convert.py` / `test_locations.py` use `os.environ.get(...)` at import time
+- P2 — Test hygiene: update `/app/backend/tests/backend_test.py` stale admin creds (`admin@pngrealty.pg` → `admin@trel.com.pg`); make `test_lead_convert.py` / `test_locations.py` use `os.environ.get(...)` at import time; add `total_area_ha` to sale-property fixtures in `test_lead_convert.py`, `test_iter24_lock_and_legal.py`, `test_map_coords.py`
 
 ## Next Actions
 1. Provide branded logo/photography if not using placeholders
