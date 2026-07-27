@@ -1,0 +1,10 @@
+app = "trelapp"
+
+[build]
+  builder = "python"
+
+[env]
+  PORT = "8080"
+
+[processes]
+  app = "uvicorn server:app --host 0.0.0.0 --port 8080"
