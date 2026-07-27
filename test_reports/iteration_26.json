@@ -1,0 +1,47 @@
+{
+  "summary": "Iter-26: Full backend + frontend verification of (1) the server.py refactor (60-line entry + routes/, core/, models.py, seed.py, seed_data.py) and (2) the new Customer Communications feature. New pytest suite /app/backend/tests/test_iter26_communications.py — 28/28 PASS. All previously-passing suites (test_property_types_refactor, test_customers, test_ai_price_analysis, test_nearby_amenities, test_page_content, test_captcha, test_sell_migration) still PASS — 62/62. Frontend: Admin Customers page renders a per-row MessageSquare button with data-testid=customer-comms-{id}; clicking opens the shared CommunicationsPanel (data-testid=comm-panel) with header 'CUSTOMER · <name> · <email>'; posting via comm-body + comm-submit hits POST /api/customers/{cid}/communications and the note appears immediately. Backward-compat: Admin Leads still opens the same drawer via lead={...} prop, header shows 'LEAD · …', posts to /api/leads/{lid}/communications, and customer-side notes DO NOT bleed into the lead-side history (isolation verified).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "GET /api/ returns {ok:true, service:'TREL API'} — refactored entry mounts /api routes.",
+    "GET /api/auth/me works with admin token (200, email=admin@trel.com.pg).",
+    "Regression GETs all 200: /api/users, /properties, /property-types, /customers, /requirements, /leads, /inspections, /tasks, /notifications, /reports/summary, /reports/leads_by_source, /locations/{provinces,cities,suburbs}.",
+    "GET /api/public/challenge → 200 with {question, token}.",
+    "POST /api/properties scheme enforcement still returns 400: House w/o allotment_number, Large Land Portion w/o full_portion_number, sale w/o total_area_ha.",
+    "GET /api/customers/{new-cid}/communications → 200 [] (empty).",
+    "POST /api/customers/{cid}/communications → 200 with parent_type='customer', parent_id=cid, customer_id=cid, lead_id=null, agent_name set.",
+    "POST /api/customers/does-not-exist/communications → 404.",
+    "POST /api/customers/{cid}/communications with whitespace-only body → 400.",
+    "DELETE /api/communications/{id} → 200, entry gone from list.",
+    "POST /api/leads/{lid}/communications (backward-compat) → 200 with parent_type='lead', parent_id=lid, lead_id=lid, customer_id=null.",
+    "GET /api/leads/{lid}/communications returns BOTH new-schema docs AND legacy docs (lead_id only, no parent_type) inserted directly into MongoDB.",
+    "DELETE customer cascade-deletes their customer communications (list returns [] afterwards).",
+    "DELETE lead cascade-deletes both new-style and legacy lead communications.",
+    "Customer/lead comm isolation: notes logged against a customer do NOT appear in a lead's history, and vice-versa."
+  ],
+  "verified_frontend": [
+    "Admin Customers rows render data-testid=customer-comms-{id} (MessageSquare icon) next to edit/delete.",
+    "Clicking the button opens data-testid=comm-panel with header text 'CUSTOMER · <name> · <email or phone>'.",
+    "Filling comm-body + clicking comm-submit posts to /api/customers/{cid}/communications; the new note appears in the drawer and success toast 'Logged' fires.",
+    "Admin Leads → data-testid=lead-history-{id} still opens the same drawer; header shows 'LEAD · <name> · …'; posting hits /api/leads/{lid}/communications.",
+    "Cross-parent isolation: 'UI-test-customer-note-ITER26' never appears in a lead drawer, and 'UI-test-lead-note-ITER26' never appears in a customer drawer."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_communications.py",
+    "/app/test_reports/pytest/iter26_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/leads.py::delete_communication does not verify the caller has access to the parent doc — any authed user can delete any communication by id. Acceptable for the current single-tenant CRM but worth noting.",
+    "CommunicationsPanel.jsx line 21: `base` is null-guarded but the `submit`/`del` handlers don't re-check `base`; harmless because the form is only reachable when a parent is passed (component returns null at line 52 otherwise). Low risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_communications.py (new — 28 tests: refactor regression smoke + customer & lead communications CRUD, 404, empty-body 400, cascade delete, legacy fallback, isolation)"
+  ],
+  "success_rate": {"backend": "100% (28/28 new + 62/62 regression)", "frontend": "100% (all customer + lead comm flows)"},
+  "seed_data_creation": "Ephemeral only — TESTCust_ITER26_* customers, one public lead (TESTLead_ITER26_*), and one UI-side TESTCust_UI_ITER26 customer if not preexisting. All test comms deleted post-run. Backend fixtures teardown their own customers/leads.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md).",
+  "context_for_next_testing_agent": "Refactor is clean — all previously-passing suites remain green after the split into routes/*.py + core/*.py + models.py + seed.py + seed_data.py. Customer Communications endpoints live in routes/leads.py (shared _create_comm/_match_parent helpers). The Communication schema now uses parent_type + parent_id with legacy lead_id fallback matched via $or; verified end-to-end. Frontend shares CommunicationsPanel between Admin Customers (via parent={type:'customer', id, name, subtitle}) and Admin Leads (legacy lead={...} prop). Public captcha uses text challenge ('Type these letters/numbers: XXXXX') — helper `_get_captcha` in the new test file handles both text and arithmetic formats."
+}

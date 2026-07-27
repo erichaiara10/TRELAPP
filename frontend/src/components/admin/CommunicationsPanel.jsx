@@ -4,23 +4,31 @@ import { toast } from "sonner";
 import { X, MessageSquare, Phone, Mail, StickyNote, Send, Trash2 } from "lucide-react";
 
 const KIND_ICONS = { call: Phone, email: Mail, whatsapp: MessageSquare, note: StickyNote, meeting: MessageSquare, sms: MessageSquare };
-const KINDS = ["note","call","email","whatsapp","sms","meeting"];
-const DIRECTIONS = ["outbound","inbound","internal"];
+const KINDS = ["note", "call", "email", "whatsapp", "sms", "meeting"];
+const DIRECTIONS = ["outbound", "inbound", "internal"];
 
-export default function CommunicationsPanel({ lead, onClose }) {
+/**
+ * Communication history panel — reusable for both leads and customers.
+ *
+ * Pass either `lead={...}` (legacy) OR `parent={{ type: 'lead'|'customer', id, name, subtitle }}`.
+ */
+export default function CommunicationsPanel({ lead, parent, onClose }) {
+  const p = parent || (lead ? { type: "lead", id: lead.id, name: lead.name, subtitle: lead.email || lead.phone || "—" } : null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ kind: "note", direction: "outbound", subject: "", body: "" });
 
+  const base = p ? `/${p.type === "customer" ? "customers" : "leads"}/${p.id}/communications` : null;
+
   const load = useCallback(async () => {
-    if (!lead?.id) return;
+    if (!base) return;
     setLoading(true);
     try {
-      const { data } = await api.get(`/leads/${lead.id}/communications`);
+      const { data } = await api.get(base);
       setItems(data);
     } catch (e) { toast.error(formatError(e)); }
     finally { setLoading(false); }
-  }, [lead?.id]);
+  }, [base]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -28,7 +36,7 @@ export default function CommunicationsPanel({ lead, onClose }) {
     e.preventDefault();
     if (!form.body.trim()) { toast.error("Please enter a message"); return; }
     try {
-      await api.post(`/leads/${lead.id}/communications`, form);
+      await api.post(base, form);
       setForm({ ...form, subject: "", body: "" });
       load();
       toast.success("Logged");
@@ -41,13 +49,17 @@ export default function CommunicationsPanel({ lead, onClose }) {
     catch (e) { toast.error(formatError(e)); }
   };
 
+  if (!p) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex justify-end" onClick={onClose}>
       <div className="bg-white w-full max-w-lg h-full overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()} data-testid="comm-panel">
         <div className="p-4 border-b border-border sticky top-0 bg-white z-10 flex items-center justify-between">
           <div>
             <div className="font-medium">Communication history</div>
-            <div className="text-xs text-muted-foreground truncate">{lead.name} · {lead.email || lead.phone || "—"}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              <span className="uppercase tracking-widest mr-1.5">{p.type}</span>· {p.name} · {p.subtitle}
+            </div>
           </div>
           <button onClick={onClose} aria-label="Close"><X className="w-4 h-4" /></button>
         </div>
@@ -68,7 +80,7 @@ export default function CommunicationsPanel({ lead, onClose }) {
                     <span className="capitalize">{c.direction}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">{(c.created_at||"").replace("T", " ").slice(0,16)}</span>
+                    <span className="text-muted-foreground">{(c.created_at || "").replace("T", " ").slice(0, 16)}</span>
                     <button onClick={() => del(c.id)} data-testid={`comm-del-${c.id}`} className="p-1 hover:bg-white rounded text-destructive" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>

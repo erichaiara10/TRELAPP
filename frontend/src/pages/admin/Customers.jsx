@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, X, Loader2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2, Search, MessageSquare } from "lucide-react";
 import NameInput from "@/components/NameInput";
 import PhoneInput from "@/components/PhoneInput";
+import CommunicationsPanel from "@/components/admin/CommunicationsPanel";
 
 const CUSTOMER_TYPES = ["buyer", "seller", "tenant", "landlord", "corporate"];
 
@@ -74,6 +75,7 @@ export default function Customers() {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [commCustomer, setCommCustomer] = useState(null);
 
   const load = useCallback(async () => {
     try { const { data } = await api.get("/customers"); setItems(data); }
@@ -164,6 +166,10 @@ export default function Customers() {
                 <td className="p-3 text-xs text-muted-foreground">{(c.created_at || "").slice(0,10)}</td>
                 <td className="p-3">
                   <div className="flex items-center gap-1 justify-end">
+                    <button onClick={() => setCommCustomer(c)} title="Communication history" data-testid={`customer-comms-${c.id}`}
+                      className="p-1.5 rounded hover:bg-sand-100 text-muted-foreground hover:text-pine-500">
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
                     <button onClick={() => openEdit(c)} title="Edit" data-testid={`customer-edit-${c.id}`}
                       className="p-1.5 rounded hover:bg-sand-100 text-muted-foreground hover:text-ink-900">
                       <Pencil className="w-4 h-4" />
@@ -186,6 +192,12 @@ export default function Customers() {
       </div>
 
       {modal && <CustomerModal modal={modal} setModal={setModal} onSave={save} onClose={() => !saving && setModal(null)} saving={saving} />}
+      {commCustomer && (
+        <CommunicationsPanel
+          parent={{ type: "customer", id: commCustomer.id, name: commCustomer.name, subtitle: commCustomer.email || commCustomer.phone || "—" }}
+          onClose={() => setCommCustomer(null)}
+        />
+      )}
     </div>
   );
 }
