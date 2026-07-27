@@ -1,19 +1,17 @@
-
-# Use official Python image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements from the current directory (backend/)
-COPY requirements.txt .
+# Copy requirement files and install
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all application code into /app
+# Copy all project files
 COPY . .
 
-# Expose port
+# Set Python path so it can find backend module
+ENV PYTHONPATH=/app/backend
+
 EXPOSE 8000
 
-# Start FastAPI with Uvicorn
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8000"]
