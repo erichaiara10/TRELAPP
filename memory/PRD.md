@@ -15,6 +15,20 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Sell page — grouped section layout (Feb 27, 2026)
+- **4-step grouped card layout** replaces the flat grid:
+  1. **Owner Information** (User icon) — Full Name, Email, Phone
+  2. **Legal Description** (ScrollText icon) — Property Type + Total Area (ha) side-by-side; Province → City → Suburb; then dynamic legal fields:
+     - `legal_scheme = "portion"`: **Portion Number** only (Lot/Section/Street hidden)
+     - `legal_scheme = "lot_section_street"` (default): Lot Number + Section Number + Street Name (Portion Number hidden)
+  3. **Pricing & Valuation** (Wallet icon) — Expected Price (PGK) with inline AI Price Analysis
+  4. **Location Details** (MapPin icon) — Nearby Landmark + Google Maps + Photos
+- New shared `<FormSection>` component (`/app/frontend/src/components/FormSection.jsx`) renders numbered "STEP N" kicker + serif title + icon tile (BRAND_BLUE #0d50e0 with 15% alpha)
+- `LeadFormPage` gained an optional `sectionsMode` prop; when true it wraps Name/Email/Phone in Section 1 and moves "Tell us more" + CAPTCHA + Submit into a final card. Other pages (Contact, Wanted, Corporate, Management) are unchanged.
+- All existing `data-testid`s preserved (sell_form-type, sell_form-price, sell_form-allotment-number, etc.); new test IDs added: `sell_form-section-owner`, `sell_form-section-legal`, `sell_form-section-pricing`, `sell_form-section-location`
+- Verified: House → shows Lot/Section/Street; Large Land Portion → shows only Portion Number; Total Area placeholder auto-adjusts (0.0824 vs 12.5)
+- Self-tested via screenshot; no backend changes.
+
 ### Backend refactor + Customer Communications (Feb 27, 2026)
 - **Server refactor** — `server.py` shrunk **1850 → 60 lines**. Broken out into:
   - `/app/backend/core/` — `db.py` (mongo + helpers), `security.py` (JWT + bcrypt + captcha + honeypot), `notify.py` (auto-assign + in-DB email sim)

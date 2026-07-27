@@ -7,12 +7,13 @@ import LocationPicker from "@/components/LocationPicker";
 import AIPriceAnalysis from "@/components/AIPriceAnalysis";
 import PriceInput from "@/components/PriceInput";
 import PropertyTypeSelect from "@/components/PropertyTypeSelect";
+import FormSection from "@/components/FormSection";
 import { isPlaceholder } from "@/lib/validators";
 import { usePropertyTypes, isPortionScheme } from "@/lib/usePropertyTypes";
 import {
   BadgeCheck, Camera, Megaphone, Headphones,
   ShieldCheck, Users, Wallet, Wrench, Building2, HomeIcon,
-  Star, Award, Clock, MapPin,
+  Star, Award, Clock, MapPin, ScrollText,
 } from "lucide-react";
 
 const BRAND_BLUE = "#0d50e0";
@@ -46,50 +47,43 @@ export default function Sell() {
 
   const extra = (
     <>
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Property type<RequiredMark /></span>
-        <div className="mt-1">
-          <PropertyTypeSelect value={prop.property_type} onChange={(v) => setProp({ ...prop, property_type: v })} testId="sell_form-type" />
-        </div>
-      </label>
-      <label className="block md:col-span-2">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground">Expected price (PGK)<RequiredMark /></span>
-        <div className="mt-1 flex flex-col sm:flex-row sm:items-start gap-2">
-          <div className="w-full sm:flex-1">
-            <PriceInput value={prop.price} onChange={(v) => setProp({ ...prop, price: v })} testId="sell_form-price" />
-          </div>
-          <div className="w-full sm:w-auto">
-            <AIPriceAnalysis
-              audience="seller"
-              property_type={prop.property_type}
-              listing_type="sale"
-              price={prop.price}
-              province={prop.province}
-              city={prop.location}
-              suburb={prop.suburb}
-              street_name={prop.street_name}
-              nearby_landmark={prop.nearby_landmark}
-              testIdPrefix="sell-ai-price"
+      {/* ---- Section 2: Legal Description ---- */}
+      <FormSection num={2} icon={ScrollText} title="Legal Description" hint="Property identity — cadastral + address components" testId="sell_form-section-legal">
+        <div className="grid md:grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Property type<RequiredMark /></span>
+            <div className="mt-1">
+              <PropertyTypeSelect value={prop.property_type} onChange={(v) => setProp({ ...prop, property_type: v })} testId="sell_form-type" />
+            </div>
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Total area (hectares)<RequiredMark /></span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={prop.total_area_ha}
+              onChange={(e) => setProp({ ...prop, total_area_ha: e.target.value.replace(/[^0-9.]/g, "") })}
+              placeholder={isPortion ? "e.g. 12.5" : "e.g. 0.0824"}
+              data-testid="sell_form-total-area-ha"
+              className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white"
+            />
+          </label>
+
+          <div className="md:col-span-2">
+            <LocationPicker
+              value={{ province: prop.province, city: prop.location, suburb: prop.suburb }}
+              onChange={(v) => setProp({ ...prop, province: v.province, location: v.city, suburb: v.suburb })}
+              testIdPrefix="sell_form-location"
+              required
             />
           </div>
-        </div>
-      </label>
-      <LocationPicker
-        value={{ province: prop.province, city: prop.location, suburb: prop.suburb }}
-        onChange={(v) => setProp({ ...prop, province: v.province, location: v.city, suburb: v.suburb })}
-        testIdPrefix="sell_form-location"
-        required
-      />
 
-      {/* ---- Legal & Location details (dynamic per property_type's legal_scheme) ---- */}
-      <div className="md:col-span-2 pt-2 mt-1 border-t border-border">
-        <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Legal & location details</div>
-        <div className="grid md:grid-cols-2 gap-4">
           {!prop.property_type && (
             <div className="md:col-span-2 text-xs text-muted-foreground italic">
               Select a Property Type above to see the relevant legal fields.
             </div>
           )}
+
           {prop.property_type && !isPortion && (
             <>
               <label className="block">
@@ -97,52 +91,70 @@ export default function Sell() {
                 <input value={prop.allotment_number} onChange={(e) => setProp({ ...prop, allotment_number: e.target.value })} placeholder="e.g. 15" data-testid="sell_form-allotment-number" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
               </label>
               <label className="block">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Total area (hectares)<RequiredMark /></span>
-                <input type="text" inputMode="decimal" value={prop.total_area_ha} onChange={(e) => setProp({ ...prop, total_area_ha: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="e.g. 0.0824" data-testid="sell_form-total-area-ha" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-              </label>
-              <label className="block">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Section number<RequiredMark /></span>
                 <input value={prop.section_number} onChange={(e) => setProp({ ...prop, section_number: e.target.value })} placeholder="e.g. 42" data-testid="sell_form-section-number" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
               </label>
-              <label className="block">
+              <label className="block md:col-span-2">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Street name<RequiredMark /></span>
                 <input value={prop.street_name} onChange={(e) => setProp({ ...prop, street_name: e.target.value })} placeholder="e.g. Waigani Drive" data-testid="sell_form-street-name" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
               </label>
-              <label className="block md:col-span-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Nearby landmark (optional)</span>
-                <input value={prop.nearby_landmark} onChange={(e) => setProp({ ...prop, nearby_landmark: e.target.value })} placeholder="e.g. next to Vision City" data-testid="sell_form-nearby-landmark" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-              </label>
             </>
           )}
+
           {prop.property_type && isPortion && (
-            <>
-              <label className="block md:col-span-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Portion number<RequiredMark /></span>
-                <input value={prop.full_portion_number} onChange={(e) => setProp({ ...prop, full_portion_number: e.target.value })} placeholder="e.g. 2145C" data-testid="sell_form-full-portion-number" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-              </label>
-              <label className="block md:col-span-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Total area (hectares)<RequiredMark /></span>
-                <input type="text" inputMode="decimal" value={prop.total_area_ha} onChange={(e) => setProp({ ...prop, total_area_ha: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="e.g. 12.5" data-testid="sell_form-total-area-ha" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-              </label>
-              <label className="block md:col-span-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Nearby landmark (optional)</span>
-                <input value={prop.nearby_landmark} onChange={(e) => setProp({ ...prop, nearby_landmark: e.target.value })} placeholder="e.g. 2 km east of Sogeri Plateau road" data-testid="sell_form-nearby-landmark" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
-              </label>
-            </>
+            <label className="block md:col-span-2">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Portion number<RequiredMark /></span>
+              <input value={prop.full_portion_number} onChange={(e) => setProp({ ...prop, full_portion_number: e.target.value })} placeholder="e.g. 2145C" data-testid="sell_form-full-portion-number" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+            </label>
           )}
         </div>
-      </div>
+      </FormSection>
 
-      <MapCoordsField
-        label="Google Maps location (optional)"
-        value={prop.map_coords}
-        onChange={(v) => setProp({ ...prop, map_coords: v })}
-        testId="sell_form-map-coords"
-        city={prop.location}
-        suburb={prop.suburb}
-        province={prop.province}
-      />
-      <PhotoUploader value={photos} onChange={setPhotos} testId="sell_form-photos" />
+      {/* ---- Section 3: Pricing & Valuation ---- */}
+      <FormSection num={3} icon={Wallet} title="Pricing & Valuation" hint="What are you asking for the property?" testId="sell_form-section-pricing">
+        <label className="block">
+          <span className="text-xs uppercase tracking-widest text-muted-foreground">Expected price (PGK)<RequiredMark /></span>
+          <div className="mt-1 flex flex-col sm:flex-row sm:items-start gap-2">
+            <div className="w-full sm:flex-1">
+              <PriceInput value={prop.price} onChange={(v) => setProp({ ...prop, price: v })} testId="sell_form-price" />
+            </div>
+            <div className="w-full sm:w-auto">
+              <AIPriceAnalysis
+                audience="seller"
+                property_type={prop.property_type}
+                listing_type="sale"
+                price={prop.price}
+                province={prop.province}
+                city={prop.location}
+                suburb={prop.suburb}
+                street_name={prop.street_name}
+                nearby_landmark={prop.nearby_landmark}
+                testIdPrefix="sell-ai-price"
+              />
+            </div>
+          </div>
+        </label>
+      </FormSection>
+
+      {/* ---- Section 4: Location Details (Landmark + Map + Photos) ---- */}
+      <FormSection num={4} icon={MapPin} title="Location Details" hint="Help buyers picture where the property is" testId="sell_form-section-location">
+        <div className="grid md:grid-cols-1 gap-4">
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">Nearby landmark (optional)</span>
+            <input value={prop.nearby_landmark} onChange={(e) => setProp({ ...prop, nearby_landmark: e.target.value })} placeholder={isPortion ? "e.g. 2 km east of Sogeri Plateau road" : "e.g. next to Vision City"} data-testid="sell_form-nearby-landmark" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+          </label>
+          <MapCoordsField
+            label="Google Maps location (optional)"
+            value={prop.map_coords}
+            onChange={(v) => setProp({ ...prop, map_coords: v })}
+            testId="sell_form-map-coords"
+            city={prop.location}
+            suburb={prop.suburb}
+            province={prop.province}
+          />
+          <PhotoUploader value={photos} onChange={setPhotos} testId="sell_form-photos" />
+        </div>
+      </FormSection>
     </>
   );
 
@@ -173,6 +185,7 @@ export default function Sell() {
         title={hero.heading || "List your property"}
         intro={hero.intro || ""}
         heroImage={hero.image}
+        sectionsMode
         extra={extra}
         extraPayload={() => {
           // Only emit legal fields that belong to the selected scheme

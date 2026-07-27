@@ -1,10 +1,11 @@
 import React, { useRef, useState } from "react";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, User } from "lucide-react";
 import HumanVerification from "@/components/HumanVerification";
 import NameInput from "@/components/NameInput";
 import PhoneInput from "@/components/PhoneInput";
+import FormSection from "@/components/FormSection";
 import { validateForm, isValidEmail } from "@/lib/validators";
 
 const REQUIRED_ERROR = "Please fill in all required fields marked with a red asterisk before submitting.";
@@ -44,6 +45,7 @@ function Area({ label, required, ...props }) {
 export function LeadFormPage({
   source, title, kicker, intro, heroImage,
   extra = null, extraPayload = () => ({}), extraRequired = () => true, extraValidator = () => ({}),
+  sectionsMode = false,
 }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
   const [errors, setErrors] = useState({});
@@ -108,6 +110,44 @@ export function LeadFormPage({
             </div>
           </div>
         </div>
+      ) : sectionsMode ? (
+        <form onSubmit={submit} noValidate className="mt-10 space-y-6 max-w-3xl" data-testid={`${source}-form`}>
+          <FormSection num={1} icon={User} title="Owner Information" hint="Who should we reply to?" testId={`${source}-section-owner`}>
+            <div className="grid md:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Full name<RequiredMark /></span>
+                <div className="mt-1"><NameInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} error={errors.name} testId={`${source}-name`} /></div>
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Email<RequiredMark /></span>
+                <input type="email" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid={`${source}-email`}
+                  className={`mt-1 w-full border rounded-lg px-3 py-2.5 bg-white ${errors.email ? "border-destructive" : "border-border"}`} />
+                {errors.email && <p className="mt-1 text-[11px] text-destructive" data-testid={`${source}-email-error`}>{errors.email}</p>}
+              </label>
+              <label className="block md:col-span-2">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Phone<RequiredMark /></span>
+                <div className="mt-1"><PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} error={errors.phone} testId={`${source}-phone`} /></div>
+              </label>
+            </div>
+          </FormSection>
+
+          {extra}
+
+          <div className="rounded-2xl bg-white border border-border p-6 md:p-8">
+            <label className="block">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Tell us more</span>
+              <textarea rows={4} placeholder="Share any details that will help us respond faster." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} data-testid={`${source}-message`}
+                className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white" />
+            </label>
+            <div className="mt-4"><HumanVerification ref={captchaRef} /></div>
+            <div className="mt-4">
+              <button disabled={loading} data-testid={`${source}-submit`} className="px-8 py-3 rounded-full bg-pine-500 hover:bg-pine-600 text-white disabled:opacity-60">
+                {loading ? "Submitting…" : "Submit"}
+              </button>
+              <p className="text-xs text-muted-foreground mt-2"><span className="text-destructive">*</span> indicates a required field</p>
+            </div>
+          </div>
+        </form>
       ) : (
         <form onSubmit={submit} noValidate className="mt-10 grid md:grid-cols-2 gap-4" data-testid={`${source}-form`}>
           <label className="block">
