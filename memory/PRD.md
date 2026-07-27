@@ -15,6 +15,22 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Property Type consolidation — dynamic property_types + legal_scheme (Feb 27, 2026)
+- **`land_category` REMOVED** — replaced by a single dynamic `property_types` MongoDB collection. Each type carries a `legal_scheme` of `"lot_section_street"` (requires allotment_number + section_number + street_name) OR `"portion"` (requires full_portion_number).
+- **6 default types seeded idempotently on startup**: House, Apartment, Town House, Commercial, Vacant Land – Urban Subdivided (all lot_section_street); Large Land – Portion / Customary (portion).
+- **Startup backfill migration** maps legacy lowercase `property_type` values (house/apartment/townhouse/commercial/land) to the new titled names, converts old `land_category=='large_portion'` rows to the new portion type, and `$unset`s the `land_category` field from every property document.
+- **Backend endpoints**: `GET /api/property-types` (public, active only), `GET /api/property-types/all` (admin), `POST /api/property-types` (admin, unique name → 409 on dup), `DELETE /api/property-types/{id}` (admin).
+- **Scheme enforcement**: `_enforce_scheme(payload)` on every POST/PUT `/properties` looks up the type's legal_scheme, requires the correct legal fields, and **wipes the ones that don't apply** so the DB stays consistent. `land_category` is stripped from PUT payloads for safety.
+- **New shared components**:
+  - `/app/frontend/src/lib/usePropertyTypes.js` — tiny module-level cache + `usePropertyTypes()` hook + `isPortionScheme(types, name)` helper.
+  - `/app/frontend/src/components/PropertyTypeSelect.jsx` — shared dropdown; when `admin` prop is set, exposes an inline "＋ Add new type…" option (opens `property-type-add-modal` with name + lss/portion radio) and per-type × chips with confirm-delete.
+- **Frontend wiring**: `PropertyModalFields.jsx` (admin), `Sell.jsx`, `Wanted.jsx`, and `Search.jsx` (Buy/Rent filter) all use `PropertyTypeSelect`. Sell + Admin modal use `isPortionScheme` to switch the legal-fields UI (Lot/Section/Street vs Portion) and require the right fields.
+- **AI Vicinity Awareness**: `AIPriceAnalysis.jsx` now includes `street_name` + `nearby_landmark` in the payload for tighter Claude localization.
+- **Fixes this iteration**:
+  - Backend `POST /api/property-types` had a duplicate `name` kwarg crash (`TypeError: got multiple values for keyword argument 'name'`) — refactored to build the doc dict cleanly.
+  - `Wanted.jsx` initial state had legacy `property_type: "house"` (no matching option after refactor) — reset to `""`.
+- Tests: iteration 25 — **12/12 pytest backend** (`/app/backend/tests/test_property_types_refactor.py`) + **100% frontend flows** (public Sell / Wanted / Buy filter / admin Property modal add + scheme switching + inline add-type modal + delete chips). Zero critical/minor issues.
+
 ### Lead lock + Property legal fields + Phone formatting (Feb 22, 2026)
 - **AU phone updated to 9 digits** (leading `0` dropped). PhoneInput now displays formatted groups: PNG `7628 1552` (4-4), AU `4 1234 5678` (1-4-4). Digit-only storage on the wire.
 - **Property legal & location fields** added: `land_category` (large_portion / subdivided_town_land), `full_portion_number`, `allotment_number`, `section_number`, `total_area_ha`, `street_name`, `nearby_landmark`. Total area (hectares) is required only when `listing_type='sale'`. Admin Property modal conditionally shows the appropriate mandatory fields.
