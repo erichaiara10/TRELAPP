@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 
 MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
+DB_NAME = os.getenv("DB_NAME", "trel_db")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
