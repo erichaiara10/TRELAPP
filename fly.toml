@@ -6,8 +6,8 @@
 app = 'trelweb'
 primary_region = 'iad'
 
-[build]
-  builder = 'python'
+#[build]
+#  builder = 'python'
 
 [env]
   PORT = '8080'
