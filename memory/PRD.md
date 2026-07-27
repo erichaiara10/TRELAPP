@@ -15,6 +15,19 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Admin Property modal — grouped 5-step layout (Feb 27, 2026)
+- Mirrored the Sell page grouped layout onto the Admin `PropertyModalFields`:
+  1. **Basics** (FileText) — Title, Listing type, Bedrooms/Bathrooms/Parking, Area (sqm), Description, Features
+  2. **Legal Description** (ScrollText) — Property Type + Total Area (ha) side-by-side, Province → City → Suburb, then dynamic Lot/Section/Street OR Portion Number based on the type's `legal_scheme`
+  3. **Pricing & Valuation** (Wallet) — Price (PGK) with sale/rent-aware hint
+  4. **Location Details** (MapPin) — Street address, Nearby landmark, Google Maps picker, Photos
+  5. **Status & Visibility** (ShieldCheck) — Status dropdown + Featured + Verified checkboxes
+- Cleaned up the legacy `property_type: "house"` and hard-coded `location: "Port Moresby"` defaults on `Properties.jsx` — new properties now start blank so the type-selection UX drives the legal-fields rendering cleanly
+- Small internal refactor of `PropertyModalFields.jsx`: extracted repeated `TextField` + `SelectField` helpers to keep the file readable (~155 lines vs the previous 194)
+- All existing `data-testid`s preserved: `property-title-input`, `property-type`, `property-price`, `property-allotment-number`, `property-full-portion-number`, `property-total-area-ha`, `property-featured`, `property-verified`, etc.
+- New section `data-testid`s: `prop-section-basics`, `prop-section-legal`, `prop-section-pricing`, `prop-section-location`, `prop-section-status`
+- Verified via screenshots: House shows Lot/Section/Street; Large Land Portion shows only Portion Number; backend POST /properties round-trip returns the correct wiped/kept legal fields.
+
 ### Sell page — grouped section layout (Feb 27, 2026)
 - **4-step grouped card layout** replaces the flat grid:
   1. **Owner Information** (User icon) — Full Name, Email, Phone

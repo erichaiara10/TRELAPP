@@ -6,7 +6,7 @@ import PropertyModal, { serializeProperty } from "@/components/admin/PropertyMod
 import { normalizePhotos } from "@/components/admin/PropertyModalFields";
 import PropertiesTable from "@/components/admin/PropertiesTable";
 
-const EMPTY = { title:"", listing_type:"sale", property_type:"house", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"Port Moresby", suburb:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false };
+const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"" };
 
 export default function Properties() {
   const [items, setItems] = useState([]);
