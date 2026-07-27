@@ -74,6 +74,8 @@ export default function PropertyCard({ p }) {
             city={p.location}
             suburb={p.suburb}
             bedrooms={p.bedrooms}
+            street_name={p.street_name}
+            nearby_landmark={p.nearby_landmark}
             testIdPrefix={`card-ai-${p.id}`}
           />
         </div>

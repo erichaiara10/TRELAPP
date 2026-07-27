@@ -153,6 +153,7 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
  */
 export default function AIPriceAnalysis({
   property_type, listing_type = "sale", price, province, city, suburb, bedrooms,
+  street_name, nearby_landmark,
   variant = "inline",
   buyerFacing = false,
   audience = "buyer",
@@ -176,6 +177,7 @@ export default function AIPriceAnalysis({
         property_type, listing_type, price: Number(price) || 0,
         province: province || null, city: city || null, suburb: suburb || null,
         bedrooms: Number(bedrooms) || null,
+        street_name: street_name || null, nearby_landmark: nearby_landmark || null,
       });
       setData(resp);
     } catch (e) {

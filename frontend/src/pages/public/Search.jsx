@@ -4,10 +4,12 @@ import { api } from "@/lib/api";
 import { usePage } from "@/lib/usePage";
 import PropertyCard from "@/components/PropertyCard";
 import { SlidersHorizontal, Search as SearchIcon } from "lucide-react";
+import { usePropertyTypes } from "@/lib/usePropertyTypes";
 
 export default function Search({ mode }) {
   const pageSlug = mode === "sale" ? "buy" : "rent";
   const { sections } = usePage(pageSlug);
+  const { types } = usePropertyTypes();
   const hero = sections.hero || {};
 
   const [params, setParams] = useSearchParams();
@@ -73,8 +75,10 @@ export default function Search({ mode }) {
           <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="filter-q" className="py-2 outline-none w-full bg-transparent" />
         </div>
         <select value={propertyType} onChange={(e) => setPropertyType(e.target.value)} data-testid="filter-type" className="border border-border rounded-lg px-3 py-2 bg-white">
-          <option value="">Any type</option><option value="house">House</option><option value="apartment">Apartment</option>
-          <option value="townhouse">Townhouse</option><option value="land">Land</option><option value="commercial">Commercial</option>
+          <option value="">Any type</option>
+          {(types || []).map((t) => (
+            <option key={t.id} value={t.name}>{t.name}</option>
+          ))}
         </select>
         <select value={location} onChange={(e) => setLocation(e.target.value)} data-testid="filter-location" className="border border-border rounded-lg px-3 py-2 bg-white">
           <option value="">All locations</option><option>Port Moresby</option><option>Lae</option><option>Madang</option><option>Mount Hagen</option><option>Kokopo</option>

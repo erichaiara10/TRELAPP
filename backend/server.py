@@ -132,11 +132,10 @@ class Property(BaseModel):
     owner_customer_id: Optional[str] = None
     assigned_agent_id: Optional[str] = None
     # Legal & location details (added Feb 22, 2026)
-    land_category: Optional[str] = None            # "large_portion" | "subdivided_town_land"
-    full_portion_number: Optional[str] = None      # required when land_category=large_portion
-    allotment_number: Optional[str] = None         # required when land_category=subdivided_town_land
-    section_number: Optional[str] = None           # required when land_category=subdivided_town_land
-    total_area_ha: Optional[float] = None          # required when listing_type=sale
+    full_portion_number: Optional[str] = None      # required when type's legal_scheme = "portion"
+    allotment_number: Optional[str] = None         # required when type's legal_scheme = "lot_section_street"
+    section_number: Optional[str] = None           # required when type's legal_scheme = "lot_section_street"
+    total_area_ha: Optional[float] = None          # required when listing_type = "sale"
     street_name: Optional[str] = None
     nearby_landmark: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
@@ -165,7 +164,6 @@ class PropertyCreate(BaseModel):
     verified: bool = False
     owner_customer_id: Optional[str] = None
     assigned_agent_id: Optional[str] = None
-    land_category: Optional[str] = None
     full_portion_number: Optional[str] = None
     allotment_number: Optional[str] = None
     section_number: Optional[str] = None
@@ -194,6 +192,36 @@ class CustomerCreate(BaseModel):
     notes: Optional[str] = ""
     source: Optional[str] = "manual"
     assigned_agent_id: Optional[str] = None
+
+class PropertyType(BaseModel):
+    """
+    A configurable property type used across all forms. Its `legal_scheme`
+    determines which legal-location fields the UI shows and the server saves:
+      - "lot_section_street": requires allotment_number + section_number + street_name
+      - "portion":            requires full_portion_number
+    """
+    id: str = Field(default_factory=new_id)
+    name: str
+    legal_scheme: Literal["lot_section_street", "portion"] = "lot_section_street"
+    order: int = 100
+    is_active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+class PropertyTypeCreate(BaseModel):
+    name: str
+    legal_scheme: Literal["lot_section_street", "portion"] = "lot_section_street"
+    order: Optional[int] = 100
+    is_active: bool = True
+
+DEFAULT_PROPERTY_TYPES = [
+    ("House",                              "lot_section_street", 10),
+    ("Apartment",                          "lot_section_street", 20),
+    ("Town House",                         "lot_section_street", 30),
+    ("Commercial",                         "lot_section_street", 40),
+    ("Vacant Land – Urban Subdivided",     "lot_section_street", 50),
+    ("Large Land – Portion / Customary",   "portion",            60),
+]
 
 class Requirement(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -479,22 +507,87 @@ async def get_property(pid: str):
     if not doc: raise HTTPException(404, "Property not found")
     return doc
 
+async def _enforce_scheme(payload: dict) -> dict:
+    """Look up the property_type's legal scheme; require the appropriate legal
+    fields and WIPE the ones that don't apply. Keeps DB clean and consistent."""
+    ptype = (payload.get("property_type") or "").strip()
+    if not ptype:
+        return payload
+    t = await db.property_types.find_one({"name": ptype, "is_active": True}, {"_id": 0, "legal_scheme": 1})
+    scheme = (t or {}).get("legal_scheme")
+    if scheme == "portion":
+        if not str(payload.get("full_portion_number") or "").strip():
+            raise HTTPException(400, "Portion Number is required for this property type")
+        payload["allotment_number"] = None
+        payload["section_number"] = None
+        payload["street_name"] = None
+    elif scheme == "lot_section_street":
+        for k, label in [("allotment_number","Lot Number"), ("section_number","Section Number"), ("street_name","Street Name")]:
+            if not str(payload.get(k) or "").strip():
+                raise HTTPException(400, f"{label} is required for this property type")
+        payload["full_portion_number"] = None
+    # Total Area (hectares) is required on sale listings for both schemes
+    if payload.get("listing_type") == "sale" and not (payload.get("total_area_ha") or 0) > 0:
+        raise HTTPException(400, "Total Area (hectares) is required for sale listings")
+    return payload
+
 @api.post("/properties")
 async def create_property(payload: PropertyCreate, user: dict = Depends(get_current_user)):
-    p = Property(**payload.model_dump()).model_dump()
+    data = await _enforce_scheme(payload.model_dump())
+    p = Property(**data).model_dump()
     await db.properties.insert_one(p)
     return strip_id(p)
 
 @api.put("/properties/{pid}")
 async def update_property(pid: str, payload: dict, user: dict = Depends(get_current_user)):
     payload["updated_at"] = now_iso()
-    payload.pop("id",None); payload.pop("_id",None)
+    payload.pop("id", None); payload.pop("_id", None)
+    payload.pop("land_category", None)  # legacy field — no longer stored
+    existing = await db.properties.find_one({"id": pid}, {"_id": 0}) or {}
+    merged = {**existing, **payload}
+    await _enforce_scheme(merged)
+    # persist the cleaned merged view so wiped fields are actually cleared
+    payload["allotment_number"]     = merged.get("allotment_number")
+    payload["section_number"]       = merged.get("section_number")
+    payload["street_name"]          = merged.get("street_name")
+    payload["full_portion_number"]  = merged.get("full_portion_number")
     await db.properties.update_one({"id": pid}, {"$set": payload})
-    return await db.properties.find_one({"id": pid}, {"_id":0})
+    return await db.properties.find_one({"id": pid}, {"_id": 0})
 
 @api.delete("/properties/{pid}")
 async def delete_property(pid: str, user: dict = Depends(get_current_user)):
     await db.properties.delete_one({"id": pid})
+    return {"ok": True}
+
+# ---- Property Types (dynamic, admin-managed via inline dropdown "+ Add") ----
+@api.get("/property-types")
+async def list_property_types_public():
+    """Public: only active types, ordered."""
+    docs = await db.property_types.find({"is_active": True}, {"_id": 0}).sort([("order", 1), ("name", 1)]).to_list(200)
+    return docs
+
+@api.get("/property-types/all")
+async def list_property_types_all(user: dict = Depends(get_current_user)):
+    docs = await db.property_types.find({}, {"_id": 0}).sort([("order", 1), ("name", 1)]).to_list(500)
+    return docs
+
+@api.post("/property-types")
+async def create_property_type(payload: PropertyTypeCreate, user: dict = Depends(get_current_user)):
+    if not payload.name.strip():
+        raise HTTPException(400, "Name is required")
+    clean_name = payload.name.strip()
+    exists = await db.property_types.find_one({"name": clean_name}, {"_id": 0})
+    if exists:
+        raise HTTPException(409, "A property type with this name already exists")
+    data = payload.model_dump()
+    data["name"] = clean_name
+    doc = PropertyType(**data).model_dump()
+    await db.property_types.insert_one(doc)
+    return strip_id(doc)
+
+@api.delete("/property-types/{tid}")
+async def delete_property_type(tid: str, user: dict = Depends(get_current_user)):
+    await db.property_types.delete_one({"id": tid})
     return {"ok": True}
 
 # ---- Customers ----
@@ -932,6 +1025,8 @@ class PriceAnalysisIn(BaseModel):
     city: Optional[str] = None
     suburb: Optional[str] = None
     bedrooms: Optional[int] = None
+    street_name: Optional[str] = None
+    nearby_landmark: Optional[str] = None
 
 def _fmt_pgk(n) -> str:
     try: return f"K{int(round(float(n))):,}"
@@ -955,7 +1050,7 @@ async def ai_price_analysis(payload: PriceAnalysisIn):
     if payload.suburb: or_locs.append({"suburb": payload.suburb})
     if or_locs: query["$or"] = or_locs
     similar = await db.properties.find(
-        query, {"_id": 0, "title": 1, "property_type": 1, "suburb": 1, "location": 1, "price": 1, "bedrooms": 1}
+        query, {"_id": 0, "title": 1, "property_type": 1, "suburb": 1, "location": 1, "price": 1, "bedrooms": 1, "street_name": 1, "nearby_landmark": 1}
     ).sort("created_at", -1).to_list(20)
 
     # Compute local average for reference (fallback when LLM is unavailable)
@@ -982,15 +1077,18 @@ RULES:
   * fair       = user_price is within ±10% of the average
   * overpriced = user_price is > 10% above average
   * underpriced= user_price is > 10% below average
+- When multiple comparables exist, GIVE HIGHER WEIGHT to listings on the same street or near the same landmark as the seller (see fields `street_name` and `nearby_landmark`). Note this preference in your recommendation only if street/landmark data was helpful.
 - Output ONLY the JSON object, no markdown, no prose.
 
 SELLER LISTING:
-  property_type = {payload.property_type}
-  listing_type  = {payload.listing_type}
-  bedrooms      = {payload.bedrooms}
-  city          = {payload.city}
-  suburb        = {payload.suburb}
-  price_PGK     = {payload.price}
+  property_type    = {payload.property_type}
+  listing_type     = {payload.listing_type}
+  bedrooms         = {payload.bedrooms}
+  city             = {payload.city}
+  suburb           = {payload.suburb}
+  street_name      = {payload.street_name or ""}
+  nearby_landmark  = {payload.nearby_landmark or ""}
+  price_PGK        = {payload.price}
 
 SIMILAR ACTIVE LISTINGS (JSON):
 {_json.dumps(similar, default=str)}
@@ -1688,6 +1786,41 @@ def _write_test_credentials():
     except Exception as e:
         logger.warning(f"Could not write test credentials: {e}")
 
+async def _seed_property_types_and_migrate():
+    """Seed the 6 default property types (idempotent) and backfill existing
+    properties: convert land_category -> new property_type + wipe the field."""
+    await db.property_types.create_index("name", unique=True)
+    for name, scheme, order in DEFAULT_PROPERTY_TYPES:
+        await db.property_types.update_one(
+            {"name": name},
+            {"$setOnInsert": PropertyType(name=name, legal_scheme=scheme, order=order).model_dump()},
+            upsert=True,
+        )
+    # Backfill: map legacy lowercase property_type / land_category to new names
+    LEGACY_NAME_MAP = {
+        "house": "House",
+        "apartment": "Apartment",
+        "townhouse": "Town House",
+        "town_house": "Town House",
+        "commercial": "Commercial",
+        "land": "Vacant Land – Urban Subdivided",
+    }
+    async for p in db.properties.find({}, {"_id": 0, "id": 1, "property_type": 1, "land_category": 1}):
+        updates = {}
+        pt = (p.get("property_type") or "").strip()
+        lc = (p.get("land_category") or "").strip()
+        if lc == "large_portion":
+            updates["property_type"] = "Large Land – Portion / Customary"
+        elif pt.lower() in LEGACY_NAME_MAP:
+            updates["property_type"] = LEGACY_NAME_MAP[pt.lower()]
+        if updates or "land_category" in p:
+            unset = {"land_category": ""} if "land_category" in p else None
+            spec = {"$set": {**updates, "updated_at": now_iso()}} if updates else {}
+            if unset:
+                spec["$unset"] = unset
+            if spec:
+                await db.properties.update_one({"id": p["id"]}, spec)
+
 @app.on_event("startup")
 async def on_startup():
     await db.users.create_index("email", unique=True)
@@ -1703,6 +1836,7 @@ async def on_startup():
     await _seed_page_content()
     await _seed_requirements()
     await _seed_locations()
+    await _seed_property_types_and_migrate()
     _write_test_credentials()
     logger.info("Startup seeding complete")
 

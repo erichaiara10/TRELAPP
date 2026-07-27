@@ -1,0 +1,46 @@
+{
+  "summary": "Iter-25: Full-stack verification of the property_type consolidation refactor (land_category removal + dynamic property_types collection). Backend: 12/12 pytest tests PASS in /app/backend/tests/test_property_types_refactor.py — covers public GET /property-types (6 defaults, correct legal_scheme values), admin POST duplicate 409 + successful create + DELETE cleanup, DELETE without auth returns 401/403, scheme enforcement on POST /properties (400 when Lot/Portion missing, 400 when total_area_ha missing on sale, House keeps lot fields + wipes portion, Portion keeps portion + wipes lot fields), PUT scheme change lot→portion (requires portion, wipes lot), PUT strips legacy land_category, AI /ai/price-analysis accepts street_name+nearby_landmark and returns {range_min,range_max,average,verdict,recommendation,comparables,sample_size}. Frontend: /sell dynamic PropertyTypeSelect renders all 6 defaults, hides legal fields when no type is selected, shows Lot/Section/Street/Area for House and Portion/Area/Landmark for portion-scheme type. /wanted defaults to BLANK (legacy 'house' bug fixed) and lists dynamic types. /buy filter-type dropdown lists all 6 dynamic types. Admin Property modal: dropdown lists 6 types + '＋ Add new type…' inline option, delete chips render (6), House shows lot+section+street+area, Portion shows portion+area+landmark, Add-type modal opens with lss/portion radios and cancels cleanly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_backend": [
+    "GET /api/property-types returns 6 defaults with correct legal_schemes (House, Apartment, Town House, Commercial, Vacant Land – Urban Subdivided → lot_section_street; Large Land – Portion / Customary → portion).",
+    "POST /api/property-types with duplicate name → 409; unique → 200 with id, name, legal_scheme.",
+    "DELETE /api/property-types/{id} unauthenticated → 401/403.",
+    "POST /api/properties House w/o allotment_number → 400 'Lot Number is required'.",
+    "POST /api/properties Large Land Portion w/o full_portion_number → 400 'Portion Number is required'.",
+    "POST /api/properties sale w/o total_area_ha → 400 'Total Area (hectares) is required'.",
+    "POST House with full_portion_number set → 200; DB has null full_portion_number (auto-wiped) and populated allotment/section/street.",
+    "POST Portion with lot fields set → 200; DB has null allotment/section/street and populated full_portion_number.",
+    "PUT changing type from House → Portion without full_portion_number → 400; with full_portion_number → 200 and lot fields wiped on GET.",
+    "PUT payload with land_category set → field never appears in stored doc (verified via GET).",
+    "POST /api/ai/price-analysis with street_name + nearby_landmark → 200 with expected structured keys."
+  ],
+  "verified_frontend": [
+    "/sell PropertyTypeSelect lists 6 dynamic types; legal fields hidden until a type is selected; House selection reveals Lot/Section/Street/TotalArea; Portion selection reveals Portion/TotalArea/Landmark and hides lot fields.",
+    "/wanted PropertyTypeSelect defaults to blank (legacy 'house' initial value bug is fixed) and lists 6 dynamic types.",
+    "/buy filter-type dropdown lists all 6 dynamic types.",
+    "Admin Property modal (New): property-type dropdown lists 6 types + '＋ Add new type…' option; scheme-driven legal fields correct for House and Large Land Portion; 6 remove-chip data-testids property-type-remove-<id> render; opening __add__ opens property-type-add-modal with lss/portion radio inputs; Cancel dismisses cleanly."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_property_types_refactor.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Sell page: extraRequired() gates payload submission but the submit button itself is not visually disabled — only 'loading' disables it. The review request wording 'submit is disabled until required legal fields are filled' is met functionally (submission blocked with toast) but not visually (button appears enabled). Consider adding `disabled={!extraRequired()}` to LeadFormPage submit for stronger UX signaling. LOW priority.",
+    "PropertyModalFields cache: usePropertyTypes uses a module-level _cache that persists across component mounts. After delete-from-admin-modal, the shared cache refresh works, but if a public tab is open in parallel it will still show stale data until a page reload. Fine for MVP."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_property_types_refactor.py (new)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (all flows)"},
+  "seed_data_creation": "No persistent seed data required. Test creates ephemeral property-type + 4 properties (cleaned up by test_zzz_cleanup fixture).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md).",
+  "context_for_next_testing_agent": "Property-type consolidation and dynamic property_types system is production-ready. Backend: /app/backend/tests/test_property_types_refactor.py fully covers the schema-refactor surface (property-types CRUD, scheme enforcement on POST+PUT, land_category legacy strip, AI price-analysis with street+landmark). Frontend confirmed: /sell, /wanted, /buy filter, and admin Property modal all use dynamic PropertyTypeSelect correctly. Note DB fields remain allotment_number / full_portion_number even though UI labels them 'Lot' / 'Portion' — this is intentional per main-agent note. Inline edit for property-types is intentionally not implemented (only add + delete)."
+}

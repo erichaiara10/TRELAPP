@@ -3,6 +3,7 @@ import { usePage } from "@/lib/usePage";
 import LeadFormPage from "./LeadFormPage";
 import LocationPicker from "@/components/LocationPicker";
 import PriceInput from "@/components/PriceInput";
+import PropertyTypeSelect from "@/components/PropertyTypeSelect";
 import { api } from "@/lib/api";
 import { isPlaceholder } from "@/lib/validators";
 
@@ -11,7 +12,7 @@ function RequiredMark() { return <span className="text-destructive ml-0.5" aria-
 export default function Wanted() {
   const { sections } = usePage("wanted");
   const hero = sections.hero || {};
-  const [req, setReq] = useState({ intent: "buy", property_type: "house", min_price: "", max_price: "", min_bedrooms: "", province: "", city: "", suburb: "" });
+  const [req, setReq] = useState({ intent: "buy", property_type: "", min_price: "", max_price: "", min_bedrooms: "", province: "", city: "", suburb: "" });
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/requirements/public").then((r) => setItems(r.data)).catch(() => {}); }, []);
 
@@ -32,10 +33,9 @@ export default function Wanted() {
       </label>
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Property type</span>
-        <select value={req.property_type} onChange={(e) => setReq({ ...req, property_type: e.target.value })} data-testid="wanted_form-type" className="mt-1 w-full border border-border rounded-lg px-3 py-2.5 bg-white">
-          <option value="house">House</option><option value="apartment">Apartment</option><option value="townhouse">Townhouse</option>
-          <option value="land">Land</option><option value="commercial">Commercial</option>
-        </select>
+        <div className="mt-1">
+          <PropertyTypeSelect value={req.property_type} onChange={(v) => setReq({ ...req, property_type: v })} testId="wanted_form-type" />
+        </div>
       </label>
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">Min price (PGK)<RequiredMark /></span>
