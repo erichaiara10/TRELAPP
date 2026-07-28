@@ -64,7 +64,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- SERVE FRONTEND STATIC FILES ---
+# --- SERVE FRONTEND STATIC FILES (SAFE FALLBACK) ---
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
 
 if os.path.exists(frontend_path):
@@ -79,4 +79,7 @@ async def serve_frontend(full_path: str):
     index_file = os.path.join(frontend_path, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
-    return {"message": "Frontend index.html not found"}
+    
+    return {"status": "ok", "message": "Backend API is running. Frontend build folder not found in container."}
+
+
