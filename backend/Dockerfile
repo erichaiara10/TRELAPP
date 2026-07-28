@@ -4,9 +4,8 @@
 FROM node:20 AS frontend
 WORKDIR /app
 
-# Copy built frontend into backend static folder
-COPY --from=frontend /app/frontend/build ./static
-
+# Copy only the frontend source
+COPY backend/frontend/ ./frontend/
 
 # Build frontend
 WORKDIR /app/frontend
@@ -23,7 +22,7 @@ WORKDIR /app
 COPY . .
 
 # Copy built frontend into backend static folder
-COPY --from=frontend /app/frontend/dist ./static
+COPY --from=frontend /app/frontend/build ./static
 
 # Install backend dependencies
 RUN pip install --no-cache-dir -r requirements.txt
@@ -33,4 +32,3 @@ EXPOSE 8000
 
 # Run FastAPI
 CMD ["uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8000"]
-
