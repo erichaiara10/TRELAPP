@@ -10,7 +10,7 @@ COPY backend/frontend/ ./frontend/
 
 # Build frontend
 WORKDIR /app/frontend
-RUN npm install
+RUN npm install --legacy-peer-deps
 RUN npm run build
 
 # ============================
