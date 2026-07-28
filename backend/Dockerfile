@@ -5,7 +5,7 @@ FROM node:18 AS frontend
 WORKDIR /app
 
 # Copy only the frontend folder
-COPY frontend/ ./frontend/
+COPY ./frontend/ ./frontend/
 
 # Build frontend
 WORKDIR /app/frontend
