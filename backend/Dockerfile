@@ -25,7 +25,7 @@ COPY . .
 COPY --from=frontend /app/frontend/build ./static
 
 # Install backend dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Expose port
 EXPOSE 8000
