@@ -4,8 +4,8 @@
 FROM node:20 AS frontend
 WORKDIR /app
 
-# Copy only the frontend folder
-COPY backend/frontend/ ./frontend/
+# Copy built frontend into backend static folder
+COPY --from=frontend /app/frontend/build ./static
 
 
 # Build frontend
