@@ -1,3 +1,8 @@
+import os
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 """TREL API — application entry point.
 
 The heavy lifting lives in `routes/` (endpoints), `core/` (db + auth + notify),
@@ -12,7 +17,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import logging
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
 from core.db import client
@@ -58,3 +63,20 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# --- SERVE FRONTEND STATIC FILES ---
+frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
+
+if os.path.exists(frontend_path):
+    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    file_path = os.path.join(frontend_path, full_path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    index_file = os.path.join(frontend_path, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    return {"message": "Frontend index.html not found"}
