@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, X, Loader2, Search, MessageSquare } from "lucide-
 import NameInput from "@/components/NameInput";
 import PhoneInput from "@/components/PhoneInput";
 import CommunicationsPanel from "@/components/admin/CommunicationsPanel";
+import CsvToolbar from "@/components/admin/CsvToolbar";
 
 const CUSTOMER_TYPES = ["buyer", "seller", "tenant", "landlord", "corporate"];
 
@@ -27,11 +28,11 @@ function CustomerModal({ modal, setModal, onSave, onClose, saving }) {
             <div className="mt-1"><NameInput value={modal.name} onChange={(v) => setModal({ ...modal, name: v })} testId="customer-name" /></div>
           </label>
           <label className="block">
-            <span className={label}>Email</span>
+            <span className={label}>Email <span className="text-destructive">*</span></span>
             <input type="email" value={modal.email || ""} onChange={set("email")} placeholder="you@example.com" data-testid="customer-email" className={field} />
           </label>
           <label className="block">
-            <span className={label}>Phone</span>
+            <span className={label}>Phone <span className="text-destructive">*</span></span>
             <div className="mt-1"><PhoneInput value={modal.phone || ""} onChange={(v) => setModal({ ...modal, phone: v })} testId="customer-phone" /></div>
           </label>
           <label className="block">
@@ -51,7 +52,7 @@ function CustomerModal({ modal, setModal, onSave, onClose, saving }) {
         </div>
         <div className="p-4 border-t border-border flex justify-end gap-2">
           <button onClick={onClose} disabled={saving} className="px-3 py-2 rounded-md border border-border disabled:opacity-60">Cancel</button>
-          <button onClick={onSave} disabled={saving || !modal.name.trim()} data-testid="customer-save"
+          <button onClick={onSave} disabled={saving || !modal.name.trim() || !(modal.email || "").trim() || !(modal.phone || "").trim() || !(modal.customer_type || "").trim()} data-testid="customer-save"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-pine-500 hover:bg-pine-600 text-white disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {saving ? "Saving…" : "Save"}
@@ -88,12 +89,15 @@ export default function Customers() {
 
   const save = async () => {
     if (!modal.name.trim()) { toast.error("Name is required"); return; }
+    if (!(modal.email || "").trim()) { toast.error("Email is required"); return; }
+    if (!(modal.phone || "").trim()) { toast.error("Phone is required"); return; }
+    if (!(modal.customer_type || "").trim()) { toast.error("Customer type is required"); return; }
     setSaving(true);
     try {
       const payload = {
         name: modal.name.trim(),
-        email: (modal.email || "").trim() || null,
-        phone: (modal.phone || "").trim() || null,
+        email: (modal.email || "").trim(),
+        phone: (modal.phone || "").trim(),
         customer_type: modal.customer_type,
         company: (modal.company || "").trim() || null,
         notes: modal.notes || "",
@@ -139,6 +143,8 @@ export default function Customers() {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, email, phone…" data-testid="customer-search"
           className="flex-1 py-2 text-sm outline-none bg-transparent" />
       </div>
+
+      <CsvToolbar entity="customers" entityLabel="Customers" onImported={load} />
 
       <div className="bg-white rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">

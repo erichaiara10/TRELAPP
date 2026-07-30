@@ -91,7 +91,12 @@ export default function PropertyModalFields({ modal, setModal }) {
       <FormSection num={1} icon={FileText} title="Basics" hint="Title, description and key stats" testId="prop-section-basics">
         <div className="grid md:grid-cols-2 gap-3 text-sm">
           <TextField label="Title" testId="property-title-input" value={modal.title} onChange={set("title")} required span="md:col-span-2" />
-          <SelectField label="Listing type" testId="property-listing-type" value={modal.listing_type} onChange={set("listing_type")} options={LISTING_TYPES} />
+          <label className="block">
+            <span className={LABEL_CLS}>Listing type<span className="text-destructive ml-0.5">*</span></span>
+            <select value={modal.listing_type} onChange={set("listing_type")} data-testid="property-listing-type" className={FIELD_CLS}>
+              {LISTING_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
           <TextField label="Bedrooms" testId="property-bedrooms-input" value={modal.bedrooms} onChange={set("bedrooms")} digitsOnly />
           <TextField label="Bathrooms" testId="property-bathrooms-input" value={modal.bathrooms} onChange={set("bathrooms")} digitsOnly />
           <TextField label="Parking" testId="property-parking-input" value={modal.parking} onChange={set("parking")} digitsOnly />
