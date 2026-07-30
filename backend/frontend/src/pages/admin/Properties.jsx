@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import PropertyModal, { serializeProperty } from "@/components/admin/PropertyModal";
 import { normalizePhotos } from "@/components/admin/PropertyModalFields";
 import PropertiesTable from "@/components/admin/PropertiesTable";
+import CsvToolbar from "@/components/admin/CsvToolbar";
 
 const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"" };
 
@@ -44,6 +45,7 @@ export default function Properties() {
           <Plus className="w-4 h-4" /> New
         </button>
       </div>
+      <CsvToolbar entity="properties" entityLabel="Properties" onImported={load} />
       <PropertiesTable items={items} onEdit={openEdit} onDelete={del} />
       {modal && <PropertyModal modal={modal} setModal={setModal} onSave={save} onClose={() => setModal(null)} />}
     </div>

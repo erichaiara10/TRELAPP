@@ -7,8 +7,8 @@ import LoginHero from "@/components/admin/LoginHero";
 function LoginForm() {
   const { login } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("admin@trel.com.pg");
-  const [pwd, setPwd] = useState("Admin@123");
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
@@ -38,8 +38,8 @@ function LoginForm() {
           {loading ? "Signing in…" : "Sign in"}
         </button>
       </div>
-      <div className="mt-6 text-xs text-muted-foreground bg-sand-50 p-3 rounded-lg">
-        Demo credentials pre-filled. Other staff accounts use password <code>Password@123</code>.
+      <div className="mt-6 text-xs text-muted-foreground bg-sand-50 p-3 rounded-lg" data-testid="login-help">
+        Having trouble signing in? Please contact your system administrator.
       </div>
     </form>
   );

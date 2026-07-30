@@ -56,11 +56,27 @@ def build_property_query(filters: dict) -> dict:
 
 
 async def enforce_scheme(payload: dict) -> dict:
-    """Look up the property_type's legal scheme; require the appropriate legal
-    fields and WIPE the ones that don't apply. Keeps DB clean and consistent."""
-    ptype = (payload.get("property_type") or "").strip()
-    if not ptype:
-        return payload
+    """Validate a property payload against the global field rules AND the
+    dynamic legal-scheme rules. Also wipes fields that don't apply so the DB
+    stays consistent."""
+    # ---- Always-required fields ----
+    for k, label in [
+        ("title", "Title"),
+        ("listing_type", "Listing Type"),
+        ("property_type", "Property Type"),
+        ("province", "Province"),
+        ("location", "City"),
+        ("suburb", "Suburb"),
+    ]:
+        if not str(payload.get(k) or "").strip():
+            raise HTTPException(400, f"{label} is required")
+    if payload["listing_type"] not in ("sale", "rent"):
+        raise HTTPException(400, "Listing Type must be 'sale' or 'rent'")
+    if not (float(payload.get("price") or 0) > 0):
+        raise HTTPException(400, "Price must be greater than zero")
+
+    # ---- Legal scheme rules ----
+    ptype = payload["property_type"].strip()
     t = await db.property_types.find_one({"name": ptype, "is_active": True},
                                          {"_id": 0, "legal_scheme": 1})
     scheme = (t or {}).get("legal_scheme")
