@@ -46,12 +46,9 @@ async def update_customer(cid: str, payload: dict, user: dict = Depends(get_curr
     # Apply the same strict rules on edit (using merged view so partial updates work)
     existing = await db.customers.find_one({"id": cid}, {"_id": 0}) or {}
     merged = {**existing, **payload}
-    try:
-        _validate_customer(CustomerCreate(**{k: merged.get(k) for k in
-            ["name", "email", "phone", "customer_type", "company", "notes",
-             "source", "assigned_agent_id"]}))
-    except Exception:
-        raise
+    _validate_customer(CustomerCreate(**{k: merged.get(k) for k in
+        ("name", "email", "phone", "customer_type", "company",
+         "notes", "source", "assigned_agent_id")}))
     await db.customers.update_one({"id": cid}, {"$set": payload})
     return await db.customers.find_one({"id": cid}, {"_id": 0})
 

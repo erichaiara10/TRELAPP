@@ -15,6 +15,30 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### TREL Data Management Suite — Phase 1 (validation) + Phase 2 (CSV I/O) + Phase 3 (seed protection) (Feb 27, 2026)
+
+**Phase 1 — Field validation standardised (frontend labels + backend rules 100% aligned):**
+- **Properties** — always required: `title`, `listing_type` (`sale` or `rent`), `property_type`, `price` (> 0), `province`, `location` (city), `suburb`; conditional Lot/Section/Street when scheme = lot_section_street, Portion Number when scheme = portion, Total Area (ha) for sale listings. `_enforce_scheme` in `routes/properties.py` now enforces every rule server-side; Listing Type label gained a red `*` on the admin modal.
+- **Customers** — always required: `name`, `email`, `phone`, `customer_type` (one of buyer / seller / tenant / landlord / corporate). New `_validate_customer` gate runs on POST + PUT (merged-view for partial updates). Admin customer modal shows red `*` on Email, Phone, and Type; Save is disabled until all 4 are valid.
+- **Leads** — untouched by explicit user request.
+
+**Phase 2 — CSV Import/Export suite for Properties + Customers only:**
+- New router `/app/backend/routes/csv_io.py` — endpoints:
+  - `GET /api/admin/{entity}/csv/schema` — single source of truth for the Import Guide (field, type, explanation, required_headers)
+  - `GET /api/admin/{entity}/csv/template` — empty CSV with just the header row
+  - `GET /api/admin/{entity}/csv` — full export, date-stamped filename
+  - `POST /api/admin/{entity}/csv` — multipart upload, **append-only**
+- Import rules: header check first (400 with the missing-header list if any required header is missing), row-level errors are collected and returned in `{inserted, skipped, errors, received}`, rows with an existing `id` are **skipped never overwritten**, per-row validation reuses the SAME `enforce_scheme` / `_validate_customer` used by the interactive UI so CSV and UI behave identically.
+- New shared React component `/app/frontend/src/components/admin/CsvToolbar.jsx` — 4 buttons (Import CSV / Export CSV / Download template / Import Guide toggle) + expandable Import Guide table (color-coded mandatory / conditional / optional / auto badges) + upload modal with a "Required headers" hint pulled from the schema endpoint + result modal with per-row errors + auto-clears the file input between imports.
+- Wired into both `Properties.jsx` and `Customers.jsx` admin pages.
+- Property schema exposes **30 fields** (6 mandatory + 6 conditional = 12 required headers); Customer schema exposes **10 fields** (4 required headers).
+
+**Phase 3 — Data Protection (idempotent seeds):**
+- `seed.py` refactored: every `seed_*` function now **skips entirely if the target collection has ≥1 document**. Existing docs are NEVER overwritten (previous versions could reset a user's password back to `Password@123` on every restart — fixed).
+- Legacy one-off migrations (`migrate_legacy_user_emails`, `migrate_land_category`) kept — they are idempotent and only touch legacy records that need renaming.
+
+**Tests: iteration 27 — 40/40 new pytest + 14/14 regression GETs + full frontend flows verified. Zero critical/minor issues.**
+
 ### Admin Property modal — grouped 5-step layout (Feb 27, 2026)
 - Mirrored the Sell page grouped layout onto the Admin `PropertyModalFields`:
   1. **Basics** (FileText) — Title, Listing type, Bedrooms/Bathrooms/Parking, Area (sqm), Description, Features

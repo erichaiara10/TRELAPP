@@ -58,6 +58,7 @@ export default function CsvToolbar({ entity, entityLabel, onImported }) {
       const r = await api.post(`/admin/${entity}/csv`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      if (fileRef.current) fileRef.current.value = "";  // clear so re-import works cleanly
       setResult(r.data);
       if (r.data.inserted > 0) {
         toast.success(`Imported ${r.data.inserted} rows`);
