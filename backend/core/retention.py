@@ -45,6 +45,35 @@ async def _active_retention() -> Optional[dict]:
     return cfg["parameters"].get("retention")
 
 
+async def preview_retention() -> dict:
+    """Dry-run counterpart to `run_retention` — reports how many rows WOULD
+    be archived under the current retention config without touching data.
+    Powers the 'Preview impact' button on the Retention tab so operators
+    can see the blast radius before flipping any switch."""
+    retention = await _active_retention()
+    if not retention:
+        return {"skipped": True, "reason": "no_active_config"}
+    soft_only = bool(retention.get("soft_delete_only", True))
+
+    now = datetime.now(timezone.utc)
+    summary: dict[str, dict] = {}
+    for coll, window_key in COLLECTIONS.items():
+        days = int(retention.get(window_key) or 0)
+        if days <= 0:
+            summary[coll] = {"candidates": 0, "window_days": 0, "action": "disabled"}
+            continue
+        cutoff = (now - timedelta(days=days)).isoformat()
+        query = {
+            "created_at": {"$lt": cutoff},
+            "$or": [{"archived_at": {"$exists": False}}, {"archived_at": None}],
+        }
+        candidates = await db[coll].count_documents(query)
+        action = "soft_delete" if (soft_only or coll in FORCE_SOFT) else "hard_delete"
+        summary[coll] = {"candidates": candidates, "window_days": days, "action": action}
+    return {"skipped": False, "soft_delete_only": soft_only,
+            "summary": summary, "previewed_at": now_iso()}
+
+
 async def run_retention(force: bool = False, actor_id: Optional[str] = None) -> dict:
     """Do a single retention pass. Returns a summary dict."""
     retention = await _active_retention()

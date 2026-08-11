@@ -5,7 +5,6 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, Section } from "./_shared";
-
 const RETENTION_DEFAULTS = {
   raw_source_data_days: 365,
   normalized_data_days: 730,
@@ -82,6 +81,8 @@ export default function MarketConfig() {
   const [active, setActive] = useState(null);
   const [params, setParams] = useState(null);       // working copy (edited)
   const [nextVersion, setNextVersion] = useState("");
+  const [retentionPreview, setRetentionPreview] = useState(null);
+  const [retentionBusy, setRetentionBusy] = useState(false);
 
   const load = async () => {
     const [{ data: list }, { data: a }] = await Promise.all([
@@ -105,6 +106,27 @@ export default function MarketConfig() {
     try { await api.post(`/admin/market/config/${id}/activate`); toast.success("Activated"); load(); }
     catch (e) { toast.error(formatError(e)); }
   };
+
+  const doRetentionPreview = async () => {
+    setRetentionBusy(true);
+    try {
+      const { data } = await api.get("/admin/market/retention/preview");
+      setRetentionPreview(data);
+    } catch (e) { toast.error(formatError(e)); }
+    finally { setRetentionBusy(false); }
+  };
+
+  const runRetentionNow = async () => {
+    if (!window.confirm("Run the retention policy now? Rows past their retention window will be soft-deleted (or hard-deleted if 'Soft delete only' is off).")) return;
+    setRetentionBusy(true);
+    try {
+      const { data } = await api.post("/admin/market/retention/run");
+      setRetentionPreview({ ...data, ran: true });
+      toast.success("Retention run complete");
+    } catch (e) { toast.error(formatError(e)); }
+    finally { setRetentionBusy(false); }
+  };
+
 
   const publish = async () => {
     if (!nextVersion.trim()) { toast.error("Version name required (e.g. COMBINED-1.1)"); return; }
@@ -373,8 +395,22 @@ export default function MarketConfig() {
 
           {tab === "retention" && (
             <Section title="Data Retention & Governance" testid="config-retention">
-              <div className="text-xs text-muted-foreground mb-3">
-                Defines how long each data class is kept before archival. Soft-delete keeps history queryable; hard-delete removes it entirely.
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs text-muted-foreground max-w-xl">
+                  Defines how long each data class is kept before archival. Soft-delete keeps history queryable; hard-delete removes it entirely. Use "Preview Impact" to see how many rows would be archived under the current settings before flipping any switch.
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <button onClick={doRetentionPreview} disabled={retentionBusy}
+                          className="px-3 py-1.5 rounded border border-border text-sm hover:bg-muted disabled:opacity-60"
+                          data-testid="retention-preview-btn">
+                    {retentionBusy ? "…" : "Preview Impact"}
+                  </button>
+                  <button onClick={runRetentionNow} disabled={retentionBusy}
+                          className="px-3 py-1.5 rounded bg-[#2A5B46] text-white text-sm hover:bg-[#204838] disabled:opacity-60"
+                          data-testid="retention-run-btn">
+                    Run Now
+                  </button>
+                </div>
               </div>
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
@@ -401,10 +437,69 @@ export default function MarketConfig() {
                     Soft delete only (never hard-delete)
                   </label>
                   <div className="text-xs text-muted-foreground mt-2">
-                    Retention params are governance-only in Phase 1 — enforcement runs land alongside the archival cron job.
+                    Retention runs automatically once per 24h via the scheduler. Manual preview + run buttons above.
                   </div>
                 </div>
               </div>
+
+              {retentionPreview && (
+                <div className="mt-5 border-t border-border pt-4" data-testid="retention-preview-result">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-medium">
+                      {retentionPreview.ran ? "Retention run — result" : "Preview — would soft-delete now"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Mode: {retentionPreview.soft_delete_only ? "Soft delete only" : "Hard delete enabled"}
+                    </div>
+                  </div>
+                  {retentionPreview.skipped ? (
+                    <div className="text-sm text-muted-foreground">Skipped — {retentionPreview.reason}.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                            <th className="py-2 pr-3">Collection</th>
+                            <th className="py-2 pr-3">Retention window</th>
+                            <th className="py-2 pr-3">Action</th>
+                            <th className="py-2 pr-3 text-right">
+                              {retentionPreview.ran ? "Archived" : "Would archive"}
+                            </th>
+                            <th className="py-2 pr-3 text-right">Candidates</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(retentionPreview.summary || {}).map(([coll, info]) => (
+                            <tr key={coll} className="border-b border-border/60"
+                                data-testid={`retention-row-${coll}`}>
+                              <td className="py-2 pr-3 font-mono text-xs">{coll}</td>
+                              <td className="py-2 pr-3">
+                                {info.window_days ? `${info.window_days} days` : <span className="text-muted-foreground">disabled</span>}
+                              </td>
+                              <td className="py-2 pr-3 uppercase text-xs tracking-widest">
+                                {info.action || (info.hard_deleted != null ? "hard_delete" : "soft_delete")}
+                              </td>
+                              <td className="py-2 pr-3 text-right tabular-nums font-medium">
+                                {retentionPreview.ran
+                                  ? (info.soft_deleted ?? info.hard_deleted ?? 0)
+                                  : (info.candidates ?? 0)}
+                              </td>
+                              <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
+                                {info.candidates ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground mt-3">
+                    {retentionPreview.ran
+                      ? `Executed at ${retentionPreview.ran_at?.slice(0, 19)?.replace("T", " ")}. Preview again to confirm results.`
+                      : `Snapshot at ${retentionPreview.previewed_at?.slice(0, 19)?.replace("T", " ")}. Nothing has been changed yet.`}
+                  </div>
+                </div>
+              )}
             </Section>
           )}
 

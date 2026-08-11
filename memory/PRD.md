@@ -620,3 +620,20 @@ source-health counters, emits `run_success|partial|failed` audit event.
 - 4/4 frontend flows verified via Playwright (LED / CQS modal / homepage
   CTA / rent view)
 - Zero issues. DB clean.
+
+## Iter-33 — Retention Preview UI (Feb 2026)
+
+### Backend
+- `GET /api/admin/market/retention/preview` — dry-run counterpart to
+  `/run`. Returns per-collection `{candidates, window_days, action:'soft_delete'|'hard_delete'|'disabled'}`
+  without touching any data.
+
+### Frontend (Configuration → Data Retention tab)
+- Two new buttons at top-right: **Preview Impact** (safe dry-run) and
+  **Run Now** (confirmation dialog + live execution).
+- Result panel renders below the retention windows: table of collection ×
+  window × action × would-archive/archived × candidates. Toggles between
+  "would soft-delete now" and "Retention run — result" headers based on
+  which button was clicked. Timestamp footer.
+- Verified: 3 seeded old market_listings + 1 old snapshot correctly
+  reported as candidates; unchanged after Preview.
