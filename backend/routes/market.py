@@ -8,6 +8,7 @@ Matching/guidance engine execution is intentionally NOT wired here — that
 lands in Phase B (matching) and Phase C (guidance). Every write to a
 configuration or manual-override emits a `market_audit_events` row.
 """
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.db import db, new_id, now_iso, strip_id
 from core.guidance import generate_guidance
 from core.matcher import ingest_market_listing, rematch_listing
+from core.runs import collection_run, source_health
 from core.security import get_current_user
 from models import (
     CollectionRun,
@@ -103,6 +105,157 @@ async def list_runs(source_id: Optional[str] = None, limit: int = 100,
                     user: dict = Depends(get_current_user)):
     q = {"source_id": source_id} if source_id else {}
     return await db.collection_runs.find(q, {"_id": 0}).sort("started_at", -1).to_list(limit)
+
+
+@router.get("/admin/market/runs/{run_id}")
+async def get_run(run_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Run not found")
+    return doc
+
+
+@router.post("/admin/market/runs/start")
+async def start_run(payload: dict, user: dict = Depends(get_current_user)):
+    """Manually start a collection run. Returns the new run doc so a client
+    can stream listings via POST /runs/{id}/listings and then POST /finish."""
+    sid = payload.get("source_id")
+    if not sid:
+        raise HTTPException(400, "source_id is required")
+    source = await db.market_sources.find_one({"id": sid}, {"_id": 0})
+    if not source:
+        raise HTTPException(404, "Source not found")
+    if not source.get("active", True):
+        raise HTTPException(400, "Source is paused (active=false)")
+    from models import CollectionRun as _CR
+    run = _CR(
+        source_id=sid,
+        run_type=payload.get("run_type") or "manual",
+        triggered_by=user.get("id"),
+        parser_version=payload.get("parser_version") or source.get("parser_version"),
+    ).model_dump()
+    await db.collection_runs.insert_one(run)
+    run.pop("_id", None)
+    await _audit("run_started", user, entity_type="collection_run",
+                 entity_id=run["id"], payload={"source_id": sid})
+    await db.market_sources.update_one(
+        {"id": sid}, {"$set": {"last_run_at": run["started_at"], "updated_at": now_iso()}},
+    )
+    return run
+
+
+@router.post("/admin/market/runs/{run_id}/listings")
+async def ingest_batch(run_id: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Batch ingest listings under an open run. `payload = {"listings":[{…}, …]}`.
+    Each item runs the MATCH-1.0 pipeline; per-item errors are captured on the
+    run doc without stopping the batch."""
+    run = await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run["status"] != "running":
+        raise HTTPException(400, f"Run is {run['status']} — cannot ingest more")
+    items = payload.get("listings") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(400, "listings must be a non-empty array")
+
+    # Reuse the RunContext logic to keep counters/errors consistent
+    from core.runs import RunContext
+    ctx = RunContext(run_id, run["source_id"], user.get("id"))
+    ctx.seen = int(run.get("listings_seen", 0))
+    ctx.new = int(run.get("listings_new", 0))
+    ctx.updated = int(run.get("listings_updated", 0))
+    ctx.matches = int(run.get("matches_created", 0))
+    ctx.review_cases = int(run.get("review_cases_created", 0))
+    ctx.errors = list(run.get("errors") or [])
+
+    results = []
+    for item in items:
+        r = await ctx.ingest(item)
+        results.append({"source_listing_id": item.get("source_listing_id"),
+                        "matched": bool(r.get("match")),
+                        "review_case": bool(r.get("review_case")),
+                        "error": r.get("error")})
+
+    return {"run_id": run_id, "processed": len(items),
+            "seen": ctx.seen, "new": ctx.new, "updated": ctx.updated,
+            "matches": ctx.matches, "review_cases": ctx.review_cases,
+            "errors": len(ctx.errors), "results": results}
+
+
+@router.post("/admin/market/runs/{run_id}/finish")
+async def finish_run(run_id: str, payload: Optional[dict] = None,
+                     user: dict = Depends(get_current_user)):
+    run = await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run["status"] != "running":
+        raise HTTPException(400, f"Run already {run['status']}")
+
+    forced = (payload or {}).get("status")     # "success" | "failed" | None
+    err_msg = (payload or {}).get("error")
+    if err_msg:
+        run["errors"] = (run.get("errors") or []) + [str(err_msg)[:500]]
+
+    status = forced or ("success" if not run.get("errors")
+                        else ("failed" if forced == "failed" else "partial"))
+    if status not in ("success", "failed", "partial"):
+        raise HTTPException(400, "status must be success|failed|partial")
+
+    try:
+        started = datetime.fromisoformat(run["started_at"].replace("Z", "+00:00"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    except Exception:
+        duration_ms = None
+
+    finished = now_iso()
+    await db.collection_runs.update_one(
+        {"id": run_id},
+        {"$set": {"finished_at": finished, "duration_ms": duration_ms,
+                  "status": status, "errors": run.get("errors") or []}},
+    )
+    # Update source health
+    sid = run["source_id"]
+    patch = {"last_run_at": finished, "updated_at": now_iso()}
+    if status == "success":
+        patch["last_successful_run_at"] = finished
+        patch["consecutive_failures"] = 0
+    elif status == "failed":
+        src = await db.market_sources.find_one({"id": sid}, {"_id": 0}) or {}
+        patch["consecutive_failures"] = int(src.get("consecutive_failures", 0)) + 1
+    await db.market_sources.update_one({"id": sid}, {"$set": patch})
+    await _audit(f"run_{status}", user, entity_type="collection_run",
+                 entity_id=run_id,
+                 payload={"source_id": sid, "duration_ms": duration_ms,
+                          "seen": run.get("listings_seen"),
+                          "errors": len(run.get("errors") or [])})
+    return await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+
+
+# ============================================================
+# SOURCE HEALTH
+# ============================================================
+@router.get("/admin/market/sources/health")
+async def sources_health(window: int = 10, user: dict = Depends(get_current_user)):
+    sources = await db.market_sources.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    out = []
+    for s in sources:
+        h = await source_health(s["id"], window=window)
+        out.append({**s, **h})
+    return out
+
+
+# ============================================================
+# LISTING SNAPSHOTS
+# ============================================================
+@router.get("/admin/market/listings/{lid}/snapshots")
+async def list_listing_snapshots(lid: str, user: dict = Depends(get_current_user)):
+    if not await db.market_listings.find_one({"id": lid}, {"_id": 0, "id": 1}):
+        raise HTTPException(404, "Listing not found")
+    return await db.market_listing_snapshots.find(
+        {"market_listing_id": lid}, {"_id": 0},
+    ).sort("observed_at", -1).to_list(500)
 
 
 # ============================================================

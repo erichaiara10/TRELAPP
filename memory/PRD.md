@@ -462,3 +462,48 @@ Add-Source flow → toast → KPIs update → table populated → audit event em
 - Backend: 10/10 pytest pass (`/app/backend/tests/test_iter28_market_matching_guidance.py`)
 - Frontend: 3 admin market screens verified via Playwright — Config, Duplicates, Comparables
 - No critical or minor issues. DB restored clean.
+
+## Phase 1 (expanded) — Source/Run Infrastructure (Feb 2026, later same day)
+
+Full scraper-facing plumbing on top of the existing ERD.
+
+### ERD field parity
+- `MarketSource` +collection_frequency (manual/hourly/daily/weekly),
+  +parser_version, +last_run_at, +last_successful_run_at,
+  +consecutive_failures.
+- `CollectionRun` +run_type (scheduled/manual/backfill), +triggered_by,
+  +duration_ms, +matches_created, +review_cases_created, +parser_version;
+  status enum extended with "partial".
+
+### Scraper contract (`/app/backend/core/runs.py`)
+```python
+async with collection_run(source_id, triggered_by=user_id) as run:
+    for raw in scraper.iter():
+        await run.ingest(raw)     # runs MATCH-1.0, credits counters
+```
+`RunContext.ingest` never raises — per-item errors go onto the run doc.
+Context exit auto-finishes with success/partial/failed, updates
+source-health counters, emits `run_success|partial|failed` audit event.
+
+### New endpoints
+- `POST /api/admin/market/runs/start` — manual run start
+- `POST /api/admin/market/runs/{id}/listings` — batch ingest
+- `POST /api/admin/market/runs/{id}/finish` — explicit finish
+- `GET  /api/admin/market/runs/{id}` — single run detail
+- `GET  /api/admin/market/sources/health?window=10` — per-source rolling
+  success/error/partial rates, avg duration, streak of failures
+- `GET  /api/admin/market/listings/{id}/snapshots` — price/status history
+
+### UI updates
+- Data Sources page: Frequency, Parser, Success %, Runs, Fail streak, Last
+  run columns; per-row "Run" button; frequency dropdown + parser input in
+  the source modal.
+- Configuration page: new "Data Retention" tab (raw / normalized / review /
+  audit retention in days + soft-delete-only switch).
+- Retention params seeded into every existing config on boot
+  (idempotent migration in `seed.py`).
+
+### Test status (iter-29)
+- 14/14 pytest pass (`/app/backend/tests/test_iter29_source_runs.py`)
+- 6/6 frontend UI verifications pass
+- Zero critical or minor issues. DB restored clean.

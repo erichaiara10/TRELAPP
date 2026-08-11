@@ -315,5 +315,13 @@ DEFAULT_MARKET_CONFIG_PARAMS = {
     "confidence_weights": {
         "quantity": 30, "quality": 35, "recency": 20, "dispersion": 15,
     },
+    # ---- Retention (Configuration → Data Retention tab) ----
+    "retention": {
+        "raw_source_data_days": 365,
+        "normalized_data_days": 730,
+        "review_case_days": 365,
+        "audit_log_days": 2555,        # 7 years
+        "soft_delete_only": True,
+    },
 }
 

@@ -6,11 +6,20 @@ import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, Section } from "./_shared";
 
+const RETENTION_DEFAULTS = {
+  raw_source_data_days: 365,
+  normalized_data_days: 730,
+  review_case_days: 365,
+  audit_log_days: 2555,
+  soft_delete_only: true,
+};
+
 const TABS = [
   { key: "duplicate", label: "Duplicate Matching" },
   { key: "comparable", label: "Comparable Selection" },
   { key: "guidance", label: "Price Guidance" },
   { key: "cqs", label: "CQS Baseline" },
+  { key: "retention", label: "Data Retention" },
   { key: "advanced", label: "Advanced JSON" },
 ];
 
@@ -81,7 +90,11 @@ export default function MarketConfig() {
     ]);
     setVersions(list || []);
     setActive(a);
-    if (a) setParams(JSON.parse(JSON.stringify(a.parameters)));
+    if (a) {
+      const p = JSON.parse(JSON.stringify(a.parameters));
+      p.retention = { ...RETENTION_DEFAULTS, ...(p.retention || {}) };
+      setParams(p);
+    }
   };
   useEffect(() => { load().catch(() => {}); }, []);
 
@@ -354,6 +367,43 @@ export default function MarketConfig() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </Section>
+          )}
+
+          {tab === "retention" && (
+            <Section title="Data Retention & Governance" testid="config-retention">
+              <div className="text-xs text-muted-foreground mb-3">
+                Defines how long each data class is kept before archival. Soft-delete keeps history queryable; hard-delete removes it entirely.
+              </div>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Retention windows (days)</div>
+                  <NumInput label="Raw source data" value={params.retention?.raw_source_data_days}
+                            onChange={(v) => patchNested("retention", "raw_source_data_days", v)} testid="ret-raw"
+                            hint="Original scraped payloads (raw_fields on market_listings)." />
+                  <NumInput label="Normalized data" value={params.retention?.normalized_data_days}
+                            onChange={(v) => patchNested("retention", "normalized_data_days", v)} testid="ret-norm"
+                            hint="Canonicalised market_listings + master_properties." />
+                  <NumInput label="Review cases" value={params.retention?.review_case_days}
+                            onChange={(v) => patchNested("retention", "review_case_days", v)} testid="ret-review"
+                            hint="Resolved review cases beyond this window are archived." />
+                  <NumInput label="Audit log" value={params.retention?.audit_log_days}
+                            onChange={(v) => patchNested("retention", "audit_log_days", v)} testid="ret-audit"
+                            hint="Immutable audit trail retention (regulatory minimum: 7 years)." />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Deletion policy</div>
+                  <label className="flex items-center gap-2 py-2 text-sm" data-testid="toggle-soft-delete">
+                    <input type="checkbox"
+                           checked={!!params.retention?.soft_delete_only}
+                           onChange={(e) => patchNested("retention", "soft_delete_only", e.target.checked)} />
+                    Soft delete only (never hard-delete)
+                  </label>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    Retention params are governance-only in Phase 1 — enforcement runs land alongside the archival cron job.
+                  </div>
+                </div>
               </div>
             </Section>
           )}

@@ -1,0 +1,54 @@
+{
+  "summary": "Iter-29 backend + frontend verification of TRELPNG Phase 1 Source/Run infrastructure. Backend pytest 14/14 PASS (/app/backend/tests/test_iter29_source_runs.py) covering: (a) MarketSource extended fields (collection_frequency/parser_version/last_run_at/last_successful_run_at/consecutive_failures) round-trip on POST + GET /admin/market/sources; (b) POST /admin/market/runs/start returns CollectionRun {status:'running', run_type:'manual', triggered_by=user_id, listings_seen:0}; fails 404 on missing source and 400 on active=false source; (c) POST /admin/market/runs/{id}/listings batch ingest — first batch of 2 novel listings credits seen=2/new=2/updated=0/results=2; re-post of same source_listing_id with different price credits seen=3/new=2/updated=1 (dedup verified); (d) GET /admin/market/listings/{id}/snapshots returns ≥2 rows after price change (first_seen + price change), both prices {250000, 275000} present; (e) POST /admin/market/runs/{id}/finish — success: status='success', duration_ms populated (int), source.last_run_at + last_successful_run_at set + consecutive_failures reset to 0, audit event 'run_success' emitted; forced failed: status='failed', consecutive_failures=1, 'run_failed' event; subsequent successful finish resets streak to 0; 400 on ingest into finished run; 400 on double-finish; (f) GET /admin/market/sources/health returns all expected keys (runs, success_rate, error_rate, partial_rate, last_run_at, last_successful_run_at, consecutive_failures, avg_duration_ms, listings_last_run) with runs≥3 after test flow; (g) GET /admin/market/config/active?algorithm=combined includes parameters.retention={raw_source_data_days:365, normalized_data_days:730, review_case_days:365, audit_log_days:2555, soft_delete_only:true}. Frontend Playwright verified: /admin/market/sources shows all 6 new columns (Frequency/Parser/Success %/Runs/Fail streak/Last run) after adding a source; Add-Source modal has select-source-frequency dropdown (manual/hourly/daily/weekly) + input-source-parser text field; on save the row shows freq='daily' parser='1.0' Success%='—' Runs=0 (fresh source) — matches expected empty-state; clicking 'Run' triggers POST /runs/start and shows toast 'Run started — …'. /admin/market/config renders the new 'Data Retention' tab as the 5th tab; on click the 4 numeric inputs are pre-populated with 365/730/365/2555 and the 'Soft delete only' checkbox is checked by default. DB left clean at end: 0 market_sources, 0 market_listings, 0 collection_runs, 0 property_matches, 9 trel_backfill master_properties preserved, orphaned audit events cleared.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "POST /api/admin/market/sources {collection_frequency:'daily', parser_version:'1.0'} → 200 with all new fields; last_run_at=None, last_successful_run_at=None, consecutive_failures=0",
+    "GET /api/admin/market/sources → new fields intact on every row",
+    "POST /api/admin/market/runs/start → status='running', run_type='manual', triggered_by=<admin id>, listings_seen=0",
+    "POST /api/admin/market/runs/start with unknown source_id → 404",
+    "POST /api/admin/market/runs/start with active=false source → 400",
+    "POST /api/admin/market/runs/{id}/listings batch of 2 novel → processed=2, seen=2, new=2, updated=0, per-item results with source_listing_id",
+    "POST /api/admin/market/runs/{id}/listings re-post same source_listing_id (different price) → seen=3, new=2, updated=1",
+    "GET /api/admin/market/listings/{id}/snapshots → ≥2 rows (first_seen + price change), prices include 250000 and 275000",
+    "POST /api/admin/market/runs/{id}/finish (no errors) → status='success', duration_ms populated (int), source.last_successful_run_at set, consecutive_failures=0, audit 'run_success'",
+    "POST /api/admin/market/runs/{id}/listings on finished run → 400",
+    "POST /api/admin/market/runs/{id}/finish already finished → 400",
+    "POST /api/admin/market/runs/{id}/finish {status:'failed', error:'…'} → status='failed', consecutive_failures=1, audit 'run_failed'",
+    "Successful run after failed run → consecutive_failures reset to 0",
+    "GET /api/admin/market/sources/health → per-source shape {runs, success_rate, error_rate, partial_rate, last_run_at, last_successful_run_at, consecutive_failures, avg_duration_ms, listings_last_run}",
+    "GET /api/admin/market/config/active?algorithm=combined → parameters.retention {raw_source_data_days:365, normalized_data_days:730, review_case_days:365, audit_log_days:2555, soft_delete_only:true}"
+  ],
+  "verified_frontend": [
+    "/admin/market/sources: columns Name/Frequency/Parser/Active/Success %/Runs/Fail streak/Last run/Actions rendered (all 6 new columns present)",
+    "/admin/market/sources Add-Source modal: select-source-frequency (manual/hourly/daily/weekly) + input-source-parser present and functional",
+    "Fresh source (0 runs) row → Frequency='daily', Parser='1.0', Success%='—', Runs=0, Fail streak=0 (all as expected)",
+    "Clicking 'Run' on a source → POST /admin/market/runs/start succeeds and toast 'Run started — …' appears via sonner",
+    "/admin/market/config: 6th tab 'Data Retention' present (Duplicate / Comparable / Guidance / CQS / Retention / Advanced)",
+    "Retention tab default values: Raw source data=365, Normalized data=730, Review cases=365, Audit log=2555; 'Soft delete only' checkbox is checked"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_source_runs.py",
+    "/app/test_reports/pytest/iter29_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/market.py::finish_run does NOT emit run_partial audit — the docstring/requirement asks for run_success/run_failed/run_partial. Current code emits `run_{status}` so if status resolves to 'partial' (errors captured but not forced-failed) the event is 'run_partial' — correct. However when caller forces status='failed' but the run had prior errors accumulated during ingestion, the current code counts the run as failed which is correct; edge case OK.",
+    "routes/market.py::finish_run — when status='partial', consecutive_failures is NOT touched (neither reset nor incremented). Verified in code. If the intent is 'partial should not reset streak but also not extend it', the current implementation matches. Confirm this is intentional (algorithm doc §Phase-1 doesn't specify).",
+    "routes/market.py::finish_run — duration_ms is derived from `datetime.fromisoformat(run['started_at'])`; if started_at was stored via now_iso() format, verify it is ISO-parseable across all environments (fromisoformat handles 'YYYY-MM-DDTHH:MM:SS' and '+00:00' formats since Py3.11). Consider adding a fallback to time.time() delta if parse fails (currently returns None silently).",
+    "routes/market.py::ingest_batch reads/writes counters by copying from run doc into RunContext, but subsequent `ctx.ingest()` calls issue an update_one per item — for large batches this is N round-trips. Consider a bulk update on batch completion.",
+    "Sources.jsx table only renders <thead> when rows.length > 0 — empty-state hides column definitions. Not a defect, but a test that inspects columns must first ensure at least one source exists. Consider showing column headers even in empty state so QA and users understand the schema.",
+    "Sources.jsx `triggerRun` does not disable the Run button while inflight — a double-click could start 2 concurrent runs against the same source (backend does NOT reject overlapping runs). Consider either a disabled flag or a server-side single-run-per-source guard.",
+    "core/runs.py::_finalise_run vs routes/market.py::finish_run duplicate the source-health patch logic — extract to a helper to keep behavior in lockstep as fields evolve."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_source_runs.py (new — 14 tests + session cleanup)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (6/6 assertions)"},
+  "seed_data_creation": "Ephemeral: 2 TEST_ITER29_SRC_* market_sources + 1 TEST_UI_ITER29 (frontend) source, ~2 test market_listings under those sources, 3 collection_runs, first_seen + price-change snapshots. Session teardown deletes all created sources via API DELETE and does a direct-mongo cascade purge of listings/snapshots/matches/runs/review_cases keyed to test source_ids, plus removes any non-trel_backfill master_properties. Final DB state verified: 0 market_sources, 0 market_listings, 0 market_listing_snapshots, 0 collection_runs, 0 property_matches, 0 non-backfill masters, 9 trel_backfill masters preserved.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Phase 1 Source/Run infrastructure is fully functional. New endpoints under /api/admin/market/runs/{start, /{id}/listings, /{id}/finish}, /api/admin/market/sources/health, /api/admin/market/listings/{id}/snapshots all work. MarketSource has new fields collection_frequency/parser_version/last_run_at/last_successful_run_at/consecutive_failures. Active COMBINED-1.0 config includes parameters.retention with the 4 day-count fields + soft_delete_only. Frontend Sources page hides the <thead> when rows are empty — any test verifying column headers must create at least one source first. Backend pytest.ini uses -n 2 --dist loadscope by default; iter29 tests share session-scoped state across classes, so run them with `-n 0` (serial) when re-verifying, e.g. `pytest tests/test_iter29_source_runs.py -n 0`.",
+  "rca_of_the_issue": "n/a — no defects. Note: pytest -n 2 with loadscope splits classes across 2 workers, which breaks session-scoped shared-state fixtures. Iter-29 tests must be run serially (`-n 0`) as documented in context_for_next_testing_agent."
+}

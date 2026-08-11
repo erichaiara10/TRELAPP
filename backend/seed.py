@@ -202,6 +202,12 @@ async def migrate_backfill_master_properties():
 
 async def seed_market_configuration():
     if await db.market_configuration.count_documents({}) > 0:
+        # Backfill: any config missing retention params gets them injected
+        # in-place so the Configuration UI renders correct defaults.
+        await db.market_configuration.update_many(
+            {"parameters.retention": {"$exists": False}},
+            {"$set": {"parameters.retention": DEFAULT_MARKET_CONFIG_PARAMS["retention"]}},
+        )
         return
     doc = MarketConfiguration(
         version="COMBINED-1.0",

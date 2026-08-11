@@ -6,24 +6,32 @@ import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
 
-const emptyForm = { name: "", base_url: "", description: "", allow_source_auto_match: true, active: true };
+const emptyForm = {
+  name: "", base_url: "", description: "",
+  allow_source_auto_match: true, active: true,
+  collection_frequency: "manual", parser_version: "1.0",
+};
 
 export default function DataSources() {
   const [rows, setRows] = useState([]);
+  const [health, setHealth] = useState([]);
   const [runs, setRuns] = useState([]);
   const [summary, setSummary] = useState({});
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
-    const [{ data: srcs }, { data: rr }, { data: s }] = await Promise.all([
+    const [{ data: srcs }, { data: h }, { data: rr }, { data: s }] = await Promise.all([
       api.get("/admin/market/sources"),
+      api.get("/admin/market/sources/health"),
       api.get("/admin/market/runs?limit=10"),
       api.get("/admin/market/summary"),
     ]);
-    setRows(srcs || []); setRuns(rr || []); setSummary(s || {});
+    setRows(srcs || []); setHealth(h || []); setRuns(rr || []); setSummary(s || {});
   };
   useEffect(() => { load().catch(() => {}); }, []);
+
+  const healthFor = (sid) => health.find((h) => h.source_id === sid) || {};
 
   const openNew = () => { setEditing("new"); setForm(emptyForm); };
   const openEdit = (row) => {
@@ -31,6 +39,8 @@ export default function DataSources() {
     setForm({
       name: row.name || "", base_url: row.base_url || "", description: row.description || "",
       allow_source_auto_match: !!row.allow_source_auto_match, active: !!row.active,
+      collection_frequency: row.collection_frequency || "manual",
+      parser_version: row.parser_version || "1.0",
     });
   };
   const close = () => { setEditing(null); setForm(emptyForm); };
@@ -47,6 +57,16 @@ export default function DataSources() {
     if (!window.confirm(`Delete source "${row.name}"? Its listings will remain.`)) return;
     try { await api.delete(`/admin/market/sources/${row.id}`); toast.success("Deleted"); load(); }
     catch (e) { toast.error(formatError(e)); }
+  };
+
+  const triggerRun = async (row) => {
+    try {
+      const { data: run } = await api.post("/admin/market/runs/start", {
+        source_id: row.id, run_type: "manual",
+      });
+      toast.success(`Run started — ${run.id.slice(0, 8)}`);
+      load();
+    } catch (e) { toast.error(formatError(e)); }
   };
 
   return (
@@ -78,29 +98,49 @@ export default function DataSources() {
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground border-b border-border">
                   <th className="py-2 pr-3">Name</th>
-                  <th className="py-2 pr-3">Base URL</th>
+                  <th className="py-2 pr-3">Frequency</th>
+                  <th className="py-2 pr-3">Parser</th>
                   <th className="py-2 pr-3">Active</th>
-                  <th className="py-2 pr-3">Auto-Match</th>
-                  <th className="py-2 pr-3">Created</th>
+                  <th className="py-2 pr-3">Success %</th>
+                  <th className="py-2 pr-3">Runs</th>
+                  <th className="py-2 pr-3">Fail streak</th>
+                  <th className="py-2 pr-3">Last run</th>
                   <th className="py-2 pr-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-border/60" data-testid={`source-row-${r.id}`}>
-                    <td className="py-2 pr-3 font-medium">{r.name}</td>
-                    <td className="py-2 pr-3 text-xs">{r.base_url || "—"}</td>
-                    <td className="py-2 pr-3">{r.active ? "Yes" : "No"}</td>
-                    <td className="py-2 pr-3">{r.allow_source_auto_match ? "Yes" : "No"}</td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">{r.created_at?.slice(0, 10)}</td>
-                    <td className="py-2 pr-3 text-right">
-                      <button onClick={() => openEdit(r)} data-testid={`edit-source-${r.id}`}
-                              className="text-xs mr-3 underline">Edit</button>
-                      <button onClick={() => remove(r)} data-testid={`delete-source-${r.id}`}
-                              className="text-xs text-red-600 underline">Delete</button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const h = healthFor(r.id);
+                  return (
+                    <tr key={r.id} className="border-b border-border/60" data-testid={`source-row-${r.id}`}>
+                      <td className="py-2 pr-3">
+                        <div className="font-medium">{r.name}</div>
+                        {r.base_url && <div className="text-xs text-muted-foreground">{r.base_url}</div>}
+                      </td>
+                      <td className="py-2 pr-3">{r.collection_frequency || "manual"}</td>
+                      <td className="py-2 pr-3 text-xs">{r.parser_version || "—"}</td>
+                      <td className="py-2 pr-3">{r.active ? "Yes" : "No"}</td>
+                      <td className="py-2 pr-3 tabular-nums" data-testid={`health-${r.id}`}>
+                        {h.success_rate == null ? "—" : `${h.success_rate}%`}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums">{h.runs ?? 0}</td>
+                      <td className={`py-2 pr-3 tabular-nums ${h.consecutive_failures > 0 ? "text-red-700" : ""}`}>
+                        {h.consecutive_failures ?? 0}
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground">
+                        {(r.last_run_at || "").slice(0, 16).replace("T", " ") || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-right whitespace-nowrap">
+                        <button onClick={() => triggerRun(r)} data-testid={`run-source-${r.id}`}
+                                className="text-xs mr-3 underline">Run</button>
+                        <button onClick={() => openEdit(r)} data-testid={`edit-source-${r.id}`}
+                                className="text-xs mr-3 underline">Edit</button>
+                        <button onClick={() => remove(r)} data-testid={`delete-source-${r.id}`}
+                                className="text-xs text-red-600 underline">Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -163,6 +203,25 @@ export default function DataSources() {
                   <input type="checkbox" checked={form.allow_source_auto_match}
                          onChange={(e) => setForm({ ...form, allow_source_auto_match: e.target.checked })} /> Allow auto-match
                 </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Collection frequency" testid="source-frequency">
+                  <select value={form.collection_frequency}
+                          onChange={(e) => setForm({ ...form, collection_frequency: e.target.value })}
+                          className="w-full border border-border rounded px-2 py-1.5"
+                          data-testid="select-source-frequency">
+                    <option value="manual">Manual</option>
+                    <option value="hourly">Hourly</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </Field>
+                <Field label="Parser version" testid="source-parser">
+                  <input value={form.parser_version}
+                         onChange={(e) => setForm({ ...form, parser_version: e.target.value })}
+                         className="w-full border border-border rounded px-2 py-1.5"
+                         data-testid="input-source-parser" />
+                </Field>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">

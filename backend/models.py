@@ -361,6 +361,12 @@ class MarketSource(BaseModel):
     # Per-source safety switch — see algo doc §28
     allow_source_auto_match: bool = True
     active: bool = True
+    # ERD fields for scheduling + health metrics
+    collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
+    parser_version: Optional[str] = "1.0"
+    last_run_at: Optional[str] = None
+    last_successful_run_at: Optional[str] = None
+    consecutive_failures: int = 0
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -371,19 +377,27 @@ class MarketSourceCreate(BaseModel):
     description: Optional[str] = ""
     allow_source_auto_match: bool = True
     active: bool = True
+    collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
+    parser_version: Optional[str] = "1.0"
 
 
 # ---- Collection runs (scrape audit) ----
 class CollectionRun(BaseModel):
     id: str = Field(default_factory=new_id)
     source_id: str
+    run_type: Literal["scheduled", "manual", "backfill"] = "manual"
+    triggered_by: Optional[str] = None       # user_id or scheduler tag
     started_at: str = Field(default_factory=now_iso)
     finished_at: Optional[str] = None
-    status: Literal["running", "success", "failed"] = "running"
+    duration_ms: Optional[int] = None
+    status: Literal["running", "success", "failed", "partial"] = "running"
     listings_seen: int = 0
     listings_new: int = 0
     listings_updated: int = 0
+    matches_created: int = 0
+    review_cases_created: int = 0
     errors: List[str] = []
+    parser_version: Optional[str] = None
     algorithm_version: str = "MATCH-1.0"
 
 
