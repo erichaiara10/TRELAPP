@@ -1,37 +1,76 @@
-// Hausples Selector Tester — modal launched from a hausples_png source row.
-// Paste a URL, optionally override selectors, hit Test, see per-field match
-// counts + samples. Speeds up parser tuning without touching the collector.
-import React, { useState } from "react";
+// Selector Tester — generic modal launched from ANY HTTP-collector source row.
+// Works uniformly across hausples_png, ljhookerpng, mypnghome, sre, dac,
+// marketmeri. Paste a URL, optionally override selectors, hit Test, see
+// per-field match counts + samples. Nothing is saved until the operator
+// copies the working selectors into the source's `parser_config` themselves.
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 
-const DEFAULT_SELECTORS = {
-  card:     ".listing-card, .property-card, article",
-  url:      "a.listing-link, a.card-link, a[href*='/property/']",
-  title:    ".listing-title, .card-title, h3",
-  price:    ".listing-price, .price, .card-price",
-  address:  ".listing-address, .address, .card-address",
-  beds:     ".listing-beds, .beds",
-  baths:    ".listing-baths, .baths",
-  land:     ".listing-land, .land-area",
-  building: ".listing-building, .building-area",
-};
+// Every field the backend probes — order matters (drives modal layout).
+const FIELD_KEYS = ["card", "url", "title", "price", "address", "description",
+                    "beds", "baths", "land", "building"];
 
-export default function HausplesSelectorTester({ source, onClose }) {
-  const [url, setUrl] = useState(source?.base_url
-    ? `${source.base_url.replace(/\/$/, "")}/property-for-sale`
-    : "https://www.hausples.com.pg/property-for-sale");
-  const [selectors, setSelectors] = useState({
-    ...DEFAULT_SELECTORS,
-    ...(source?.parser_config || {}),
-  });
+function pickSelectorFields(cfg) {
+  const out = {};
+  for (const k of FIELD_KEYS) {
+    if (cfg && cfg[k]) out[k] = cfg[k];
+  }
+  return out;
+}
+
+function firstSearchUrl(cfg, sourceBase) {
+  const base = (sourceBase || cfg?.base_url || "").replace(/\/$/, "");
+  const path = (cfg?.search_paths || [])[0] || "/property-for-sale";
+  const tpl = cfg?.page_url_template;
+  if (tpl) return tpl.replace("{base}", base).replace("{path}", path).replace("{page}", 1);
+  return `${base}${path}`;
+}
+
+export default function SelectorTester({ source, collectorMeta, onClose }) {
+  // Backend now returns default_config on /admin/market/collectors, but we
+  // still handle the legacy case (no default_config → hit /defaults endpoint).
+  const collectorKey = source?.collector;
+  const collectorLabel = collectorMeta?.label || collectorKey || "Collector";
+  const [defaults, setDefaults] = useState(collectorMeta?.default_config || null);
+  const [url, setUrl] = useState("");
+  const [selectors, setSelectors] = useState({});
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      let cfg = collectorMeta?.default_config || null;
+      if (!cfg && collectorKey) {
+        try {
+          const { data } = await api.get(`/admin/market/collectors/${collectorKey}/defaults`);
+          cfg = data.default_config;
+        } catch (e) {
+          toast.error(formatError(e));
+          return;
+        }
+      }
+      if (cancelled || !cfg) return;
+      setDefaults(cfg);
+      setSelectors({
+        ...pickSelectorFields(cfg),
+        ...pickSelectorFields(source?.parser_config || {}),
+      });
+      setUrl(firstSearchUrl(cfg, source?.base_url));
+    };
+    load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectorKey]);
+
+  const searchPaths = useMemo(() => defaults?.search_paths || [], [defaults]);
+
   const runTest = async () => {
+    if (!collectorKey) return;
     setBusy(true); setResult(null);
     try {
-      const { data } = await api.post("/admin/market/collectors/hausples_png/test",
+      const { data } = await api.post(`/admin/market/collectors/${collectorKey}/test`,
         { url, selectors });
       setResult(data);
       if (data.ok) {
@@ -43,19 +82,37 @@ export default function HausplesSelectorTester({ source, onClose }) {
     finally { setBusy(false); }
   };
 
-  const reset = () => setSelectors(DEFAULT_SELECTORS);
+  const reset = () => {
+    if (!defaults) return;
+    setSelectors(pickSelectorFields(defaults));
+    toast.info(`Reset to ${collectorLabel} defaults`);
+  };
+
+  if (!defaults) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+           onClick={onClose} data-testid="selector-tester-modal">
+        <div className="bg-white rounded-lg p-5 w-full max-w-md text-center"
+             onClick={(e) => e.stopPropagation()}>
+          <div className="text-sm text-muted-foreground">Loading collector defaults…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-         onClick={onClose} data-testid="hausples-tester-modal">
+         onClick={onClose} data-testid="selector-tester-modal">
       <div className="bg-white rounded-lg p-5 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
            onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-4">
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Selector Tester</div>
-            <div className="text-xl font-semibold mt-1">Hausples PNG</div>
+            <div className="text-xl font-semibold mt-1" data-testid="tester-collector-label">
+              {collectorLabel}
+            </div>
             <div className="text-sm text-muted-foreground mt-1">
-              Paste a search-results URL and tune the selectors until you see the field counts you expect. Nothing gets saved unless you copy the working selectors back into the source's parser_config.
+              Paste a search-results URL and tune the selectors until you see the field counts you expect. Nothing gets saved unless you copy the working selectors back into the source's <code>parser_config</code>.
             </div>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"
@@ -68,12 +125,25 @@ export default function HausplesSelectorTester({ source, onClose }) {
             <input value={url} onChange={(e) => setUrl(e.target.value)}
                    className="flex-1 border border-border rounded px-2 py-1.5"
                    data-testid="tester-url" />
-            <button onClick={runTest} disabled={busy}
+            <button onClick={runTest} disabled={busy || !url}
                     className="px-4 py-1.5 rounded bg-[#2A5B46] text-white text-sm hover:bg-[#204838] disabled:opacity-60"
                     data-testid="tester-run">
               {busy ? "Probing…" : "Test Selectors"}
             </button>
           </div>
+          {searchPaths.length > 0 && (
+            <div className="mt-1.5 text-[11px] text-muted-foreground" data-testid="tester-quick-paths">
+              Quick paths:{" "}
+              {searchPaths.map((p, i) => (
+                <button key={p} type="button"
+                        onClick={() => setUrl(firstSearchUrl({ ...defaults, search_paths: [p] }, source?.base_url))}
+                        className="underline mr-2 hover:text-foreground"
+                        data-testid={`tester-path-${i}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
         </label>
 
         <div className="grid md:grid-cols-2 gap-3 mt-4">
@@ -105,7 +175,7 @@ export default function HausplesSelectorTester({ source, onClose }) {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-4 text-sm mb-3">
+                <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-sm mb-3">
                   <div>HTTP <strong>{result.http_status}</strong></div>
                   <div>{result.html_bytes?.toLocaleString()} bytes</div>
                   <div>Card selector <span className="font-mono text-xs">{result.card_selector}</span></div>
@@ -138,7 +208,7 @@ export default function HausplesSelectorTester({ source, onClose }) {
                             data-testid={`tester-row-${field}`}>
                           <td className="py-2 pr-3 font-medium capitalize">{field}</td>
                           <td className="py-2 pr-3 font-mono text-xs text-muted-foreground truncate max-w-xs">
-                            {info.selector}
+                            {info.selector || <span className="italic text-muted-foreground">not configured</span>}
                           </td>
                           <td className={`py-2 pr-3 text-right tabular-nums ${info.matches === 0 ? "text-red-700" : "text-emerald-700"}`}>
                             {info.matches} / {result.cards_found}{" "}

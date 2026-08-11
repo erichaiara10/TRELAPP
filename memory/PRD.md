@@ -817,3 +817,74 @@ Tester") were already shipped in iter-33/34, four are new:
   completeness.
 
 
+
+## Iter-37 — Selector Tester goes generic (all 6 HTTP collectors) (Feb 2026)
+
+### Backend
+
+**`core/collectors/selector_tester.py` (new)**
+- `probe_collector(key, url, selectors)` — replaces the Hausples-only probe.
+  Given any registered `HttpListingCollector` key it fetches the URL and
+  reports per-field match counts + up to 3 sample values.
+- `collector_defaults(key)` — returns the collector's `DEFAULT_CONFIG` or
+  `None` if the collector isn't an HTTP scraper (i.e. `seed`).
+- Field list expanded to include `description` alongside url/title/price/
+  address/beds/baths/land/building, so the tester renders every field the
+  common parser actually reads.
+
+**`core/collectors/hausples_tester.py` (rewritten as shim)**
+- Now a 15-line backward-compatibility wrapper that delegates to
+  `selector_tester.probe_collector("hausples_png", …)`. Existing imports
+  (`DEFAULT_PARSER_CONFIG`, `probe_hausples`) still resolve.
+
+**`routes/market.py`**
+- `GET /admin/market/collectors` now returns each entry with its
+  `default_config` inlined (or `null` for non-HTTP collectors).
+- New `GET /admin/market/collectors/{key}/defaults` — used by the modal to
+  re-hydrate defaults on Reset without a page reload.
+- New `POST /admin/market/collectors/{key}/test` — generic tester endpoint.
+  Returns `404` for unknown keys or non-HTTP collectors (`seed`), `400` for
+  invalid URLs.
+- Legacy `POST /admin/market/collectors/hausples_png/test` kept as an alias
+  and defined BEFORE the parametric route (FastAPI would otherwise shadow
+  it) — the lint enforcer caught this immediately and forced the correct
+  ordering.
+
+### Frontend
+
+**`pages/admin/market/SelectorTester.jsx` (new, generic)**
+- Renders for any HTTP collector — takes `source` + `collectorMeta` props.
+- Hydrates default selectors from `collectorMeta.default_config` (returned
+  by the collectors registry) or falls back to `GET /collectors/{key}/defaults`.
+- Auto-populates the URL from the source's base_url + first search_path
+  (respecting `page_url_template` if set).
+- New "Quick paths" row (`tester-quick-paths`) — one clickable link per
+  configured search path so ops can flip between `/for-sale` and `/for-rent`
+  in one click.
+- Reset now shows a `Reset to {collector label} defaults` toast so the user
+  sees which template they landed on.
+- Same result panel (per-field match counts + sample rows), same
+  graceful-degradation UX.
+
+**`pages/admin/market/Sources.jsx`**
+- Old `HausplesSelectorTester` import + JSX **removed** (file deleted).
+- Inspect button now renders for **any** row whose collector has a
+  `default_config` in the registry response — i.e. all 6 live scrapers.
+- Seed sources (including the always-on TREL Seed Generator) correctly
+  omit the button.
+- Modal opened with `<SelectorTester source={row}
+  collectorMeta={collectors.find((c) => c.key === row.collector)} … />`
+  so no extra fetch is needed on open.
+
+### Verified end-to-end (curl + Playwright)
+- 19/19 backend cases pass: registry defaults, `/defaults` endpoint,
+  generic `/test` on all 6 HTTP keys, `seed` → 404, invalid URL → 400,
+  legacy `/hausples_png/test` alias, user-supplied selector overrides.
+- Frontend: exactly 6 `inspect-source-*` buttons render (one per HTTP
+  collector); seed rows omit it. Clicking LJ Hooker → modal opens with
+  correct label, pre-populated URL, LJ-specific default selectors, quick
+  paths present. Reset restores defaults + toast fires. Probing example.com
+  returns `cards_found=0` without JS errors. Hausples row regression
+  still works.
+
+

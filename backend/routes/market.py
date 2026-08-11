@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.collectors import get_collector, registered as registered_collectors
 from core.collectors.hausples_tester import probe_hausples
+from core.collectors.selector_tester import collector_defaults, probe_collector
 from core.db import db, new_id, now_iso, strip_id
 from core.guidance import generate_guidance
 from core.matcher import ingest_market_listing, rematch_listing
@@ -164,19 +165,52 @@ async def toggle_scheduler(payload: dict, user: dict = Depends(get_current_user)
 
 @router.get("/admin/market/collectors")
 async def list_collectors(user: dict = Depends(get_current_user)):
-    return registered_collectors()
+    """Registry of all installed collectors. Each entry now includes the
+    collector's `default_config` (or null for non-HTTP collectors) so the
+    admin selector-tester modal can render the site-specific default
+    selectors without a second round-trip."""
+    out = []
+    for c in registered_collectors():
+        defaults = collector_defaults(c["key"])
+        out.append({**c, "default_config": defaults})
+    return out
+
+
+@router.get("/admin/market/collectors/{key}/defaults")
+async def collector_default_config(key: str, user: dict = Depends(get_current_user)):
+    """Standalone endpoint used by the selector-tester modal when it needs
+    to hydrate default selectors on-demand (e.g. after "Reset to defaults")."""
+    d = collector_defaults(key)
+    if d is None:
+        raise HTTPException(404, f"Collector '{key}' has no HTTP defaults")
+    return {"collector": key, "default_config": d}
 
 
 @router.post("/admin/market/collectors/hausples_png/test")
 async def hausples_selector_test(payload: dict,
                                   user: dict = Depends(get_current_user)):
-    """Selector tester — paste a Hausples search-results URL, get per-selector
-    match counts + samples. Optional `selectors` overrides let ops A/B-test
-    tweaks before saving them to a source's parser_config."""
+    """Legacy alias for the generic endpoint below — kept so the earlier
+    Hausples-only frontend build keeps working through the transition."""
     url = (payload or {}).get("url")
     if not url or not url.startswith("http"):
         raise HTTPException(400, "Valid URL required")
     return await probe_hausples(url, (payload or {}).get("selectors"))
+
+
+@router.post("/admin/market/collectors/{key}/test")
+async def selector_test(key: str, payload: dict,
+                        user: dict = Depends(get_current_user)):
+    """Generic selector tester — works for every registered HTTP collector.
+    Body: `{ url: string, selectors?: dict }`. Returns per-field match counts
+    + up to 3 sample values so operators can tune each site's
+    `parser_config` from the admin UI."""
+    url = (payload or {}).get("url")
+    if not url or not url.startswith("http"):
+        raise HTTPException(400, "Valid URL required")
+    result = await probe_collector(key, url, (payload or {}).get("selectors"))
+    if not result.get("ok") and result.get("error", "").startswith("Unknown collector"):
+        raise HTTPException(404, result["error"])
+    return result
 
 
 

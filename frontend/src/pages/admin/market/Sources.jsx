@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
-import HausplesSelectorTester from "./HausplesSelectorTester";
+import SelectorTester from "./SelectorTester";
 
 const emptyForm = {
   name: "", base_url: "", description: "",
@@ -163,7 +163,7 @@ export default function DataSources() {
                       <td className="py-2 pr-3 text-right whitespace-nowrap">
                         <button onClick={() => triggerRun(r)} data-testid={`run-source-${r.id}`}
                                 className="text-xs mr-3 underline">Run</button>
-                        {r.collector === "hausples_png" && (
+                        {(collectors.find((c) => c.key === r.collector)?.default_config) && (
                           <button onClick={() => setTesterSource(r)}
                                   className="text-xs mr-3 underline"
                                   data-testid={`inspect-source-${r.id}`}>Inspect</button>
@@ -278,8 +278,9 @@ export default function DataSources() {
       )}
 
       {testerSource && (
-        <HausplesSelectorTester source={testerSource}
-                                onClose={() => setTesterSource(null)} />
+        <SelectorTester source={testerSource}
+                        collectorMeta={collectors.find((c) => c.key === testerSource.collector)}
+                        onClose={() => setTesterSource(null)} />
       )}
     </div>
   );

@@ -1,0 +1,21 @@
+{
+  "summary": "Iter-35 verified: generic Selector Tester now works for all 6 HTTP collectors + regression on legacy Hausples flow. Backend: 19/19 pytest cases pass (registry lists 7 collectors with default_config populated for 6 HTTP keys and null for 'seed'; /defaults endpoint returns config for each HTTP key and 404 for seed/unknown; POST /{key}/test returns ok:true with per-field selector/matches/samples for all 6 collectors against https://example.com; seed key returns 404 with 'Unknown collector'; invalid URL returns 400; legacy /hausples_png/test still works; user-supplied selector override with card=h1/title=p on example.com yields cards_found>=1). Frontend: on /admin/market/sources, exactly 6 inspect-source-* buttons render — one per HTTP collector row (Devine & Associates, Hausples PNG, LJ Hooker PNG, MarketMeri, MyPNGHome, Strickland Real Estate); seed-backed rows (TREL Seed Generator + legacy duplicates) have no Inspect button. Clicking Inspect on the LJ Hooker PNG row opens selector-tester-modal with label 'LJ Hooker PNG', URL pre-populated to https://www.ljhookerpng.com/properties-for-sale/page/1/, and all field inputs (card/title/price/address/description/beds/baths/land/building) populated with the collector's DEFAULT_CONFIG. Quick paths (tester-quick-paths + 2x tester-path-*) present and swap the URL when clicked. Reset restores card to default and shows toast 'Reset to LJ Hooker PNG defaults'. Probing https://example.com returned cards_found=0 (expected graceful degradation) with no console errors. Regression: Inspect on Hausples PNG row reopens modal with label 'Hausples PNG' and hausples defaults. No JS errors observed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_selector_tester.py",
+    "/app/test_reports/pytest/iter35_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "selector_tester.probe_collector silently drops unknown selector keys via `if k in defaults` — good for noise filtering, but ops testing an entirely new field (e.g. `agent`) will see no error. Consider echoing an 'ignored_selectors' list in the response for visibility."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter35_selector_tester.py"],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% (all listed scenarios)"},
+  "seed_data_creation": "None. Probed https://example.com only.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (unchanged)",
+  "context_for_next_testing_agent": "Selector Tester generic expansion is fully working end-to-end. Legacy /hausples_png/test endpoint retained; generic /{key}/test defined after (route order correct). Only 6 HTTP collectors get an Inspect button — seed collector rows correctly excluded because default_config is null.",
+  "rca_of_the_issue": "N/A — no defects found."
+}
