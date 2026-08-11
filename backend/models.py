@@ -361,6 +361,8 @@ class MarketSource(BaseModel):
     # Per-source safety switch — see algo doc §28
     allow_source_auto_match: bool = True
     active: bool = True
+    # Which collector implementation drives this source (see core/collectors)
+    collector: str = "seed"
     # ERD fields for scheduling + health metrics
     collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
     parser_version: Optional[str] = "1.0"
@@ -377,6 +379,7 @@ class MarketSourceCreate(BaseModel):
     description: Optional[str] = ""
     allow_source_auto_match: bool = True
     active: bool = True
+    collector: str = "seed"
     collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
     parser_version: Optional[str] = "1.0"
 

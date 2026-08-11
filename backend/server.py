@@ -46,6 +46,8 @@ async def root():
 async def on_startup():
     files.init_storage()
     await run_startup()
+    from core.scheduler import start_scheduler
+    start_scheduler()
 
 
 @app.on_event("shutdown")

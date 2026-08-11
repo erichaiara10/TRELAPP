@@ -1,7 +1,9 @@
-"""Public endpoints — captcha challenge, lead submit, inspection request."""
+"""Public endpoints — captcha challenge, lead submit, inspection request,
+public price-guidance runs."""
 from fastapi import APIRouter, HTTPException
 
 from core.db import db
+from core.guidance import generate_guidance
 from core.notify import auto_assign_agent, notify
 from core.security import captcha_encode, captcha_pair, captcha_verify, honeypot_check
 from models import (
@@ -83,3 +85,58 @@ async def public_create_inspection(payload: InspectionCreate):
     await notify(f"New inspection request: {prop['title']}",
                  payload.customer_name, payload.customer_email)
     return {"ok": True, "inspection_id": ins["id"]}
+
+
+
+# ---------- Public Price Compare ----------
+@router.post("/public/guidance/run")
+async def public_guidance_run(payload: dict):
+    """Public guidance endpoint powering the 4 customer-facing Price Compare
+    screens. Same GUIDE-1.0 engine as the admin; the workflow field selects
+    the presentation slant (seller/buyer/landlord/renter)."""
+    if payload.get("purpose") not in ("sale", "rent"):
+        raise HTTPException(400, "purpose must be 'sale' or 'rent'")
+    if not payload.get("suburb"):
+        raise HTTPException(400, "Suburb is required for price guidance")
+    workflow = payload.pop("workflow", "seller")
+    if workflow not in ("seller", "buyer", "landlord", "renter"):
+        raise HTTPException(400, "workflow must be seller|buyer|landlord|renter")
+    try:
+        out = await generate_guidance(payload, workflow=workflow, actor_id=None)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    # Strip internal ids from the response — public users just need the shape
+    r = out["result"]; comps = out["comparables"]
+    subj_asking = payload.get("subject_asking_price")
+    weighted_med = r.get("weighted_median")
+    position = None
+    if subj_asking and weighted_med:
+        pct = (float(subj_asking) - float(weighted_med)) / float(weighted_med) * 100.0
+        if pct < -10:
+            position = "BELOW"
+        elif pct > 10:
+            position = "ABOVE"
+        else:
+            position = "WITHIN"
+    return {
+        "workflow": workflow,
+        "purpose": payload["purpose"],
+        "comparable_count": r["comparable_count"],
+        "observed_range": r["observed_range"],
+        "median": r["median"],
+        "weighted_median": weighted_med,
+        "trel_indicative_range": r["trel_indicative_range"],
+        "confidence_label": r["confidence_label"],
+        "confidence_score": r["confidence_score"],
+        "position": position,
+        "delta_pct": ((float(subj_asking) - float(weighted_med)) / float(weighted_med) * 100.0
+                       if subj_asking and weighted_med else None),
+        "algorithm_version": r["algorithm_version"],
+        "config_version": r["config_version"],
+        "comparables_sample": [
+            {"tier": c["tier"], "quality_score": c["quality_score"],
+             "recency_factor": c["recency_factor"], "value": c["value"],
+             "inclusion_status": c["inclusion_status"]}
+            for c in comps if c["inclusion_status"] == "included"
+        ][:12],
+    }

@@ -1,0 +1,29 @@
+{
+  "summary": "Iter-31 regression retest after iter-30 fix. Both fixes verified: (1) BACKEND: GET /api/admin/market/runs?limit=10 now returns HTTP 200 with [] (previously 404) — @router.get('/admin/market/runs') decorator restored on list_runs at line 148 of routes/market.py. Regression check GET /api/admin/market/runs/{unknown_id} correctly still returns 404 with {'detail':'Run not found'}. (2) FRONTEND: /admin/market/sources now renders fully. Playwright end-to-end verified: [data-testid=market-sources-page] mounts; both [data-testid=add-source-btn] ('+ Add Source') AND [data-testid=scheduler-toggle-btn] ('Scheduler: Running — click to pause') are visible in the header. Add Source modal opens, native <select data-testid=select-source-collector> is populated (seed selected), POST /admin/market/sources succeeds, new row appears with data-testid=source-row-{sid}. Clicking [data-testid=run-source-{sid}] fires POST /admin/market/sources/{sid}/collect → SUCCESS response; table refreshes with Success %=100%, Runs=1, Fail streak=0, Last run timestamp populated. Scheduler toggle click flips text 'Scheduler: Running — click to pause' → 'Scheduler: Paused — click to resume' and back on second click. Sources.jsx now uses Promise.allSettled so isolated endpoint failures no longer blank the entire page. DB LEFT CLEAN as requested — final counts: 0 market_sources / 0 collection_runs / 0 market_listings / 0 market_listing_snapshots / 0 property_matches / 0 market_review_cases / 0 guidance_results / 0 guidance_comparables / 0 valuation_requests; 9 trel_backfill master_properties preserved (non-backfill masters purged).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "GET /api/admin/market/runs?limit=10 -> 200 []",
+    "GET /api/admin/market/runs/{unknown} -> 404 (regression preserved)",
+    "POST /api/admin/market/sources (collector=seed) -> source persisted",
+    "POST /api/admin/market/sources/{sid}/collect -> status=success, listings_new=12, matches_created=12",
+    "DELETE /api/admin/market/sources/{sid} -> ok"
+  ],
+  "verified_frontend": [
+    "/admin/market/sources renders: market-sources-page + add-source-btn + scheduler-toggle-btn all visible on initial load",
+    "Add Source modal: select-source-collector dropdown populated, save flow works",
+    "run-source-{sid} triggers collect + table refresh (Success %=100%, Runs=1, cells: ['Regression Src','manual','1.0','Yes','100%','1','0','2026-08-11 10:34','RunEditDelete'])",
+    "scheduler-toggle-btn flips Running <-> Paused text on click"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iter30_phase_ef.py"],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (2/2 targeted checks)", "frontend": "100% (all iter-30 unverified scenarios now pass)"},
+  "seed_data_creation": "Ephemeral: 1 'Regression Src' market_source + 1 collection_run + 12 market_listings + 12 snapshots + 12 property_matches + 12 auto-created master_properties. All purged in final teardown per agent_to_agent_context_note. Final DB state: 9 trel_backfill master_properties, all other market_* collections empty.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "Iter-30 critical bug (missing @router.get on list_runs) is resolved. Sources.jsx now uses Promise.allSettled — resilient to per-endpoint failures. DB is at baseline: 9 trel_backfill master_properties, all other market_* collections empty. Safe to build on top of this state.",
+  "rca_of_the_issue": "N/A — regression retest passed; both fixes (decorator restoration + Promise.allSettled) confirmed correct."
+}

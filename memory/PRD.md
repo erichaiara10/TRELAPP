@@ -507,3 +507,63 @@ source-health counters, emits `run_success|partial|failed` audit event.
 - 14/14 pytest pass (`/app/backend/tests/test_iter29_source_runs.py`)
 - 6/6 frontend UI verifications pass
 - Zero critical or minor issues. DB restored clean.
+
+## Phase E + F — Collectors, Charts, Public Price Compare, Scheduler (Feb 2026)
+
+### Collector Framework (`core/collectors/`)
+- `CollectorBase` abstract class + `@register` decorator + `registered()` list
+- Ships 2 concrete collectors:
+  - `seed` — synthetic PNG-market generator (12 varied listings across 8
+    suburbs, deterministic per `source_id`, zero network deps). Powers all
+    demos + CI.
+  - `hausples_png` — real HTTP adapter scaffold for hausples.com.pg (uses
+    httpx, best-effort probe, safe to enable when the collector's parser is
+    firmed up).
+- `MarketSource.collector` field selects which implementation runs.
+- `POST /api/admin/market/sources/{id}/collect` — one-shot: opens a
+  `collection_run`, drives the source's collector, closes the run. Returns
+  the final run doc.
+
+### Scheduler (`core/scheduler.py`)
+- Single asyncio background task started from server.py startup event
+- Ticks every `SCHEDULER_TICK_SECONDS` (default 60s), enforces per-source
+  cooldowns (hourly/daily/weekly) with exponential back-off on failure
+  streaks (cap 6x)
+- Admin controls: `GET/POST /admin/market/scheduler` and `/scheduler/pause`
+- Sources UI shows a live "Running/Paused" toggle button
+
+### Analytics endpoints (`routes/market.py`)
+- `GET /admin/market/analytics/source-strip` — per-source health snapshot
+- `GET /admin/market/analytics/price-trends?purpose=sale&months=12`
+- `GET /admin/market/analytics/median-by-suburb?purpose=sale`
+- `GET /admin/market/analytics/heatmap?purpose=sale&months=12`
+- `GET /admin/market/analytics/quick-insights` — donut breakdowns
+
+### Overview UI (`Overview.jsx`)
+- 6 KPI cards + Source Health strip (color-coded LEDs)
+- Recharts line chart for 12-month sale price trend
+- 3 mini donuts: By Class / By Purpose / Match Bands
+- Latest Open Review Cases feed
+
+### Trends UI (`Trends.jsx`)
+- For Sale / For Rent toggle
+- Horizontal bar chart — median by suburb
+- Line chart — 12-month trend
+- Suburb × month heatmap table with color-intensity fill
+
+### Public Price Compare (`/price-compare/*`)
+- Landing page with 4 workflow tiles (Seller / Buyer / Landlord / Renter)
+- `/price-compare/:workflow` — subject form + result cards:
+  - **TREL Indicative Range** (p25 → p75) + weighted median + confidence chip
+  - **YOUR PRICE IS BELOW / WITHIN / ABOVE** card with workflow-tailored advice
+  - Top comparables table (tier / CQS / recency / value)
+- Backed by public (no-auth) endpoint `POST /api/public/guidance/run`
+
+### Robustness improvement
+- `Sources.jsx` uses `Promise.allSettled` — a single failing endpoint
+  no longer blanks the entire admin page (widget-level degradation).
+
+### Test status
+- iter-30: 17/17 backend pytest + 5/5 frontend flows verified. 1 critical
+  bug fixed (list_runs decorator).
+- iter-31: 2/2 targeted regression checks pass. DB clean.

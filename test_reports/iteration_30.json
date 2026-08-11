@@ -1,0 +1,75 @@
+{
+  "summary": "Iter-30 Phase E/F verification. Backend pytest 17/17 PASS (/app/backend/tests/test_iter30_phase_ef.py) covering: (a) GET /admin/market/collectors returns [seed (requires_network=false), hausples_png (requires_network=true)]; (b) POST /admin/market/sources with collector='seed' + POST /admin/market/sources/{id}/collect on first run yields status='success', duration_ms>0, listings_seen=12, listings_new=12, matches_created=12; (c) Re-run of collect on same source is idempotent: listings_seen=12, listings_new=0, listings_updated>=1 (deterministic SeedCollector via source_id-seeded RNG); (d) 404 on collect for unknown source; (e) Analytics: /source-strip returns per-source {source_id,name,active,collector,runs,success_rate,listings_ingested,last_run_at,consecutive_failures} — seed source shows runs=2, success_rate=100, listings_ingested>=12; /price-trends returns [{month,count,median}]; /median-by-suburb returns [{suburb,count,median}] sorted desc; /heatmap returns {months, suburbs, cells:[{suburb, YYYY-MM}]}; /quick-insights returns {by_class, by_purpose, match_bands}; (f) Scheduler: GET /scheduler returns {paused, tick_seconds, task_running:true}. POST /scheduler/pause {paused:true} keeps task_running=true and flips paused=true; pausing back to false resumes; (g) PUBLIC POST /api/public/guidance/run WITHOUT Authorization header returns full guidance envelope {workflow, purpose, comparable_count, observed_range, median, weighted_median, trel_indicative_range, confidence_label, confidence_score, position, delta_pct, algorithm_version:'GUIDE-1.0', config_version, comparables_sample}. All 4 workflows (seller/buyer/landlord/renter) succeed; missing suburb -> 400; workflow='admin' -> 400; purpose='lease' -> 400. Frontend Playwright verified: /admin/market Overview renders (4 recharts wrappers = Sale Price Trend line + By Class + By Purpose + Match Bands donuts), Source Health strip shows seed source, 'Latest Open Review Cases' section present. /admin/market/trends renders For Sale/For Rent toggles + 2 recharts wrappers (median-by-suburb bar + 12mo line) + 1 heatmap table with Suburb column; For Rent toggle rerenders charts. /price-compare landing shows all 4 workflow tiles (Seller/Buyer/Landlord/Renter); /price-compare/seller form loads and validates (Suburb required); result panel renders TREL Indicative Range card + comparables. /price-compare/buyer, /landlord, /renter all render with workflow-specific titles. CRITICAL DEFECT: /admin/market/sources page fails to render (0 rows, no scheduler toggle, no Run button) because GET /admin/market/runs returns 404 and the page's Promise.all() aborts. Root cause: routes/market.py list_runs function (~line 148) is missing its @router.get('/admin/market/runs') decorator. DB left clean at end (0 market_sources / collection_runs / market_listings / snapshots / matches / review_cases / guidance_results / guidance_comparables / valuation_requests; 9 trel_backfill master_properties preserved).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/admin/market/runs", "issue": "Function `list_runs` in /app/backend/routes/market.py (line ~148) has no @router.get decorator so the route is not registered — returns 404. Sources.jsx Promise.all() aborts on this failure, breaking the entire /admin/market/sources page.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Sources.jsx", "issue": "Whole page fails to render (no rows, no Add Source button visible in tests, no scheduler toggle, no Run buttons) because load() Promise.all rejects on the 404 from GET /admin/market/runs?limit=10. `useEffect(() => { load().catch(() => {}) }, [])` swallows the error silently, leaving all state uninitialised — no toast, no error banner. Fix upstream 404, and consider replacing Promise.all with Promise.allSettled so one failing feed doesn't blank the entire admin screen.", "selector": "[data-testid='scheduler-toggle-btn'], [data-testid='market-sources-page'] tbody tr", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "/admin/market/sources initial load", "issue": "GET /admin/market/runs -> 404 causes silent full-page render failure", "affected_selectors": ["[data-testid='scheduler-toggle-btn']", "[data-testid^='run-source-']", "[data-testid='sources-runs']"]}
+    ],
+    "design_issues": []
+  },
+  "verified_backend": [
+    "GET /api/admin/market/collectors -> [{key:'seed',requires_network:false,label:'TREL Seed Generator (synthetic PNG data)'},{key:'hausples_png',requires_network:true,...}]",
+    "POST /api/admin/market/sources with collector='seed' persists collector field",
+    "POST /api/admin/market/sources/{id}/collect (1st) -> status='success', duration_ms>0, listings_seen=12, listings_new=12, matches_created=12",
+    "POST /api/admin/market/sources/{id}/collect (2nd) -> status='success', listings_seen=12, listings_new=0, listings_updated>=1 (idempotent per deterministic seed RNG)",
+    "POST /api/admin/market/sources/does-not-exist/collect -> 404",
+    "GET /api/admin/market/analytics/source-strip -> [{source_id,name,active,collector,runs,success_rate,listings_ingested,last_run_at,consecutive_failures}]",
+    "GET /api/admin/market/analytics/price-trends?purpose=sale&months=12 -> [{month,count,median}]",
+    "GET /api/admin/market/analytics/median-by-suburb?purpose=sale -> [{suburb,count,median}] sorted desc by median",
+    "GET /api/admin/market/analytics/heatmap?purpose=sale&months=12 -> {months:[], suburbs:[], cells:[{suburb, YYYY-MM: value}]}",
+    "GET /api/admin/market/analytics/quick-insights -> {by_class, by_purpose, match_bands}",
+    "GET /api/admin/market/scheduler -> {paused:false, tick_seconds:60, task_running:true}",
+    "POST /api/admin/market/scheduler/pause {paused:true} -> paused=true, task_running=true; {paused:false} resumes",
+    "POST /api/public/guidance/run WITHOUT Authorization -> 200 with full GUIDE-1.0 envelope (workflow=seller|buyer|landlord|renter)",
+    "POST /api/public/guidance/run missing suburb -> 400",
+    "POST /api/public/guidance/run workflow='admin' -> 400",
+    "POST /api/public/guidance/run purpose='lease' -> 400"
+  ],
+  "verified_frontend": [
+    "/admin/market Overview: 4 recharts wrappers (trend line + 3 donuts) + Source Health strip + 'Latest Open Review Cases' section — all present",
+    "/admin/market/trends: For Sale + For Rent toggle buttons; 2 recharts wrappers (median-by-suburb bar + 12mo line); 1 heatmap table with Suburb column; For Rent click rerenders charts",
+    "/price-compare landing: all 4 workflow tiles rendered (Seller Guidance, Buyer Price Check, Landlord Rent Guidance, Renter Rent Check)",
+    "/price-compare/seller: form renders (Property class, Subtype, Suburb*, Street, Local area, Bedrooms, Bathrooms, Land, Building, Your target listing price), validation 'Suburb is required' toast fires when missing; on valid submit the result panel shows TREL Indicative Range + comparables",
+    "/price-compare/{buyer,landlord,renter}: pages render with workflow-specific titles and forms"
+  ],
+  "unverified_frontend": [
+    "Sources.jsx per-row 'Run' button and Add Source modal Collector dropdown (Radix Select with Seed / Hausples options) — page failed to render due to backend 404 bug",
+    "Sources.jsx Scheduler: Running toggle click (element not rendered)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_phase_ef.py",
+    "/app/test_reports/pytest/iter30_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Add @router.get('/admin/market/runs') decorator to list_runs in /app/backend/routes/market.py (~line 148). Without it, GET /admin/market/runs returns 404 and the /admin/market/sources React page fails to render (no rows, no scheduler toggle, no Run buttons).",
+    "HIGH: In Sources.jsx load() use Promise.allSettled (or per-request try/catch) so a single feed's failure does not blank the whole page. Also surface load errors via toast rather than silently swallowing with `.catch(() => {})` in the useEffect.",
+    "MEDIUM: Sources.jsx `triggerRun` does not disable the Run button while inflight — a rapid double-click will fire /collect twice concurrently.",
+    "LOW: Overview page has no visible section header 'Sale Price Trend' or similar label above the trend line chart — considered adding a heading for accessibility."
+  ],
+  "critical_code_review_comments": [
+    "routes/market.py: `list_runs` at line ~148 has no HTTP decorator; the function exists but is not registered on the FastAPI router — GET /admin/market/runs -> 404. Add `@router.get('/admin/market/runs')` above the def.",
+    "Sources.jsx (line 26-38) uses Promise.all across 6 endpoints; any single 404/500 rejects the entire aggregation and leaves ALL page state at its useState() default. Use Promise.allSettled and initialise each state independently.",
+    "public.py::public_guidance_run computes delta_pct twice (once for position, once for the response); could be memoised for clarity.",
+    "market.py::analytics_price_trends uses `months * 31` for the cutoff; consider dateutil.relativedelta(months=months) for month-accurate windows.",
+    "collectors/seed.py: RNG is seeded from (source_id, parser_version). This means bumping parser_version alone will generate an entirely different synthetic dataset — intended, but worth documenting so operators know parser_version changes trigger a full 're-seed' of demo data.",
+    "scheduler.py: `_paused` module-global is not persisted — a backend restart resets it to `SCHEDULER_PAUSED` env value. If ops pauses via UI then the backend restarts, the scheduler quietly resumes. Consider persisting paused state in Mongo (e.g. system_config)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter30_phase_ef.py (new — 17 tests)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "80% (Overview, Trends, /price-compare all workflows verified; Sources page blocked by backend 404 bug)"},
+  "seed_data_creation": "Ephemeral: 1 TEST_ITER30_SEED (backend test) + 1 TEST_ITER30_UI_SEED (frontend) market_sources with 12+12 seed listings across 2 collect runs. All test data purged in module teardown + final direct-mongo cascade purge. Final DB state: 0 market_sources, 0 collection_runs, 0 market_listings, 0 market_listing_snapshots, 0 property_matches, 0 market_review_cases, 0 guidance_results/comparables/valuation_requests; 9 trel_backfill master_properties preserved.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Iter-30 verified Phase E/F backend end-to-end (17 pytest passing). ONE critical bug remains: routes/market.py::list_runs missing @router.get decorator — the /admin/market/runs endpoint returns 404 which cascades into a full render failure of the /admin/market/sources React page (Sources.jsx uses Promise.all across 6 endpoints and any single 404 aborts). After the developer adds the missing decorator, re-run the Sources page verification: (1) scheduler-toggle-btn renders and toggles between 'Running — click to pause' and 'Paused — click to resume' with toast; (2) Add Source modal Collector dropdown lists 2 options (TREL Seed Generator, Hausples PNG); (3) per-row [data-testid=run-source-*] button triggers POST /admin/market/sources/{id}/collect and toast shows result summary. Public /price-compare, Overview, Trends are all working correctly and require no re-test. Backend pytest.ini uses -n 2 parallel workers with loadscope; iter30 tests use module-scoped shared state so run with `-n 0`. All test-created data cleaned via module teardown + direct-mongo cascade.",
+  "rca_of_the_issue": "In /app/backend/routes/market.py at approximately line 148, the async function `list_runs(source_id, limit, user)` is defined WITHOUT any `@router.get(...)` decorator above it. Because FastAPI only registers routes decorated with `@router.<method>(...)`, the intended path GET /admin/market/runs is never bound and the router falls through to a 404. The `@router.get('/admin/market/runs/{run_id}')` decorator on the very next function `get_run` catches only the sub-path, not the collection endpoint. Frontend Sources.jsx calls `api.get('/admin/market/runs?limit=10')` inside a Promise.all with 5 other loaders; the 404 rejects that promise, which rejects the entire Promise.all, so the useEffect's `.catch(() => {})` silently swallows the error and NONE of the state setters ever run. Result: an empty page with no toolbar, no rows, no scheduler toggle, no Add Source button. Fix: add `@router.get('/admin/market/runs')` above the `list_runs` def, AND upgrade Sources.jsx to use Promise.allSettled with per-endpoint fallbacks to prevent this class of cascade failure."
+}

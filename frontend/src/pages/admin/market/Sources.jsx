@@ -9,6 +9,7 @@ import { PageHeader, KpiCard, Section } from "./_shared";
 const emptyForm = {
   name: "", base_url: "", description: "",
   allow_source_auto_match: true, active: true,
+  collector: "seed",
   collection_frequency: "manual", parser_version: "1.0",
 };
 
@@ -19,19 +20,37 @@ export default function DataSources() {
   const [summary, setSummary] = useState({});
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [collectors, setCollectors] = useState([]);
+  const [sched, setSched] = useState(null);
 
   const load = async () => {
-    const [{ data: srcs }, { data: h }, { data: rr }, { data: s }] = await Promise.all([
+    // Promise.allSettled — a single failing endpoint must NOT blank the whole
+    // admin screen. Every widget renders off its own slice; failed slices
+    // stay empty.
+    const results = await Promise.allSettled([
       api.get("/admin/market/sources"),
       api.get("/admin/market/sources/health"),
       api.get("/admin/market/runs?limit=10"),
       api.get("/admin/market/summary"),
+      api.get("/admin/market/collectors"),
+      api.get("/admin/market/scheduler"),
     ]);
-    setRows(srcs || []); setHealth(h || []); setRuns(rr || []); setSummary(s || {});
+    const val = (i, fallback) => results[i].status === "fulfilled" ? results[i].value.data : fallback;
+    setRows(val(0, [])); setHealth(val(1, [])); setRuns(val(2, []));
+    setSummary(val(3, {})); setCollectors(val(4, [])); setSched(val(5, null));
   };
   useEffect(() => { load().catch(() => {}); }, []);
 
   const healthFor = (sid) => health.find((h) => h.source_id === sid) || {};
+
+  const toggleScheduler = async () => {
+    if (!sched) return;
+    try {
+      const { data } = await api.post("/admin/market/scheduler/pause", { paused: !sched.paused });
+      setSched(data);
+      toast.success(data.paused ? "Scheduler paused" : "Scheduler resumed");
+    } catch (e) { toast.error(formatError(e)); }
+  };
 
   const openNew = () => { setEditing("new"); setForm(emptyForm); };
   const openEdit = (row) => {
@@ -39,6 +58,7 @@ export default function DataSources() {
     setForm({
       name: row.name || "", base_url: row.base_url || "", description: row.description || "",
       allow_source_auto_match: !!row.allow_source_auto_match, active: !!row.active,
+      collector: row.collector || "seed",
       collection_frequency: row.collection_frequency || "manual",
       parser_version: row.parser_version || "1.0",
     });
@@ -61,10 +81,9 @@ export default function DataSources() {
 
   const triggerRun = async (row) => {
     try {
-      const { data: run } = await api.post("/admin/market/runs/start", {
-        source_id: row.id, run_type: "manual",
-      });
-      toast.success(`Run started — ${run.id.slice(0, 8)}`);
+      toast.info(`Running ${row.collector || "seed"} collector on ${row.name}…`);
+      const { data: run } = await api.post(`/admin/market/sources/${row.id}/collect`);
+      toast.success(`${row.name}: ${run.status} · ${run.listings_new} new · ${run.matches_created} matches`);
       load();
     } catch (e) { toast.error(formatError(e)); }
   };
@@ -75,10 +94,19 @@ export default function DataSources() {
         title="Data Sources"
         subtitle="Configured public listing feeds and internal uploads. Each source has a safety switch for auto-matching."
         actions={
-          <button onClick={openNew} data-testid="add-source-btn"
-                  className="px-3 py-2 rounded-md bg-[#2A5B46] text-white text-sm hover:bg-[#204838]">
-            + Add Source
-          </button>
+          <div className="flex items-center gap-2">
+            {sched && (
+              <button onClick={toggleScheduler}
+                      className={`px-3 py-1.5 rounded border text-sm ${sched.paused ? "border-amber-400 text-amber-700 bg-amber-50" : "border-emerald-400 text-emerald-700 bg-emerald-50"}`}
+                      data-testid="scheduler-toggle-btn">
+                Scheduler: {sched.paused ? "Paused — click to resume" : "Running — click to pause"}
+              </button>
+            )}
+            <button onClick={openNew} data-testid="add-source-btn"
+                    className="px-3 py-2 rounded-md bg-[#2A5B46] text-white text-sm hover:bg-[#204838]">
+              + Add Source
+            </button>
+          </div>
         }
       />
 
@@ -205,6 +233,16 @@ export default function DataSources() {
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-3">
+                <Field label="Collector" testid="source-collector">
+                  <select value={form.collector}
+                          onChange={(e) => setForm({ ...form, collector: e.target.value })}
+                          className="w-full border border-border rounded px-2 py-1.5"
+                          data-testid="select-source-collector">
+                    {collectors.map((c) => (
+                      <option key={c.key} value={c.key}>{c.label}{c.requires_network ? " · net" : ""}</option>
+                    ))}
+                  </select>
+                </Field>
                 <Field label="Collection frequency" testid="source-frequency">
                   <select value={form.collection_frequency}
                           onChange={(e) => setForm({ ...form, collection_frequency: e.target.value })}

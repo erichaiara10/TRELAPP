@@ -16,6 +16,7 @@ import Corporate from "@/pages/public/Corporate";
 import About from "@/pages/public/About";
 import Contact from "@/pages/public/Contact";
 import Legal from "@/pages/public/Legal";
+import PriceCompare from "@/pages/public/PriceCompare";
 
 import Login from "@/pages/admin/Login";
 import Dashboard from "@/pages/admin/Dashboard";
@@ -69,6 +70,8 @@ export default function App() {
             <Route path="/contact" element={<Contact />} />
             <Route path="/privacy" element={<Legal kind="privacy" />} />
             <Route path="/terms" element={<Legal kind="terms" />} />
+            <Route path="/price-compare" element={<PriceCompare />} />
+            <Route path="/price-compare/:workflow" element={<PriceCompare />} />
           </Route>
 
           <Route path="/admin/login" element={<Login />} />

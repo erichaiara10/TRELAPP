@@ -13,10 +13,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.collectors import get_collector, registered as registered_collectors
 from core.db import db, new_id, now_iso, strip_id
 from core.guidance import generate_guidance
 from core.matcher import ingest_market_listing, rematch_listing
 from core.runs import collection_run, source_health
+from core.scheduler import scheduler_state, set_paused
 from core.security import get_current_user
 from models import (
     CollectionRun,
@@ -97,9 +99,52 @@ async def delete_source(sid: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-# ============================================================
-# COLLECTION RUNS
-# ============================================================
+@router.get("/admin/market/scheduler")
+async def get_scheduler_state(user: dict = Depends(get_current_user)):
+    return scheduler_state()
+
+
+@router.post("/admin/market/scheduler/pause")
+async def toggle_scheduler(payload: dict, user: dict = Depends(get_current_user)):
+    set_paused(bool(payload.get("paused")))
+    await _audit("scheduler_toggle", user, entity_type="scheduler",
+                 payload={"paused": bool(payload.get("paused"))})
+    return scheduler_state()
+
+
+
+@router.get("/admin/market/collectors")
+async def list_collectors(user: dict = Depends(get_current_user)):
+    return registered_collectors()
+
+
+@router.post("/admin/market/sources/{sid}/collect")
+async def collect_source(sid: str, user: dict = Depends(get_current_user)):
+    """One-shot: opens a collection_run, drives the source's configured
+    collector, closes the run. Returns the final run doc."""
+    source = await db.market_sources.find_one({"id": sid}, {"_id": 0})
+    if not source:
+        raise HTTPException(404, "Source not found")
+    if not source.get("active", True):
+        raise HTTPException(400, "Source is paused")
+    collector_key = source.get("collector") or "seed"
+    Collector = get_collector(collector_key)
+    if not Collector:
+        raise HTTPException(400, f"Unknown collector '{collector_key}'")
+
+    collector = Collector(source)
+    async with collection_run(sid, run_type="manual",
+                              triggered_by=user.get("id"),
+                              parser_version=source.get("parser_version")) as run:
+        async for payload in collector.iter_listings():
+            await run.ingest(payload)
+        run_id = run.run_id
+
+    doc = await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+    return doc
+
+
+
 @router.get("/admin/market/runs")
 async def list_runs(source_id: Optional[str] = None, limit: int = 100,
                     user: dict = Depends(get_current_user)):
@@ -576,7 +621,144 @@ async def get_guidance_result(rid: str, user: dict = Depends(get_current_user)):
 
 
 # ============================================================
-# DASHBOARD SUMMARY
+# ANALYTICS (source health strip / trends / heatmap)
+# ============================================================
+@router.get("/admin/market/analytics/source-strip")
+async def analytics_source_strip(days: int = 30, user: dict = Depends(get_current_user)):
+    """Compact per-source strip: last N days of run success rate + total
+    listings ingested. Powers the Overview health strip."""
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    sources = await db.market_sources.find({}, {"_id": 0}).to_list(500)
+    out = []
+    for s in sources:
+        runs = await db.collection_runs.find(
+            {"source_id": s["id"], "started_at": {"$gte": since}}, {"_id": 0},
+        ).to_list(500)
+        total = len(runs)
+        ok = sum(1 for r in runs if r["status"] == "success")
+        listings = sum(int(r.get("listings_new") or 0) for r in runs)
+        out.append({
+            "source_id": s["id"], "name": s["name"], "active": s.get("active"),
+            "collector": s.get("collector"),
+            "runs": total,
+            "success_rate": round(ok / total * 100, 1) if total else None,
+            "listings_ingested": listings,
+            "last_run_at": s.get("last_run_at"),
+            "consecutive_failures": int(s.get("consecutive_failures") or 0),
+        })
+    return out
+
+
+@router.get("/admin/market/analytics/price-trends")
+async def analytics_price_trends(purpose: str = "sale",
+                                  months: int = 12,
+                                  user: dict = Depends(get_current_user)):
+    """Median price per month (all suburbs pooled). Feeds the Overview
+    trend line chart."""
+    from datetime import datetime, timedelta, timezone
+    import statistics
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
+    buckets: dict[str, list[float]] = {}
+    async for l in db.market_listings.find(
+        {"purpose": purpose, "price": {"$ne": None}, "status": "active"},
+        {"_id": 0, "price": 1, "last_seen": 1},
+    ):
+        try:
+            dt = datetime.fromisoformat((l["last_seen"] or "").replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt < cutoff:
+                continue
+            key = dt.strftime("%Y-%m")
+            buckets.setdefault(key, []).append(float(l["price"]))
+        except Exception:
+            continue
+    return [{"month": k, "count": len(v),
+             "median": statistics.median(v) if v else None}
+            for k, v in sorted(buckets.items())]
+
+
+@router.get("/admin/market/analytics/median-by-suburb")
+async def analytics_median_by_suburb(purpose: str = "sale", limit: int = 12,
+                                      user: dict = Depends(get_current_user)):
+    import statistics
+    grouped: dict[str, list[float]] = {}
+    async for l in db.market_listings.find(
+        {"purpose": purpose, "price": {"$ne": None}, "status": "active"},
+        {"_id": 0, "price": 1, "suburb": 1},
+    ):
+        s = (l.get("suburb") or "").strip()
+        if not s:
+            continue
+        grouped.setdefault(s, []).append(float(l["price"]))
+    rows = [{"suburb": k, "count": len(v),
+             "median": statistics.median(v)}
+            for k, v in grouped.items()]
+    rows.sort(key=lambda r: r["median"], reverse=True)
+    return rows[:limit]
+
+
+@router.get("/admin/market/analytics/heatmap")
+async def analytics_heatmap(purpose: str = "sale", months: int = 12,
+                             user: dict = Depends(get_current_user)):
+    """Grid of (suburb × month) → median price. Feeds the Trends heatmap."""
+    from datetime import datetime, timedelta, timezone
+    import statistics
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
+    cells: dict[tuple[str, str], list[float]] = {}
+    async for l in db.market_listings.find(
+        {"purpose": purpose, "price": {"$ne": None}, "status": "active"},
+        {"_id": 0, "price": 1, "suburb": 1, "last_seen": 1},
+    ):
+        try:
+            dt = datetime.fromisoformat((l["last_seen"] or "").replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt < cutoff:
+                continue
+            suburb = (l.get("suburb") or "").strip() or "—"
+            key = (suburb, dt.strftime("%Y-%m"))
+            cells.setdefault(key, []).append(float(l["price"]))
+        except Exception:
+            continue
+    months_axis = sorted({k[1] for k in cells.keys()})
+    suburbs_axis = sorted({k[0] for k in cells.keys()})
+    matrix = []
+    for s in suburbs_axis:
+        row = {"suburb": s}
+        for m in months_axis:
+            vals = cells.get((s, m))
+            row[m] = statistics.median(vals) if vals else None
+        matrix.append(row)
+    return {"months": months_axis, "suburbs": suburbs_axis, "cells": matrix}
+
+
+@router.get("/admin/market/analytics/quick-insights")
+async def analytics_quick_insights(user: dict = Depends(get_current_user)):
+    """Donut-friendly breakdowns: listings by class, listings by purpose,
+    match band distribution."""
+    async def _agg(collection, field, extra_match=None):
+        pipeline = []
+        if extra_match:
+            pipeline.append({"$match": extra_match})
+        pipeline += [
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]
+        rows = []
+        async for doc in collection.aggregate(pipeline):
+            rows.append({"key": doc["_id"] or "—", "count": doc["count"]})
+        return rows
+
+    return {
+        "by_class": await _agg(db.market_listings, "property_class", {"status": "active"}),
+        "by_purpose": await _agg(db.market_listings, "purpose", {"status": "active"}),
+        "match_bands": await _agg(db.property_matches, "decision_band", {"status": "active"}),
+    }
+
+
+
 # ============================================================
 @router.get("/admin/market/summary")
 async def market_summary(user: dict = Depends(get_current_user)):
