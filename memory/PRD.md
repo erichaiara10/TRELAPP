@@ -408,3 +408,57 @@ Every menu item from the user-provided mockup is now navigable at
 Shared UI: `_shared.jsx` (PageHeader, KpiCard, Section, PhaseBanner).
 Every interactive element has a `data-testid`. Live smoke test:
 Add-Source flow → toast → KPIs update → table populated → audit event emitted.
+
+## Phase B + C — Matcher & Guidance Engines Live (Feb 2026, same day)
+
+### MATCH-1.0 pipeline (`/app/backend/core/matcher.py`)
+- Public entry: `ingest_market_listing(payload, actor_id)` — used by
+  POST `/api/admin/market/listings` and `/{id}/rematch`.
+- Stages: eligibility → dedup upsert by (source_id, source_listing_id) →
+  candidate generation (5 keyed queries) → D1–D6 deterministic rules →
+  weighted 100-pt scoring → decision band → auto-attach, review case, or new
+  master. Every write emits an audit event with `algorithm_version` +
+  `config_version`.
+- Hard conflicts (lot conflict / suburb conflict / class vacant-vs-improved /
+  gps >500m) block deterministic rules and subtract 30 per conflict from the
+  weighted score.
+
+### GUIDE-1.0 pipeline (`/app/backend/core/guidance.py`)
+- Public entry: `generate_guidance(subject, workflow, actor_id)` — used by
+  POST `/api/admin/market/guidance/run`.
+- Pools observations from BOTH `market_listings` (external) AND linked TREL
+  `properties` (internal fallback via `trel_property_id`) so Phase 1 already
+  produces meaningful ranges without scrapers.
+- Computes per-comparable Comparable Quality Score (0-100) using class-
+  specific baselines, applies recency + tier factors → `effective_weight`,
+  IQR outlier filter (≥ 6 comps), weighted P25/P75 range, weighted median,
+  confidence label with quantity gate.
+- Persists `valuation_requests`, `guidance_results`, `guidance_comparables`
+  with full breakdown so every result is reproducible + auditable.
+
+### Config UI (`/app/frontend/src/pages/admin/market/Config.jsx`)
+- 5 tabs: Duplicate Matching · Comparable Selection · Price Guidance · CQS
+  Baseline · Advanced JSON.
+- Threshold sliders, GPS/size numeric inputs, per-signal weight tables,
+  editable size-similarity bands, per-class CQS allocation.
+- Publish button creates a new version row + activates it in one call
+  (deactivates prior). Any prior version is one click away via "Activate".
+
+### Comparables UI (`/app/frontend/src/pages/admin/market/Comparables.jsx`)
+- Subject property form (purpose/class/subtype/location/beds/baths/area/asking).
+- Live "Run Guidance" → KPI cards (count, weighted median, TREL indicative
+  range, confidence), Included / Outliers / Excluded tabs, per-row tier +
+  CQS + recency + effective weight + value.
+- Recent runs history reloads any past run into the view.
+
+### Duplicates UI (`/app/frontend/src/pages/admin/market/Duplicates.jsx`)
+- Confirmed / Probable / Possible / Conflicts tabs.
+- Signal-breakdown detail panel per row: method, band, per-signal weight
+  contributions, conflicts, algo+config version, "Detach match" action.
+- "+ Ingest Test Listing" utility button opens a form so admins can drive
+  the matcher end-to-end without needing the scraper.
+
+### Test status (iter-28)
+- Backend: 10/10 pytest pass (`/app/backend/tests/test_iter28_market_matching_guidance.py`)
+- Frontend: 3 admin market screens verified via Playwright — Config, Duplicates, Comparables
+- No critical or minor issues. DB restored clean.

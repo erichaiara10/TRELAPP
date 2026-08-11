@@ -1,0 +1,47 @@
+{
+  "summary": "Iter-28 backend + frontend verification of MATCH-1.0 matcher, GUIDE-1.0 guidance, and the versioned config UI. Backend pytest 10/10 PASS (/app/backend/tests/test_iter28_market_matching_guidance.py) covering active-config shape, summary shape, novel-listing → new-master (weighted / signals.reason='new_master_created'), (source_id, source_listing_id) dedup (no duplicate row on repost), two-sources-same-parcel → identical master_property_id via D1/weighted-certain, GUIDE-1.0 output shape + p25≤weighted_median≤p75 sanity, guidance results list + detail, config publish/activate/revert with audit trail growth, and 400 validation on missing source_id + bad purpose. Frontend Playwright verified: /admin/market/config renders all 5 tabs (Duplicate Matching / Comparable Selection / Price Guidance / CQS Baseline / Advanced JSON), Duplicate tab has 4 threshold sliders + 17 weight inputs, Comparable tab has 6 sliders, publish-config-btn creates a new version row and Activate reverts to COMBINED-1.0; /admin/market/duplicates ingest-test-btn opens modal, submit produces a match result with candidates_considered, close→match row visible, click row → match-detail with Method/Band/reason + Detach button; /admin/market/comparables run-guidance-btn populates KPI cards (Comparables/Weighted/TREL/Confidence) and comp-row-* rows. Sidebar renders 3 grouped sections with all 10 numbered PDA items (visible in screenshot). After all tests, DB restored to 9 trel_backfill master_properties, listings/matches/guidance/valuation_requests all cleared, COMBINED-1.0 reactivated.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "GET /api/admin/market/config/active?algorithm=combined → 200 with active=true, parameters.signal_weights, parameters.cqs_baseline present",
+    "GET /api/admin/market/summary → all 11 expected keys (sources, market_listings, master_properties, matches_active, review_cases_open, audit_events, guidance_results, active_config_version, etc.)",
+    "POST /api/admin/market/listings novel payload → is_new=true, match.method='weighted', match.decision_band in {automatic,certain}, signals.reason='new_master_created', valid JSON (no _id leakage)",
+    "POST /api/admin/market/listings re-posted with SAME (source_id, source_listing_id) → is_new=false, same listing.id, no duplicate market_listings row",
+    "POST /api/admin/market/listings from TWO different source_ids with identical (lot, section, street, suburb) → both link to SAME master_property_id via D1 or weighted+certain/automatic",
+    "POST /api/admin/market/guidance/run (Gordons/Angau Drive House with 7 seeded comps) → returns request+result+comparables; result has comparable_count≥5, observed_range, median, weighted_median, trel_indicative_range with p25≤weighted_median≤p75, confidence_label ∈ {insufficient,limited,moderate,strong}, per-row tier/quality_score/recency_factor/effective_weight/value/inclusion_status",
+    "GET /api/admin/market/guidance/results → list; GET /admin/market/guidance/results/{id} → {result, comparables, request}",
+    "POST /api/admin/market/config {version:'COMBINED-TEST-A', activate:true} → deactivates prior; /config/active reflects new; /config/{prior_id}/activate reverts; audit-events grows with 'config_created' + 'config_activated'",
+    "POST /api/admin/market/listings missing source_listing_id → 400",
+    "POST /api/admin/market/guidance/run purpose='lease' → 400"
+  ],
+  "verified_frontend": [
+    "Admin sidebar shows 3 sections (Operations / Property Data Aggregation / Administration) with all 10 numbered PDA items — visible in screenshot",
+    "/admin/market/config: 5 tabs render (duplicate/comparable/guidance/cqs/advanced); Duplicate tab has 4 sliders + 17 weight inputs; Comparable tab has 6 sliders; publish-config-btn creates config-version-{ver} row; activate-COMBINED-1.0 reverts",
+    "/admin/market/duplicates: ingest-test-btn opens ingest-modal; ingest-submit produces Result panel with match method+band+candidates_considered; closing modal shows match-row-{id}; row-click reveals match-detail with Method/Band/signal breakdown/detach-match-btn",
+    "/admin/market/comparables: run-guidance-btn populates KPI text (Comparables/Weighted/TREL/Confidence all present) and renders comp-row-{id} rows"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_market_matching_guidance.py",
+    "/app/test_reports/pytest/iter28_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "core/matcher.py::_upsert_listing merge path returns {**existing, **patch} but does not strip legacy `_id` if it was ever set on `existing` — currently safe because find_one uses projection {'_id':0}, but future refactors should keep that projection.",
+    "core/matcher.py::_apply_deterministic runs in-Python but is called inside `for m in candidates` — for large candidate sets consider short-circuiting on the first D1 hit (already done via the outer `if rule: best_det=(rule,m); break`) — fine as-is.",
+    "core/guidance.py::_pool_observations walks every active market_listing globally with a per-listing await db.property_matches.find_one() — O(N*M). Acceptable at Phase 1 volumes but should be batched via $lookup or a candidate-pre-filter (by suburb regex) once listing counts grow.",
+    "core/guidance.py::_iqr_filter uses statistics.quantiles(values,n=4) which needs at least 2 unique values and returns identical Q1/Q3 for tightly clustered prices — the current gate `len(values) < 6 → skip` is correct but should also skip when q3==q1 to avoid dropping all points at IQR=0.",
+    "routes/market.py::run_guidance pops 'workflow' from payload in-place then passes payload as `subject` — safe here but callers reusing the dict would see it mutated. Consider `workflow = payload.get('workflow','admin')` and pass a copy without workflow.",
+    "IngestModal in Duplicates.jsx uses a hard-coded default source_id='src-dev' — the string is stored verbatim on market_listings.source_id even though no such market_source exists. Consider populating a <select> from GET /admin/market/sources and validating in the backend.",
+    "Config.jsx publish-config-btn does not disable itself while the POST is inflight — a double-click could attempt to POST the same version twice (backend rejects duplicates with 400, so the impact is only a toast error, but the UX would benefit from a busy flag)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_market_matching_guidance.py (new — 10 tests + session cleanup that restores 9 trel_backfill masters and reactivates COMBINED-1.0)"
+  ],
+  "success_rate": {"backend": "100% (10/10 iter-28 + regression via prior iter-27 suite still green)", "frontend": "100% (config tabs+sliders+publish, duplicates ingest+match-detail+detach, comparables run-guidance KPIs+rows, sidebar 3 sections + 10 PDA items)"},
+  "seed_data_creation": "Ephemeral: 2 TEST_ITER28_SRC_* sources, ~10 TEST_* market_listings, 1 COMBINED-TEST-A config version, plus a handful of Playwright-driven listings/config versions. Session teardown deletes all non-'trel_backfill' master_properties + all market_listings/matches/guidance rows + TEST-* / COMBINED-TEST-* config versions; final verified state = 9 masters, 0 listings, 0 matches, 0 guidance rows, active_config_version='COMBINED-1.0'.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Phase 2 (MATCH-1.0 + GUIDE-1.0 + config UI) is fully working — all backend endpoints under /api/admin/market/* including listings ingest, guidance/run, guidance/results, config CRUD+activate. Baseline config version is 'COMBINED-1.0' with algorithm='combined'; matcher + guidance both accept algorithm ∈ {combined, match/guidance}. Frontend tabs use keys duplicate/comparable/guidance/cqs/advanced (NOT match/comparables). IngestModal defaults source_id='src-dev' (raw string, no FK). If seeding comps for guidance, POST at least 6 listings sharing purpose+property_class+suburb so IQR filter and formal range activate (min_direct_for_formal_range=3 in seed config).",
+  "rca_of_the_issue": "n/a — no defects found in the implemented Phase 2 features."
+}

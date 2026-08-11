@@ -1,17 +1,78 @@
-// 9. Configuration — versioned parameter registry (MATCH-1.0 + GUIDE-1.0).
-// Full CRUD backed by /api/admin/market/config. Parameter tuning UI (sliders,
-// range inputs, save-as-new-version) uses JSON edit for now; per-parameter
-// visual controls ship with Phase G governance.
+// 9. Configuration — proper tabbed UI with sliders + numeric inputs +
+// weight tables (per mockup). Every save creates a new version and
+// activates it, so all changes are audit-trailed and reversible.
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, Section } from "./_shared";
 
+const TABS = [
+  { key: "duplicate", label: "Duplicate Matching" },
+  { key: "comparable", label: "Comparable Selection" },
+  { key: "guidance", label: "Price Guidance" },
+  { key: "cqs", label: "CQS Baseline" },
+  { key: "advanced", label: "Advanced JSON" },
+];
+
+function NumInput({ label, value, onChange, step = 1, min = 0, max, hint, testid }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-1.5" data-testid={`field-${testid}`}>
+      <div>
+        <div className="text-sm">{label}</div>
+        {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+      </div>
+      <input type="number" value={value ?? ""} step={step} min={min} max={max}
+             onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+             className="w-28 border border-border rounded px-2 py-1 text-sm text-right tabular-nums"
+             data-testid={`input-${testid}`} />
+    </div>
+  );
+}
+
+function Slider({ label, value, onChange, min, max, step = 1, hint, testid }) {
+  return (
+    <div className="py-2" data-testid={`slider-${testid}`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-sm">{label}</div>
+        <div className="text-sm tabular-nums font-medium">{value}</div>
+      </div>
+      {hint && <div className="text-xs text-muted-foreground mb-1">{hint}</div>}
+      <input type="range" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(Number(e.target.value))}
+             className="w-full" data-testid={`range-${testid}`} />
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>{min}</span><span>{max}</span>
+      </div>
+    </div>
+  );
+}
+
+function WeightsTable({ title, weights, onChange, hint, testid }) {
+  return (
+    <div className="mt-3" data-testid={`weights-${testid}`}>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">{title}</div>
+      {hint && <div className="text-xs text-muted-foreground mb-2">{hint}</div>}
+      <div className="bg-muted/30 rounded p-3 divide-y divide-border">
+        {Object.entries(weights).map(([k, v]) => (
+          <div key={k} className="py-1.5 flex items-center justify-between text-sm">
+            <span className="capitalize">{k.replace(/_/g, " ")}</span>
+            <input type="number" value={v} min={0} step={1}
+                   onChange={(e) => onChange({ ...weights, [k]: Number(e.target.value) })}
+                   className="w-20 border border-border rounded px-2 py-1 text-right tabular-nums"
+                   data-testid={`weight-${testid}-${k}`} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MarketConfig() {
+  const [tab, setTab] = useState("duplicate");
   const [versions, setVersions] = useState([]);
   const [active, setActive] = useState(null);
-  const [draftName, setDraftName] = useState("");
-  const [draftParams, setDraftParams] = useState("");
+  const [params, setParams] = useState(null);       // working copy (edited)
+  const [nextVersion, setNextVersion] = useState("");
 
   const load = async () => {
     const [{ data: list }, { data: a }] = await Promise.all([
@@ -20,98 +81,294 @@ export default function MarketConfig() {
     ]);
     setVersions(list || []);
     setActive(a);
-    if (a) setDraftParams(JSON.stringify(a.parameters, null, 2));
+    if (a) setParams(JSON.parse(JSON.stringify(a.parameters)));
   };
   useEffect(() => { load().catch(() => {}); }, []);
+
+  const patch = (k, v) => setParams((p) => ({ ...p, [k]: v }));
+  const patchNested = (parent, key, v) => setParams((p) => ({ ...p, [parent]: { ...(p[parent] || {}), [key]: v } }));
 
   const activate = async (id) => {
     try { await api.post(`/admin/market/config/${id}/activate`); toast.success("Activated"); load(); }
     catch (e) { toast.error(formatError(e)); }
   };
 
-  const saveNewVersion = async () => {
-    let parsed;
-    try { parsed = JSON.parse(draftParams); }
-    catch { toast.error("Parameters must be valid JSON"); return; }
-    if (!draftName.trim()) { toast.error("Version name required (e.g. COMBINED-1.1)"); return; }
+  const publish = async () => {
+    if (!nextVersion.trim()) { toast.error("Version name required (e.g. COMBINED-1.1)"); return; }
     try {
       await api.post("/admin/market/config", {
-        version: draftName.trim(), algorithm: "combined",
-        parameters: parsed, notes: "Edited via admin UI", activate: true,
+        version: nextVersion.trim(), algorithm: "combined",
+        parameters: params, notes: "Edited via config sliders", activate: true,
       });
-      toast.success(`Version ${draftName} activated`);
-      setDraftName(""); load();
+      toast.success(`Published ${nextVersion}`);
+      setNextVersion(""); load();
     } catch (e) { toast.error(formatError(e)); }
   };
+
+  if (!params) {
+    return (
+      <div data-testid="market-config-page">
+        <PageHeader title="Configuration" />
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="market-config-page">
       <PageHeader
         title="Configuration"
-        subtitle="Versioned parameter registry for MATCH-1.0 + GUIDE-1.0. Every activation is audited and reversible via re-activation of a prior version."
+        subtitle={
+          active
+            ? `Editing off active version ${active.version}. Publishing saves as a new version and activates immediately — every change is audit-trailed and reversible.`
+            : "No active configuration."
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <input value={nextVersion} onChange={(e) => setNextVersion(e.target.value)}
+                   placeholder="COMBINED-1.1"
+                   className="border border-border rounded px-2 py-1.5 text-sm w-40"
+                   data-testid="input-next-version" />
+            <button onClick={publish}
+                    className="px-3 py-1.5 rounded bg-[#2A5B46] text-white text-sm"
+                    data-testid="publish-config-btn">
+              Publish New Version
+            </button>
+          </div>
+        }
       />
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid lg:grid-cols-4 gap-4">
         <div>
           <Section title="Versions" testid="config-versions">
-            {versions.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No configuration versions yet.</div>
-            ) : (
-              <div className="divide-y divide-border">
-                {versions.map((v) => (
-                  <div key={v.id} className="py-2 flex items-center justify-between" data-testid={`config-version-${v.version}`}>
-                    <div>
-                      <div className="font-medium">{v.version}</div>
-                      <div className="text-xs text-muted-foreground">{v.algorithm}{v.active ? " · active" : ""}</div>
-                    </div>
-                    {!v.active && (
-                      <button onClick={() => activate(v.id)}
-                              className="text-xs underline" data-testid={`activate-${v.version}`}>Activate</button>
-                    )}
+            <div className="divide-y divide-border">
+              {versions.map((v) => (
+                <div key={v.id} className="py-2 flex items-center justify-between" data-testid={`config-version-${v.version}`}>
+                  <div>
+                    <div className="font-medium text-sm">{v.version}</div>
+                    <div className="text-xs text-muted-foreground">{v.active ? "active" : v.algorithm}</div>
                   </div>
-                ))}
-              </div>
-            )}
+                  {!v.active && (
+                    <button onClick={() => activate(v.id)} className="text-xs underline"
+                            data-testid={`activate-${v.version}`}>Activate</button>
+                  )}
+                </div>
+              ))}
+            </div>
           </Section>
         </div>
 
-        <div className="lg:col-span-2">
-          <Section title={active ? `Active: ${active.version}` : "No active configuration"} testid="config-active">
-            {active ? (
-              <div>
-                <div className="text-xs text-muted-foreground mb-2">Notes: {active.notes || "—"}</div>
-                <pre className="bg-muted/40 rounded p-3 text-xs overflow-x-auto max-h-96" data-testid="config-json">
-{JSON.stringify(active.parameters, null, 2)}
-                </pre>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">Publish a version to make it active.</div>
-            )}
-          </Section>
+        <div className="lg:col-span-3">
+          <div className="flex gap-2 mb-3 flex-wrap" data-testid="config-tabs">
+            {TABS.map((t) => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                      data-testid={`config-tab-${t.key}`}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${tab === t.key ? "bg-[#0F172A] text-white border-[#0F172A]" : "border-border bg-white"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-          <div className="mt-4">
-            <Section title="Publish New Version" testid="config-new-version">
-              <div className="space-y-3 text-sm">
+          {tab === "duplicate" && (
+            <Section title="MATCH-1.0 — Duplicate Matching Rules" testid="config-duplicate">
+              <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <div className="text-xs text-muted-foreground mb-1">Version name</div>
-                  <input value={draftName} onChange={(e) => setDraftName(e.target.value)}
-                         placeholder="e.g. COMBINED-1.1"
-                         className="w-full border border-border rounded px-2 py-1.5" data-testid="input-config-version" />
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Decision-band thresholds</div>
+                  <Slider label="Certain match (deterministic)" value={params.certain_min_score}
+                          min={80} max={100} testid="certain-min"
+                          onChange={(v) => patch("certain_min_score", v)}
+                          hint="Score gate applied ON TOP of a deterministic rule (D1–D6)." />
+                  <Slider label="Automatic match (weighted)" value={params.auto_match_threshold}
+                          min={70} max={100} testid="auto-threshold"
+                          onChange={(v) => patch("auto_match_threshold", v)}
+                          hint="Weighted score at/above this auto-attaches listing→master with no review." />
+                  <Slider label="Probable match" value={params.probable_threshold}
+                          min={50} max={95} testid="probable-threshold"
+                          onChange={(v) => patch("probable_threshold", v)}
+                          hint="Goes to review queue as 'probable'." />
+                  <Slider label="Possible match" value={params.possible_threshold}
+                          min={30} max={80} testid="possible-threshold"
+                          onChange={(v) => patch("possible_threshold", v)}
+                          hint="Goes to review queue as 'possible'. Below this → new master minted." />
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground mb-1">Parameters (JSON)</div>
-                  <textarea value={draftParams} onChange={(e) => setDraftParams(e.target.value)}
-                            rows={16} className="w-full border border-border rounded px-2 py-1.5 font-mono text-xs" data-testid="input-config-params" />
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">GPS + size tolerances</div>
+                  <NumInput label="Exact-GPS support radius (m)" value={params.exact_gps_support_m}
+                            onChange={(v) => patch("exact_gps_support_m", v)} testid="gps-support" />
+                  <NumInput label="Hard-conflict radius (m)" value={params.exact_gps_conflict_m}
+                            onChange={(v) => patch("exact_gps_conflict_m", v)} testid="gps-conflict" />
+                  <NumInput label="Land close tolerance (%)" value={params.land_close_tolerance_pct}
+                            onChange={(v) => patch("land_close_tolerance_pct", v)} testid="land-close" />
+                  <NumInput label="Land broad tolerance (%)" value={params.land_broad_tolerance_pct}
+                            onChange={(v) => patch("land_broad_tolerance_pct", v)} testid="land-broad" />
+                  <NumInput label="Building close tolerance (%)" value={params.building_close_tolerance_pct}
+                            onChange={(v) => patch("building_close_tolerance_pct", v)} testid="bldg-close" />
                 </div>
-                <div className="flex justify-end">
-                  <button onClick={saveNewVersion}
-                          className="px-3 py-1.5 rounded bg-[#2A5B46] text-white text-sm" data-testid="publish-config-btn">
-                    Save & Activate
-                  </button>
+              </div>
+
+              <WeightsTable title="Positive signal weights (baseline urban parcel — total ≈ 100)"
+                            weights={params.signal_weights} testid="signal"
+                            hint="Baseline weight applied when the signal matches exactly. Size signals scale by a similarity band."
+                            onChange={(w) => patch("signal_weights", w)} />
+              <WeightsTable title="Unit / premises weights"
+                            weights={params.unit_weights} testid="unit"
+                            hint="Applied when the subject is a unit inside a multi-tenancy building."
+                            onChange={(w) => patch("unit_weights", w)} />
+            </Section>
+          )}
+
+          {tab === "comparable" && (
+            <Section title="GUIDE-1.0 — Comparable Selection Rules" testid="config-comparable">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Location tier factors</div>
+                  <Slider label="Same street" value={params.location_same_street_factor}
+                          min={0.5} max={1} step={0.05} testid="loc-street"
+                          onChange={(v) => patch("location_same_street_factor", v)} />
+                  <Slider label="Same local area / estate" value={params.location_same_local_area_factor}
+                          min={0.5} max={1} step={0.05} testid="loc-local"
+                          onChange={(v) => patch("location_same_local_area_factor", v)} />
+                  <Slider label="Same suburb" value={params.location_same_suburb_factor}
+                          min={0.3} max={1} step={0.05} testid="loc-suburb"
+                          onChange={(v) => patch("location_same_suburb_factor", v)} />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Recency factors</div>
+                  <Slider label="0–6 months (current)" value={params.recency_0_6_factor}
+                          min={0.5} max={1} step={0.05} testid="rec-current"
+                          onChange={(v) => patch("recency_0_6_factor", v)} />
+                  <Slider label="7–12 months (relevant)" value={params.recency_7_12_factor}
+                          min={0.3} max={1} step={0.05} testid="rec-relevant"
+                          onChange={(v) => patch("recency_7_12_factor", v)} />
+                  <Slider label="13–24 months (historical)" value={params.recency_13_24_factor}
+                          min={0} max={0.8} step={0.05} testid="rec-historical"
+                          onChange={(v) => patch("recency_13_24_factor", v)} />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-6 mt-4">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Recency months</div>
+                  <NumInput label="Current window (months)" value={params.current_months}
+                            onChange={(v) => patch("current_months", v)} testid="months-current" />
+                  <NumInput label="Relevant window (months)" value={params.relevant_months}
+                            onChange={(v) => patch("relevant_months", v)} testid="months-relevant" />
+                  <NumInput label="Historical support window" value={params.historical_support_months}
+                            onChange={(v) => patch("historical_support_months", v)} testid="months-historical" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">CQS quality thresholds</div>
+                  <NumInput label="Minimum usable" value={params.quality_min_usable}
+                            onChange={(v) => patch("quality_min_usable", v)} testid="cqs-min-usable" />
+                  <NumInput label="Reasonable match" value={params.quality_reasonable_min}
+                            onChange={(v) => patch("quality_reasonable_min", v)} testid="cqs-reasonable" />
+                  <NumInput label="Close match" value={params.quality_close_min}
+                            onChange={(v) => patch("quality_close_min", v)} testid="cqs-close" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Size similarity bands</div>
+                  <div className="bg-muted/30 rounded p-3 text-xs space-y-2" data-testid="size-bands">
+                    {(params.size_similarity_bands || []).map((b, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <span>{b.label || `band ${i + 1}`}</span>
+                        <input type="number" value={b.max_diff_pct} step={1}
+                               onChange={(e) => {
+                                 const next = [...params.size_similarity_bands];
+                                 next[i] = { ...next[i], max_diff_pct: Number(e.target.value) };
+                                 patch("size_similarity_bands", next);
+                               }}
+                               className="w-16 border border-border rounded px-2 py-1 text-right"
+                               data-testid={`band-${i}-diff`} />
+                        <span>%→</span>
+                        <input type="number" value={b.factor} step={0.05}
+                               onChange={(e) => {
+                                 const next = [...params.size_similarity_bands];
+                                 next[i] = { ...next[i], factor: Number(e.target.value) };
+                                 patch("size_similarity_bands", next);
+                               }}
+                               className="w-16 border border-border rounded px-2 py-1 text-right"
+                               data-testid={`band-${i}-factor`} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </Section>
-          </div>
+          )}
+
+          {tab === "guidance" && (
+            <Section title="GUIDE-1.0 — Price Guidance Rules" testid="config-guidance">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Evidence count gates</div>
+                  <NumInput label="Min direct for formal range" value={params.min_direct_for_formal_range}
+                            onChange={(v) => patch("min_direct_for_formal_range", v)} testid="min-direct"
+                            hint="Below this → no TREL Indicative Range emitted." />
+                  <NumInput label="Limited-evidence max" value={params.limited_max_count}
+                            onChange={(v) => patch("limited_max_count", v)} testid="limited-max" />
+                  <NumInput label="Moderate-evidence max" value={params.moderate_max_count}
+                            onChange={(v) => patch("moderate_max_count", v)} testid="moderate-max" />
+                  <NumInput label="Strong-evidence min" value={params.strong_min_count}
+                            onChange={(v) => patch("strong_min_count", v)} testid="strong-min" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Outlier + percentile</div>
+                  <NumInput label="IQR outlier multiplier" value={params.iqr_outlier_multiplier}
+                            step={0.1} onChange={(v) => patch("iqr_outlier_multiplier", v)}
+                            testid="iqr-mult"
+                            hint="Only applied when there are ≥ 6 comparables." />
+                  <NumInput label="Indicative lower percentile" value={params.indicative_lower_percentile}
+                            onChange={(v) => patch("indicative_lower_percentile", v)} testid="pct-lo" />
+                  <NumInput label="Indicative upper percentile" value={params.indicative_upper_percentile}
+                            onChange={(v) => patch("indicative_upper_percentile", v)} testid="pct-hi" />
+                </div>
+              </div>
+
+              <WeightsTable title="Confidence component weights (should sum to 100)"
+                            weights={params.confidence_weights} testid="confidence"
+                            hint="How quantity / quality / recency / dispersion contribute to the 0-100 confidence score."
+                            onChange={(w) => patch("confidence_weights", w)} />
+            </Section>
+          )}
+
+          {tab === "cqs" && (
+            <Section title="Comparable Quality Score — baseline by class" testid="config-cqs">
+              <div className="grid md:grid-cols-3 gap-4">
+                {["residential", "commercial_industrial", "vacant_land"].map((cls) => (
+                  <div key={cls} className="bg-muted/30 rounded p-3" data-testid={`cqs-class-${cls}`}>
+                    <div className="text-sm font-medium capitalize mb-2">{cls.replace("_", " / ")}</div>
+                    {Object.entries(params.cqs_baseline?.[cls] || {}).map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="capitalize">{k.replace(/_/g, " ")}</span>
+                        <input type="number" value={v} min={0} step={1}
+                               onChange={(e) => patchNested(
+                                 "cqs_baseline", cls,
+                                 { ...params.cqs_baseline[cls], [k]: Number(e.target.value) },
+                               )}
+                               className="w-16 border border-border rounded px-2 py-1 text-right"
+                               data-testid={`cqs-${cls}-${k}`} />
+                      </div>
+                    ))}
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Total: {Object.values(params.cqs_baseline?.[cls] || {}).reduce((a, b) => Number(a) + Number(b), 0)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {tab === "advanced" && (
+            <Section title="Advanced — raw JSON" testid="config-advanced">
+              <div className="text-xs text-muted-foreground mb-2">
+                Read-only view of the currently-edited parameters. Publish above to save.
+              </div>
+              <pre className="bg-muted/40 rounded p-3 text-xs overflow-x-auto max-h-[600px]"
+                   data-testid="config-json-preview">
+{JSON.stringify(params, null, 2)}
+              </pre>
+            </Section>
+          )}
         </div>
       </div>
     </div>

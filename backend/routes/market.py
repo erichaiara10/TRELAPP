@@ -13,6 +13,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.db import db, new_id, now_iso, strip_id
+from core.guidance import generate_guidance
+from core.matcher import ingest_market_listing, rematch_listing
 from core.security import get_current_user
 from models import (
     CollectionRun,
@@ -123,6 +125,25 @@ async def get_listing(lid: str, user: dict = Depends(get_current_user)):
     if not doc:
         raise HTTPException(404, "Listing not found")
     return doc
+
+
+@router.post("/admin/market/listings")
+async def ingest_listing(payload: dict, user: dict = Depends(get_current_user)):
+    """Ingest a market listing and run the MATCH-1.0 pipeline. The listing is
+    upserted by (source_id, source_listing_id), then matched to a master
+    property (deterministic → weighted → new master / review case)."""
+    for k in ("source_id", "source_listing_id"):
+        if not payload.get(k):
+            raise HTTPException(400, f"{k} is required")
+    return await ingest_market_listing(payload, actor_id=user.get("id"))
+
+
+@router.post("/admin/market/listings/{lid}/rematch")
+async def rerun_match(lid: str, user: dict = Depends(get_current_user)):
+    try:
+        return await rematch_listing(lid, actor_id=user.get("id"))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 # ============================================================
@@ -360,6 +381,48 @@ async def create_location_reference(payload: dict, user: dict = Depends(get_curr
 
 
 # ============================================================
+# GUIDANCE ENGINE (GUIDE-1.0)
+# ============================================================
+@router.post("/admin/market/guidance/run")
+async def run_guidance(payload: dict, user: dict = Depends(get_current_user)):
+    """Run the guidance engine for a subject property. `payload` must contain
+    at minimum: purpose (sale/rent), property_class, suburb. Optional:
+    property_subtype, street, local_area, bedrooms, bathrooms, land_area_m2,
+    building_area_m2, subject_asking_price, workflow (seller|buyer|landlord|renter|admin)."""
+    if payload.get("purpose") not in ("sale", "rent"):
+        raise HTTPException(400, "purpose must be 'sale' or 'rent'")
+    if not payload.get("suburb"):
+        raise HTTPException(400, "suburb is required")
+    workflow = payload.pop("workflow", "admin")
+    try:
+        return await generate_guidance(payload, workflow=workflow,
+                                       actor_id=user.get("id"))
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/admin/market/guidance/results")
+async def list_guidance_results(limit: int = 50, workflow: Optional[str] = None,
+                                 user: dict = Depends(get_current_user)):
+    q: dict = {}
+    if workflow:
+        q["outputs.workflow"] = workflow
+    return await db.guidance_results.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+
+@router.get("/admin/market/guidance/results/{rid}")
+async def get_guidance_result(rid: str, user: dict = Depends(get_current_user)):
+    result = await db.guidance_results.find_one({"id": rid}, {"_id": 0})
+    if not result:
+        raise HTTPException(404, "Guidance result not found")
+    comps = await db.guidance_comparables.find(
+        {"guidance_result_id": rid}, {"_id": 0},
+    ).sort("quality_score", -1).to_list(500)
+    req = await db.valuation_requests.find_one({"id": result["valuation_request_id"]}, {"_id": 0})
+    return {"result": result, "comparables": comps, "request": req}
+
+
+# ============================================================
 # DASHBOARD SUMMARY
 # ============================================================
 @router.get("/admin/market/summary")
@@ -374,5 +437,6 @@ async def market_summary(user: dict = Depends(get_current_user)):
         "matches_active": await db.property_matches.count_documents({"status": "active"}),
         "review_cases_open": await db.market_review_cases.count_documents({"status": "open"}),
         "audit_events": await db.market_audit_events.count_documents({}),
+        "guidance_results": await db.guidance_results.count_documents({}),
         "active_config_version": await _active_config_version(),
     }
