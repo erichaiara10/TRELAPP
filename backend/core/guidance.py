@@ -419,6 +419,16 @@ async def generate_guidance(subject: dict, workflow: str = "admin",
             exclusion_reason=s.get("exclusion_reason"),
             cqs_breakdown=s.get("cqs_breakdown") or {},
             months_since=s.get("months_since"),
+            snapshot={
+                "property_subtype": s.get("property_subtype"),
+                "bedrooms": s.get("bedrooms"),
+                "bathrooms": s.get("bathrooms"),
+                "land_area_m2": s.get("land_area_m2"),
+                "building_area_m2": s.get("building_area_m2"),
+                "suburb": s.get("suburb"),
+                "street": s.get("street"),
+                "local_area": s.get("local_area"),
+            },
         ).model_dump()
         await db.guidance_comparables.insert_one(cd)
         cd.pop("_id", None)

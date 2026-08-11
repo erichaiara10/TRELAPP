@@ -666,3 +666,4 @@ class GuidanceComparable(BaseModel):
     exclusion_reason: Optional[str] = None
     cqs_breakdown: dict = {}                # {location, class_subtype, size, features, condition, recency}
     months_since: Optional[float] = None
+    snapshot: dict = {}                     # denormalised candidate view: bedrooms, land_area_m2, building_area_m2, suburb, property_subtype

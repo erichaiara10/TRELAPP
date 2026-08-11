@@ -1,0 +1,34 @@
+{
+  "summary": "Iter-33 polish batch (4 new features) verified end-to-end. Backend pytest 10/10 pass in /app/backend/tests/test_iter33_polish.py. (1) Guidance run for Gordons/House/3br/2ba/600/180 returns 3 comparables and every comp carries a populated `snapshot` object with all 8 required keys (property_subtype, bedrooms, bathrooms, land_area_m2, building_area_m2, suburb, street, local_area). (2) GET /api/admin/market/health-led/config returns {amber_min_success_pct: 90.0 (float), red_consecutive_failures: 2 (int)} against the seeded active config, and 401s without auth. (3) POST /api/public/leads with source=price_compare + captcha + workflow=seller creates a Lead in admin /api/leads with source=price_compare, assigned_agent_id set, customer_id set, and a Customer with customer_type='buyer'. Workflow=landlord routes to a leasing_agent (assigned agent's role verified via /api/users lookup), while seller routes to sales_agent. (4) 60s TTL analytics cache: two calls within ~0.5s to each of source-strip, price-trends, median-by-suburb, heatmap, quick-insights return deep-equal JSON bodies. FRONTEND (Playwright): (a) Retention tab (/admin/market/config → Data Retention) exposes `input-led-amber-min` and `input-led-red-streak`; changed to 85/3, published as COMBINED-9.512, reloaded — values persisted. `retention-preview-btn` opens `retention-preview-result` table. `agg-health-led` badge visible in top-nav ('Pipeline 8'). (b) Comparables page: run-guidance-btn produces 3 comp-row-* rows, clicking opens comp-detail-modal, `toggle-compare-subject` checkbox visible; toggling ON reveals `compare-with-subject` table with 8 rows containing all expected labels (Suburb, Property subtype, Bedrooms, Bathrooms, Land area, Building area, Street, Local area); toggling OFF removes the table. (c) /price-compare/seller: filled Gordons → pc-submit → pc-result shows K666k-K889k range with 3 comps; pc-lead-cta + pc-lead-open-btn visible; filled name/email/phone/notes/captcha (extracted 5-char code '32BXA' from form text) → pc-lead-submit-btn → pc-lead-thanks toast + banner. Lead visible in admin /api/leads with source=price_compare and matching Customer. Cleaned up test lead+customer. Restored health-led config to defaults (90/2) via a fresh COMBINED-restore-* version.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_backend": [
+    "POST /api/admin/market/guidance/run -> comparables[*].snapshot has all 8 required keys",
+    "GET /api/admin/market/health-led/config -> {amber_min_success_pct:90.0, red_consecutive_failures:2}",
+    "GET /api/admin/market/health-led/config without auth -> 401",
+    "POST /api/public/leads source=price_compare (seller) -> Lead + Customer(customer_type=buyer), assigned sales_agent",
+    "POST /api/public/leads source=price_compare (landlord) -> assigned leasing_agent (role differs from seller)",
+    "Analytics 5-endpoint 60s TTL cache: two calls within 5s return deep-equal payloads (source-strip, price-trends, median-by-suburb, heatmap, quick-insights)"
+  ],
+  "verified_frontend": [
+    "Retention tab: input-led-amber-min + input-led-red-streak present; publish + reload persists new values (85/3)",
+    "retention-preview-btn -> retention-preview-result table visible",
+    "agg-health-led top-nav badge visible with pipeline count",
+    "Comparables: run-guidance -> 3 comp-row-* -> comp-detail-modal -> toggle-compare-subject reveals compare-with-subject with all 8 labels; toggle-off hides",
+    "/price-compare/seller: pc-lead-cta + pc-lead-open-btn -> pc-lead-form -> captcha -> pc-lead-submit-btn -> pc-lead-thanks; lead appears in admin /api/leads"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iter33_polish.py", "/app/test_reports/pytest/iter33.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/market.py: `import time as _time` is placed mid-file below the docstring block instead of the top imports section — cosmetic but breaks lint-order conventions.",
+    "The analytics TTL cache is a per-process dict — in a multi-worker uvicorn deployment each worker will have its own cache, so identical calls hitting different workers could still return divergent (freshly-computed) payloads. Not observed in this preview env (single worker) but worth noting for prod scale-out."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter33_polish.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (all 4 flows)"},
+  "seed_data_creation": "Created & deleted ephemeral price_compare test leads (TEST_johnpc@example.com and TEST Seller/Landlord Role) + their customers. Published test config versions COMBINED-9.512 (from frontend test) and COMBINED-restore-* (to restore health_led defaults 90/2). Active config is now COMBINED-restore-2584 with defaults intact.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "test_iter33_polish.py runs under normal pytest (10 tests, ~5s). The seller/landlord role assertion depends on staff seeded roles — sales@trel.com.pg (sales_agent) and leasing@trel.com.pg (leasing_agent) must exist (they do by default). If future runs modify DEFAULT_MARKET_CONFIG_PARAMS['health_led'], update TestHealthLedConfig assertions accordingly. The active market config is currently a COMBINED-restore-* version; if a future test expects COMBINED-1.0 as active, it must re-activate that first.",
+  "rca_of_the_issue": "N/A — no defects found."
+}

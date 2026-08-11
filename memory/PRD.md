@@ -637,3 +637,113 @@ source-health counters, emits `run_success|partial|failed` audit event.
   which button was clicked. Timestamp footer.
 - Verified: 3 seeded old market_listings + 1 old snapshot correctly
   reported as candidates; unchanged after Preview.
+
+## Iter-34 — Hausples Selector Tester (Feb 2026)
+
+### Backend (`core/collectors/hausples_tester.py`)
+- `probe_hausples(url, selectors?)` — fetches an arbitrary URL, runs every
+  configured CSS selector against the returned HTML, reports:
+  - HTTP status + response bytes
+  - Card selector + cards_found count
+  - Per-field: {selector, matches, match_rate, samples[≤3]}
+- Non-fatal: network / HTTP errors return `{ok:false, error:"..."}` instead
+  of raising, so the UI stays interactive.
+- Endpoint: `POST /api/admin/market/collectors/hausples_png/test`.
+
+### Frontend (`Sources.jsx` + new `HausplesSelectorTester.jsx`)
+- Every row with `collector='hausples_png'` gains an **Inspect** action
+  (data-testid=`inspect-source-{id}`) that opens the tester modal.
+- Modal: URL input · 9 editable selector inputs · Test button · Reset to
+  defaults · result panel with per-field match count table + samples ·
+  contextual guidance when 0 cards match. Nothing is auto-saved — operator
+  copies working selectors into the source's parser_config when happy.
+
+### Verified via screenshot
+- Created Hausples PNG source → Inspect opens modal → default selectors
+  populated · probing example.com correctly reports HTTP 200 · 559 bytes ·
+  0 cards found. Error state (real Hausples 404) also renders cleanly.
+
+
+## Iter-35 — Analytics Cache · Lead Capture · CQS Compare · LED Thresholds (Feb 2026)
+
+Six-in-one polish batch — two items ("Retention Preview" + "Hausples Selector
+Tester") were already shipped in iter-33/34, four are new:
+
+### Backend
+
+**Analytics 60 s TTL cache (`routes/market.py`)**
+- New `_ANALYTICS_CACHE` dict + `_cache_get / _cache_set / _cache_bust` helpers.
+- Wraps all five analytics endpoints: `source-strip`, `price-trends`,
+  `median-by-suburb`, `heatmap`, `quick-insights`. Cache keys include every
+  query parameter (`purpose`, `days`, `months`, `limit`).
+- 60 s TTL is fresh enough (scraper cycles are minute-scale) and stops repeat
+  admin poll from hammering `market_listings` on every tick of the Overview /
+  Trends pages.
+
+**`snapshot` on `guidance_comparables` (`core/guidance.py` + `models.py`)**
+- New optional `snapshot: dict = {}` field on `GuidanceComparable`.
+- Populated during `generate_guidance` with `property_subtype`, `bedrooms`,
+  `bathrooms`, `land_area_m2`, `building_area_m2`, `suburb`, `street`,
+  `local_area` — enough to render subject-vs-comp side-by-side in the CQS
+  deep-dive modal.
+
+**Configurable Pipeline Health LED thresholds**
+- `DEFAULT_MARKET_CONFIG_PARAMS.health_led` added
+  (`amber_min_success_pct: 90`, `red_consecutive_failures: 2`).
+- `seed_market_configuration` backfills the block on every startup so existing
+  configs inherit defaults.
+- New endpoint `GET /admin/market/health-led/config` reads from the active
+  configuration and returns the two thresholds (with sane fallbacks).
+
+**Lead capture — new source `price_compare` (`routes/public.py`)**
+- `public_create_lead` now accepts `source="price_compare"` and:
+  - maps `customer_type` to `buyer`.
+  - routes to `leasing_agent` if `payload.workflow ∈ {landlord, renter}`,
+    otherwise `sales_agent` (all other sources unchanged).
+
+### Frontend
+
+**Public Price Compare — Lead Capture card (`pages/public/PriceCompare.jsx`)**
+- New `LeadCaptureCard` mounts under every result panel. Two-stage flow:
+  1. Dashed CTA card: "Book a full valuation" (`pc-lead-cta` /
+     `pc-lead-open-btn`).
+  2. Expanded form with Name / Email / Phone / Notes + native captcha challenge
+     (`pc-lead-form`, `input-lead-*`, `pc-lead-submit-btn`).
+- On submit → `POST /public/leads` with source `price_compare`, message
+  auto-composed from the guidance result (range, weighted median, confidence,
+  position, comparable count), payload persisting workflow + purpose + numbers.
+- Success state (`pc-lead-thanks`) replaces the card entirely; no re-submit.
+
+**Comparables — "Compare with subject" toggle (`admin/market/Comparables.jsx`)**
+- New checkbox in `ComparableDetail` (`toggle-compare-subject`).
+- When active: 8-row side-by-side table (Suburb / Subtype / Bedrooms /
+  Bathrooms / Land m² / Building m² / Street / Local area) driven off
+  `comp.snapshot`, with per-row Δ calculation:
+  - numeric → % diff with green (≤10%), amber (≤25%), red otherwise
+  - textual → `=` (match) or `≠` (mismatch)
+
+**Retention tab — LED thresholds section (`admin/market/Config.jsx`)**
+- `HEALTH_LED_DEFAULTS` constant + `params.health_led` shape-fixer on load.
+- New "Pipeline Health LED thresholds" subsection under Deletion Policy in the
+  Data Retention tab: two `NumInput`s bound to `patchNested("health_led", …)`.
+- Publishing a new config version rolls the thresholds into the active config
+  → the `AggregationHealthLed` component re-polls within 60 s and picks them
+  up.
+
+**AggregationHealthLed — dynamic thresholds (`components/AggregationHealthLed.jsx`)**
+- Fetches `/admin/market/health-led/config` alongside the source strip.
+- Colour bands now: green when `worstStreak < red_consecutive_failures` AND
+  `lowest_success_pct ≥ amber_min_success_pct`; amber below the min pct; red at
+  or above the streak threshold.
+- Tooltip now surfaces the active thresholds in addition to the per-source
+  summary.
+
+### Verified end-to-end (curl)
+- `POST /admin/market/guidance/run` returns comparables with the new
+  `snapshot` block populated.
+- `GET /admin/market/health-led/config` → `{amber_min_success_pct: 90.0,
+  red_consecutive_failures: 2}`.
+- Analytics `source-strip` served twice in ~200 ms combined (cache confirmed).
+- `POST /public/leads` with `source=price_compare` returns `{ok:true,
+  lead_id:…}` and a matching Lead + Customer are visible in the admin CRM.
+

@@ -1,25 +1,35 @@
 // Aggregation Health LED — small live badge that polls the source-strip
 // analytics endpoint. Colour reflects the worst source status across the
 // last 30 days so operators spot pipeline stalls on every screen.
-//   green  → every active source has success_rate ≥ 90% or no runs yet
-//   amber  → any source below 90% OR any partial in last 24h
-//   red    → any source with a consecutive-failure streak ≥ 2
-// Tooltip on hover surfaces the per-source counts.
+//   green  → every active source has success_rate ≥ amber_min_success_pct
+//            (or no runs yet)
+//   amber  → any source below amber_min_success_pct
+//   red    → any source with a consecutive-failure streak ≥ red_consecutive_failures
+// Thresholds are configurable via Admin → Market → Configuration → Data Retention
+// and served by /admin/market/health-led/config. Tooltip on hover surfaces the
+// per-source counts.
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 
 const POLL_MS = 60_000;
+const DEFAULT_THRESHOLDS = { amber_min_success_pct: 90, red_consecutive_failures: 2 };
 
 export default function AggregationHealthLed() {
   const [strip, setStrip] = useState(null);
+  const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const { data } = await api.get("/admin/market/analytics/source-strip");
-        if (!cancelled) setStrip(data || []);
+        const [stripRes, cfgRes] = await Promise.all([
+          api.get("/admin/market/analytics/source-strip"),
+          api.get("/admin/market/health-led/config").catch(() => null),
+        ]);
+        if (cancelled) return;
+        setStrip(stripRes.data || []);
+        if (cfgRes?.data) setThresholds({ ...DEFAULT_THRESHOLDS, ...cfgRes.data });
       } catch { /* stay silent — LED shows grey */ }
     };
     load();
@@ -37,16 +47,19 @@ export default function AggregationHealthLed() {
   const worstStreak = Math.max(0, ...active.map((s) => s.consecutive_failures || 0));
   const lowest = active.filter((s) => s.success_rate != null)
                        .reduce((m, s) => Math.min(m, s.success_rate), 100);
+  const amberMin = Number(thresholds.amber_min_success_pct) || DEFAULT_THRESHOLDS.amber_min_success_pct;
+  const redStreak = Number(thresholds.red_consecutive_failures) || DEFAULT_THRESHOLDS.red_consecutive_failures;
   let color = "#10B981", status = "Healthy";
-  if (worstStreak >= 2) { color = "#DC2626"; status = "Failing"; }
-  else if (lowest < 90) { color = "#F59E0B"; status = "Degraded"; }
+  if (worstStreak >= redStreak) { color = "#DC2626"; status = "Failing"; }
+  else if (lowest < amberMin) { color = "#F59E0B"; status = "Degraded"; }
 
   const summary = active.map((s) =>
     `${s.name}: ${s.success_rate == null ? "no runs" : `${s.success_rate}%`}` +
     (s.consecutive_failures ? ` · ${s.consecutive_failures} fail streak` : "")
   ).join("\n");
 
-  return <Led color={color} label={`${active.length}`} tooltip={`Pipeline: ${status}\n\n${summary}`} />;
+  return <Led color={color} label={`${active.length}`}
+              tooltip={`Pipeline: ${status}\nThresholds: amber < ${amberMin}% · red ≥ ${redStreak} fail streak\n\n${summary}`} />;
 }
 
 function Led({ color, label, tooltip }) {

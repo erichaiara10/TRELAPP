@@ -12,6 +12,10 @@ const RETENTION_DEFAULTS = {
   audit_log_days: 2555,
   soft_delete_only: true,
 };
+const HEALTH_LED_DEFAULTS = {
+  amber_min_success_pct: 90,
+  red_consecutive_failures: 2,
+};
 
 const TABS = [
   { key: "duplicate", label: "Duplicate Matching" },
@@ -94,6 +98,7 @@ export default function MarketConfig() {
     if (a) {
       const p = JSON.parse(JSON.stringify(a.parameters));
       p.retention = { ...RETENTION_DEFAULTS, ...(p.retention || {}) };
+      p.health_led = { ...HEALTH_LED_DEFAULTS, ...(p.health_led || {}) };
       setParams(p);
     }
   };
@@ -438,6 +443,23 @@ export default function MarketConfig() {
                   </label>
                   <div className="text-xs text-muted-foreground mt-2">
                     Retention runs automatically once per 24h via the scheduler. Manual preview + run buttons above.
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-border" data-testid="health-led-thresholds">
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pipeline Health LED thresholds</div>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      Governs the global aggregation-health badge in the top-nav. Green when every active source meets the min success rate and no source has hit the red-failure streak.
+                    </div>
+                    <NumInput label="Amber below success rate (%)"
+                              value={params.health_led?.amber_min_success_pct}
+                              onChange={(v) => patchNested("health_led", "amber_min_success_pct", v)}
+                              testid="led-amber-min" step={1} min={1} max={100}
+                              hint="Any active source with a lower success rate flips the LED amber." />
+                    <NumInput label="Red on consecutive failures ≥"
+                              value={params.health_led?.red_consecutive_failures}
+                              onChange={(v) => patchNested("health_led", "red_consecutive_failures", v)}
+                              testid="led-red-streak" step={1} min={1} max={20}
+                              hint="Any source hitting this streak length flips the LED red." />
                   </div>
                 </div>
               </div>

@@ -30,6 +30,9 @@ async def public_create_lead(payload: LeadCreate):
         if prop:
             prop_title = prop["title"]
     role = "leasing_agent" if p["source"] == "management_form" else "sales_agent"
+    # Price-compare leads inherit their agent-team from the workflow the user was on
+    if p["source"] == "price_compare":
+        role = "leasing_agent" if p.get("payload", {}).get("workflow") in ("landlord", "renter") else "sales_agent"
     lead = Lead(source=p["source"], name=p["name"], email=p.get("email"),
                 phone=p.get("phone"), message=p.get("message", ""),
                 property_id=p.get("property_id"), property_title=prop_title,
@@ -39,7 +42,8 @@ async def public_create_lead(payload: LeadCreate):
     if payload.name:
         ctype = {"sell_form": "seller", "wanted_form": "buyer",
                  "corporate_form": "corporate", "management_form": "landlord",
-                 "inspection_form": "buyer", "contact_form": "buyer"}.get(p["source"], "buyer")
+                 "inspection_form": "buyer", "contact_form": "buyer",
+                 "price_compare": "buyer"}.get(p["source"], "buyer")
         cust = Customer(name=payload.name, email=payload.email, phone=payload.phone,
                         customer_type=ctype, source=p["source"],
                         assigned_agent_id=lead["assigned_agent_id"]).model_dump()

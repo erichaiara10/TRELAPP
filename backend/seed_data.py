@@ -323,5 +323,13 @@ DEFAULT_MARKET_CONFIG_PARAMS = {
         "audit_log_days": 2555,        # 7 years
         "soft_delete_only": True,
     },
+    # ---- Pipeline Health LED thresholds (Retention tab) ----
+    # Governs the global Aggregation Health LED (top-nav badge). Green when
+    # every active source has success_rate >= amber_min_success_pct AND no
+    # source has consecutive_failures >= red_consecutive_failures.
+    "health_led": {
+        "amber_min_success_pct": 90,
+        "red_consecutive_failures": 2,
+    },
 }
 

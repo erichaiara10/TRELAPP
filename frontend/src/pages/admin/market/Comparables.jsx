@@ -214,6 +214,18 @@ function ComparableDetail({ comp, subject, onClose }) {
   const data = Object.entries(breakdown).map(([k, v]) => ({
     signal: k.replace(/_/g, " "), score: Number(v || 0), color: CQS_COLORS[k] || "#6B7280",
   }));
+  const [showCompare, setShowCompare] = React.useState(false);
+  const snap = comp.snapshot || {};
+  const rows = [
+    { label: "Suburb",         subj: subject.suburb,              cand: snap.suburb },
+    { label: "Property subtype", subj: subject.property_subtype,  cand: snap.property_subtype },
+    { label: "Bedrooms",       subj: subject.bedrooms,            cand: snap.bedrooms },
+    { label: "Bathrooms",      subj: subject.bathrooms,           cand: snap.bathrooms },
+    { label: "Land area (m²)", subj: subject.land_area_m2,        cand: snap.land_area_m2 },
+    { label: "Building area (m²)", subj: subject.building_area_m2, cand: snap.building_area_m2 },
+    { label: "Street",         subj: subject.street,              cand: snap.street },
+    { label: "Local area",     subj: subject.local_area,          cand: snap.local_area },
+  ];
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6"
          onClick={onClose} data-testid="comp-detail-modal">
@@ -238,6 +250,56 @@ function ComparableDetail({ comp, subject, onClose }) {
           <KpiCard label="Effective weight" value={comp.effective_weight?.toFixed?.(3)} testid="kpi-eff" />
           <KpiCard label="Months since obs." value={comp.months_since?.toFixed?.(1)} testid="kpi-months" />
         </div>
+
+        <div className="flex items-center gap-3 mb-3">
+          <label className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground cursor-pointer"
+                 data-testid="toggle-compare-subject">
+            <input type="checkbox" checked={showCompare}
+                   onChange={(e) => setShowCompare(e.target.checked)}
+                   data-testid="input-compare-subject" />
+            Compare with subject
+          </label>
+        </div>
+
+        {showCompare && (
+          <div className="mb-4 border border-border rounded overflow-hidden" data-testid="compare-with-subject">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-[11px] uppercase tracking-widest text-muted-foreground">
+                <tr>
+                  <th className="py-1.5 px-3 text-left">Attribute</th>
+                  <th className="py-1.5 px-3 text-left">Subject</th>
+                  <th className="py-1.5 px-3 text-left">Comparable</th>
+                  <th className="py-1.5 px-3 text-left">Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const a = r.subj == null || r.subj === "" ? null : r.subj;
+                  const b = r.cand == null || r.cand === "" ? null : r.cand;
+                  let delta = "—", tone = "text-muted-foreground";
+                  if (typeof a === "number" && typeof b === "number" && a !== 0) {
+                    const pct = ((b - a) / a) * 100;
+                    delta = `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`;
+                    tone = Math.abs(pct) <= 10 ? "text-[#2A5B46]" : Math.abs(pct) <= 25 ? "text-amber-600" : "text-red-600";
+                  } else if (a != null && b != null && String(a).toLowerCase() !== String(b).toLowerCase()) {
+                    delta = "≠"; tone = "text-amber-600";
+                  } else if (a != null && b != null) {
+                    delta = "="; tone = "text-[#2A5B46]";
+                  }
+                  return (
+                    <tr key={r.label} className="border-t border-border/60"
+                        data-testid={`compare-row-${r.label.replace(/\W+/g, "-").toLowerCase()}`}>
+                      <td className="py-1.5 px-3 text-muted-foreground">{r.label}</td>
+                      <td className="py-1.5 px-3 tabular-nums">{a == null ? "—" : a}</td>
+                      <td className="py-1.5 px-3 tabular-nums">{b == null ? "—" : b}</td>
+                      <td className={`py-1.5 px-3 text-xs uppercase tracking-widest ${tone}`}>{delta}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {data.length > 0 ? (
           <>

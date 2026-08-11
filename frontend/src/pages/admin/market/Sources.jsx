@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
+import HausplesSelectorTester from "./HausplesSelectorTester";
 
 const emptyForm = {
   name: "", base_url: "", description: "",
@@ -22,6 +23,7 @@ export default function DataSources() {
   const [form, setForm] = useState(emptyForm);
   const [collectors, setCollectors] = useState([]);
   const [sched, setSched] = useState(null);
+  const [testerSource, setTesterSource] = useState(null);
 
   const load = async () => {
     // Promise.allSettled — a single failing endpoint must NOT blank the whole
@@ -161,6 +163,11 @@ export default function DataSources() {
                       <td className="py-2 pr-3 text-right whitespace-nowrap">
                         <button onClick={() => triggerRun(r)} data-testid={`run-source-${r.id}`}
                                 className="text-xs mr-3 underline">Run</button>
+                        {r.collector === "hausples_png" && (
+                          <button onClick={() => setTesterSource(r)}
+                                  className="text-xs mr-3 underline"
+                                  data-testid={`inspect-source-${r.id}`}>Inspect</button>
+                        )}
                         <button onClick={() => openEdit(r)} data-testid={`edit-source-${r.id}`}
                                 className="text-xs mr-3 underline">Edit</button>
                         <button onClick={() => remove(r)} data-testid={`delete-source-${r.id}`}
@@ -268,6 +275,11 @@ export default function DataSources() {
             </div>
           </div>
         </div>
+      )}
+
+      {testerSource && (
+        <HausplesSelectorTester source={testerSource}
+                                onClose={() => setTesterSource(null)} />
       )}
     </div>
   );

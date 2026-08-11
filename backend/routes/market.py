@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.collectors import get_collector, registered as registered_collectors
+from core.collectors.hausples_tester import probe_hausples
 from core.db import db, new_id, now_iso, strip_id
 from core.guidance import generate_guidance
 from core.matcher import ingest_market_listing, rematch_listing
@@ -58,6 +59,40 @@ async def _audit(event_type: str, actor: dict, *, entity_type=None, entity_id=No
 async def _active_config_version() -> Optional[str]:
     cfg = await db.market_configuration.find_one({"active": True}, {"_id": 0, "version": 1})
     return (cfg or {}).get("version")
+
+
+async def _active_config_params() -> dict:
+    cfg = await db.market_configuration.find_one({"active": True}, {"_id": 0, "parameters": 1})
+    return (cfg or {}).get("parameters") or {}
+
+
+# ---------------- analytics TTL cache ----------------
+# The Overview page repeatedly polls the 5 analytics endpoints; before this
+# cache each request scanned market_listings from scratch. A 60-second TTL
+# per (endpoint, params) is more than fresh enough (scraper runs are minute-scale)
+# and drops per-page DB traffic dramatically when multiple admins are watching.
+import time as _time
+_ANALYTICS_CACHE: dict[str, tuple[float, object]] = {}
+_ANALYTICS_TTL_SEC = 60
+
+
+def _cache_get(key: str):
+    hit = _ANALYTICS_CACHE.get(key)
+    if not hit:
+        return None
+    ts, value = hit
+    if _time.time() - ts > _ANALYTICS_TTL_SEC:
+        _ANALYTICS_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value):
+    _ANALYTICS_CACHE[key] = (_time.time(), value)
+
+
+def _cache_bust():
+    _ANALYTICS_CACHE.clear()
 
 
 # ============================================================
@@ -130,6 +165,19 @@ async def toggle_scheduler(payload: dict, user: dict = Depends(get_current_user)
 @router.get("/admin/market/collectors")
 async def list_collectors(user: dict = Depends(get_current_user)):
     return registered_collectors()
+
+
+@router.post("/admin/market/collectors/hausples_png/test")
+async def hausples_selector_test(payload: dict,
+                                  user: dict = Depends(get_current_user)):
+    """Selector tester — paste a Hausples search-results URL, get per-selector
+    match counts + samples. Optional `selectors` overrides let ops A/B-test
+    tweaks before saving them to a source's parser_config."""
+    url = (payload or {}).get("url")
+    if not url or not url.startswith("http"):
+        raise HTTPException(400, "Valid URL required")
+    return await probe_hausples(url, (payload or {}).get("selectors"))
+
 
 
 @router.post("/admin/market/sources/{sid}/collect")
@@ -641,6 +689,9 @@ async def get_guidance_result(rid: str, user: dict = Depends(get_current_user)):
 async def analytics_source_strip(days: int = 30, user: dict = Depends(get_current_user)):
     """Compact per-source strip: last N days of run success rate + total
     listings ingested. Powers the Overview health strip."""
+    ck = f"source-strip:{days}"
+    if (cached := _cache_get(ck)) is not None:
+        return cached
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     sources = await db.market_sources.find({}, {"_id": 0}).to_list(500)
@@ -661,6 +712,7 @@ async def analytics_source_strip(days: int = 30, user: dict = Depends(get_curren
             "last_run_at": s.get("last_run_at"),
             "consecutive_failures": int(s.get("consecutive_failures") or 0),
         })
+    _cache_set(ck, out)
     return out
 
 
@@ -670,6 +722,9 @@ async def analytics_price_trends(purpose: str = "sale",
                                   user: dict = Depends(get_current_user)):
     """Median price per month (all suburbs pooled). Feeds the Overview
     trend line chart."""
+    ck = f"price-trends:{purpose}:{months}"
+    if (cached := _cache_get(ck)) is not None:
+        return cached
     from datetime import datetime, timedelta, timezone
     import statistics
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
@@ -688,14 +743,19 @@ async def analytics_price_trends(purpose: str = "sale",
             buckets.setdefault(key, []).append(float(l["price"]))
         except Exception:
             continue
-    return [{"month": k, "count": len(v),
+    out = [{"month": k, "count": len(v),
              "median": statistics.median(v) if v else None}
             for k, v in sorted(buckets.items())]
+    _cache_set(ck, out)
+    return out
 
 
 @router.get("/admin/market/analytics/median-by-suburb")
 async def analytics_median_by_suburb(purpose: str = "sale", limit: int = 12,
                                       user: dict = Depends(get_current_user)):
+    ck = f"median-by-suburb:{purpose}:{limit}"
+    if (cached := _cache_get(ck)) is not None:
+        return cached
     import statistics
     grouped: dict[str, list[float]] = {}
     async for l in db.market_listings.find(
@@ -710,13 +770,18 @@ async def analytics_median_by_suburb(purpose: str = "sale", limit: int = 12,
              "median": statistics.median(v)}
             for k, v in grouped.items()]
     rows.sort(key=lambda r: r["median"], reverse=True)
-    return rows[:limit]
+    out = rows[:limit]
+    _cache_set(ck, out)
+    return out
 
 
 @router.get("/admin/market/analytics/heatmap")
 async def analytics_heatmap(purpose: str = "sale", months: int = 12,
                              user: dict = Depends(get_current_user)):
     """Grid of (suburb × month) → median price. Feeds the Trends heatmap."""
+    ck = f"heatmap:{purpose}:{months}"
+    if (cached := _cache_get(ck)) is not None:
+        return cached
     from datetime import datetime, timedelta, timezone
     import statistics
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
@@ -745,13 +810,18 @@ async def analytics_heatmap(purpose: str = "sale", months: int = 12,
             vals = cells.get((s, m))
             row[m] = statistics.median(vals) if vals else None
         matrix.append(row)
-    return {"months": months_axis, "suburbs": suburbs_axis, "cells": matrix}
+    out = {"months": months_axis, "suburbs": suburbs_axis, "cells": matrix}
+    _cache_set(ck, out)
+    return out
 
 
 @router.get("/admin/market/analytics/quick-insights")
 async def analytics_quick_insights(user: dict = Depends(get_current_user)):
     """Donut-friendly breakdowns: listings by class, listings by purpose,
     match band distribution."""
+    ck = "quick-insights"
+    if (cached := _cache_get(ck)) is not None:
+        return cached
     async def _agg(collection, field, extra_match=None):
         pipeline = []
         if extra_match:
@@ -765,10 +835,29 @@ async def analytics_quick_insights(user: dict = Depends(get_current_user)):
             rows.append({"key": doc["_id"] or "—", "count": doc["count"]})
         return rows
 
-    return {
+    out = {
         "by_class": await _agg(db.market_listings, "property_class", {"status": "active"}),
         "by_purpose": await _agg(db.market_listings, "purpose", {"status": "active"}),
         "match_bands": await _agg(db.property_matches, "decision_band", {"status": "active"}),
+    }
+    _cache_set(ck, out)
+    return out
+
+
+DEFAULT_HEALTH_LED = {"amber_min_success_pct": 90, "red_consecutive_failures": 2}
+
+
+@router.get("/admin/market/health-led/config")
+async def health_led_config(user: dict = Depends(get_current_user)):
+    """Thresholds that drive the global Aggregation Health LED badge. Sourced
+    from the active MarketConfiguration; falls back to platform defaults."""
+    params = await _active_config_params()
+    raw = params.get("health_led") or {}
+    return {
+        "amber_min_success_pct": float(raw.get("amber_min_success_pct",
+                                                DEFAULT_HEALTH_LED["amber_min_success_pct"])),
+        "red_consecutive_failures": int(raw.get("red_consecutive_failures",
+                                                DEFAULT_HEALTH_LED["red_consecutive_failures"])),
     }
 
 

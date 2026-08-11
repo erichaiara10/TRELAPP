@@ -219,6 +219,142 @@ function Result({ workflow, result }) {
           </div>
         </div>
       )}
+
+      <LeadCaptureCard workflow={workflow} result={result} ccy={ccy} />
+    </div>
+  );
+}
+
+// Opt-in "Book a full valuation" mini-form under every guidance result.
+// Creates a Lead in the CRM (source=price_compare) so an agent can follow up
+// with a signed, on-site inspection valuation. Optional — the range is useful
+// on its own; this is purely a conversion asset.
+function LeadCaptureCard({ workflow, result, ccy }) {
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ name: "", email: "", phone: "", notes: "" });
+  const [ch, setCh] = React.useState(null);
+  const [answer, setAnswer] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [done, setDone] = React.useState(false);
+
+  const start = async () => {
+    setOpen(true);
+    if (!ch) {
+      try {
+        const { data } = await axios.get(`${API}/public/challenge`);
+        setCh(data);
+      } catch { toast.error("Unable to load verification — retry"); }
+    }
+  };
+
+  const submit = async () => {
+    if (!form.name || (!form.email && !form.phone)) {
+      toast.error("Name plus at least email or phone required");
+      return;
+    }
+    if (!answer.trim()) { toast.error("Please complete the verification"); return; }
+    setBusy(true);
+    try {
+      const rangeStr = result.trel_indicative_range?.p25
+        ? `${money(result.trel_indicative_range.p25, ccy)} – ${money(result.trel_indicative_range.p75, ccy)}`
+        : "insufficient evidence";
+      const summary = `Price-compare (${workflow}) result → Range ${rangeStr} · Weighted median ${money(result.weighted_median, ccy)} · Confidence ${result.confidence_label} · ${result.comparable_count} comparables${result.position ? ` · price is ${result.position}` : ""}.`;
+      await axios.post(`${API}/public/leads`, {
+        source: "price_compare",
+        name: form.name.trim(),
+        email: form.email.trim() || null,
+        phone: form.phone.trim() || null,
+        message: (form.notes.trim() ? form.notes.trim() + "\n\n" : "") + summary,
+        payload: {
+          workflow,
+          purpose: result.purpose,
+          confidence_label: result.confidence_label,
+          comparable_count: result.comparable_count,
+          weighted_median: result.weighted_median,
+          trel_indicative_range: result.trel_indicative_range,
+          position: result.position,
+        },
+        verification_token: ch?.token,
+        verification_answer: answer.trim(),
+      });
+      setDone(true);
+      toast.success("Request received — our team will be in touch shortly.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Unable to submit — please retry");
+    } finally { setBusy(false); }
+  };
+
+  if (done) {
+    return (
+      <div className="bg-[#F0F7F2] border border-[#2A5B46]/30 rounded-lg p-5" data-testid="pc-lead-thanks">
+        <div className="text-sm font-semibold text-[#2A5B46]">You're on the list ✓</div>
+        <div className="text-sm text-muted-foreground mt-1">
+          A TREL valuer will reach out with a signed full valuation quote. In the meantime, feel free to run more scenarios above.
+        </div>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div className="bg-white border border-dashed border-[#2A5B46]/40 rounded-lg p-5 flex items-center justify-between gap-4"
+           data-testid="pc-lead-cta">
+        <div>
+          <div className="text-sm font-semibold">Want a signed, on-site valuation?</div>
+          <div className="text-xs text-muted-foreground mt-1 max-w-md">
+            The range above is evidence-based but indicative. A TREL valuer can produce a full signed report — free discovery call, no obligation.
+          </div>
+        </div>
+        <button onClick={start}
+                className="whitespace-nowrap px-4 py-2 rounded bg-[#2A5B46] text-white text-sm hover:bg-[#204838]"
+                data-testid="pc-lead-open-btn">
+          Book a full valuation
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-[#2A5B46]/40 rounded-lg p-5" data-testid="pc-lead-form">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold">Book a full valuation</div>
+        <button onClick={() => setOpen(false)} className="text-xs text-muted-foreground hover:text-foreground"
+                data-testid="pc-lead-close-btn">Close ✕</button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <TextField label="Full name *" value={form.name} testid="lead-name"
+                   onChange={(v) => setForm({ ...form, name: v })} />
+        <TextField label="Phone" value={form.phone} testid="lead-phone"
+                   onChange={(v) => setForm({ ...form, phone: v })} />
+        <TextField label="Email" value={form.email} testid="lead-email"
+                   onChange={(v) => setForm({ ...form, email: v })} />
+        <label className="block col-span-2" data-testid="field-lead-notes">
+          <div className="text-xs text-muted-foreground mb-1">Notes for the valuer (optional)</div>
+          <textarea value={form.notes} rows={2}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    className="w-full border border-border rounded px-2 py-1.5 text-sm"
+                    data-testid="input-lead-notes" />
+        </label>
+      </div>
+      {ch && (
+        <div className="mt-3 flex items-center gap-3 text-sm" data-testid="pc-lead-captcha">
+          <span className="text-muted-foreground text-xs">{ch.question}</span>
+          <input value={answer} onChange={(e) => setAnswer(e.target.value)}
+                 placeholder="Answer"
+                 className="border border-border rounded px-2 py-1 text-sm w-32"
+                 data-testid="input-lead-captcha" />
+        </div>
+      )}
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-[10px] text-muted-foreground max-w-md">
+          By submitting you agree to be contacted by TREL about your property. We never share your details.
+        </div>
+        <button onClick={submit} disabled={busy}
+                className="px-4 py-2 rounded bg-[#2A5B46] text-white text-sm disabled:opacity-60"
+                data-testid="pc-lead-submit-btn">
+          {busy ? "Sending…" : "Request valuation"}
+        </button>
+      </div>
     </div>
   );
 }

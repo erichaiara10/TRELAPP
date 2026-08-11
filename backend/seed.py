@@ -208,6 +208,10 @@ async def seed_market_configuration():
             {"parameters.retention": {"$exists": False}},
             {"$set": {"parameters.retention": DEFAULT_MARKET_CONFIG_PARAMS["retention"]}},
         )
+        await db.market_configuration.update_many(
+            {"parameters.health_led": {"$exists": False}},
+            {"$set": {"parameters.health_led": DEFAULT_MARKET_CONFIG_PARAMS["health_led"]}},
+        )
         return
     doc = MarketConfiguration(
         version="COMBINED-1.0",
