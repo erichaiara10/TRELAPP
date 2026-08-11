@@ -385,3 +385,26 @@ against the two TRELPNG algorithm specs:
 5. Phase E — Public listing collectors/scrapers (per-source modules)
 6. Phase F — Admin aggregation dashboard + evidence inspector
 7. Phase G — Location dictionaries expansion + parameter tuning governance
+
+## Phase 1 UI — Admin Menu & 10 Skeleton Screens (Feb 2026, later same day)
+
+Grouped sidebar (Operations · Property Data Aggregation · Administration).
+Every menu item from the user-provided mockup is now navigable at
+`/admin/market/*`:
+
+| # | Route                              | Data source (Phase 1) |
+|---|------------------------------------|-----------------------|
+| 1 | `/admin/market`                    | Live — /summary + /runs + /review-cases |
+| 2 | `/admin/market/evidence`           | Live — /listings (empty until Phase E) |
+| 3 | `/admin/market/comparables`        | Placeholder — Phase C |
+| 4 | `/admin/market/trends`             | Placeholder — Phase C/F |
+| 5 | `/admin/market/sources`            | **Full CRUD** — verified end-to-end |
+| 6 | `/admin/market/duplicates`         | Live — /matches + /review-cases |
+| 7 | `/admin/market/price-compare`      | Placeholder — Phase C |
+| 8 | `/admin/market/review-cases`       | Live — list + mark-in-review/resolve/dismiss |
+| 9 | `/admin/market/config`             | **Full CRUD** — view + publish new version + activate |
+| 10| `/admin/market/audit`              | Live — read-only with entity filter |
+
+Shared UI: `_shared.jsx` (PageHeader, KpiCard, Section, PhaseBanner).
+Every interactive element has a `data-testid`. Live smoke test:
+Add-Source flow → toast → KPIs update → table populated → audit event emitted.

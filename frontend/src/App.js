@@ -32,6 +32,18 @@ import Content from "@/pages/admin/Content";
 import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
 
+// Property Data Aggregation — Phase 1 skeleton screens
+import MarketOverview from "@/pages/admin/market/Overview";
+import MarketEvidence from "@/pages/admin/market/Evidence";
+import MarketComparables from "@/pages/admin/market/Comparables";
+import MarketTrends from "@/pages/admin/market/Trends";
+import MarketSources from "@/pages/admin/market/Sources";
+import MarketDuplicates from "@/pages/admin/market/Duplicates";
+import MarketPriceCompareResults from "@/pages/admin/market/PriceCompareResults";
+import MarketReviewCases from "@/pages/admin/market/ReviewCases";
+import MarketConfig from "@/pages/admin/market/Config";
+import MarketAuditLog from "@/pages/admin/market/AuditLog";
+
 function Protected({ children }) {
   const { user } = useAuth();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
@@ -74,6 +86,16 @@ export default function App() {
             <Route path="locations" element={<Locations />} />
             <Route path="content" element={<Content />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="market" element={<MarketOverview />} />
+            <Route path="market/evidence" element={<MarketEvidence />} />
+            <Route path="market/comparables" element={<MarketComparables />} />
+            <Route path="market/trends" element={<MarketTrends />} />
+            <Route path="market/sources" element={<MarketSources />} />
+            <Route path="market/duplicates" element={<MarketDuplicates />} />
+            <Route path="market/price-compare" element={<MarketPriceCompareResults />} />
+            <Route path="market/review-cases" element={<MarketReviewCases />} />
+            <Route path="market/config" element={<MarketConfig />} />
+            <Route path="market/audit" element={<MarketAuditLog />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

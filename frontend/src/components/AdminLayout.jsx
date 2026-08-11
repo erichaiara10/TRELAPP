@@ -1,28 +1,66 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut } from "lucide-react";
+import {
+  LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar,
+  ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut,
+  Database, LineChart, GitMerge, Scale, Sliders, ScrollText, LayoutGrid,
+  ClipboardCheck, Radio,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
-const items = [
-  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/properties", label: "Properties", icon: Building2 },
-  { to: "/admin/customers", label: "Customers", icon: Users },
-  { to: "/admin/leads", label: "Leads", icon: Inbox },
-  { to: "/admin/requirements", label: "Requirements", icon: ClipboardList },
-  { to: "/admin/matching", label: "Matching", icon: Target },
-  { to: "/admin/inspections", label: "Inspections", icon: Calendar },
-  { to: "/admin/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/admin/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { to: "/admin/users", label: "Users", icon: UserCog },
-  { to: "/admin/locations", label: "Locations", icon: MapPin },
-  { to: "/admin/content", label: "Content", icon: FileText },
-  { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+// Sidebar is organised into grouped sections. Each group has a small caption
+// header (uppercase, low contrast) followed by its NavLinks. This lets us
+// nest the 10 Property Data Aggregation screens (per mockup) under a single
+// clearly-labelled section without changing the visual grammar.
+const sections = [
+  {
+    label: "Operations",
+    items: [
+      { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+      { to: "/admin/properties", label: "Properties", icon: Building2 },
+      { to: "/admin/customers", label: "Customers", icon: Users },
+      { to: "/admin/leads", label: "Leads", icon: Inbox },
+      { to: "/admin/requirements", label: "Requirements", icon: ClipboardList },
+      { to: "/admin/matching", label: "Matching", icon: Target },
+      { to: "/admin/inspections", label: "Inspections", icon: Calendar },
+      { to: "/admin/tasks", label: "Tasks", icon: ListChecks },
+      { to: "/admin/pipeline", label: "Pipeline", icon: KanbanSquare },
+    ],
+  },
+  {
+    label: "Property Data Aggregation",
+    items: [
+      { to: "/admin/market",                   label: "1. Overview",            icon: LayoutGrid, end: true },
+      { to: "/admin/market/evidence",          label: "2. Market Evidence",     icon: Database },
+      { to: "/admin/market/comparables",       label: "3. Comparable Properties", icon: GitMerge },
+      { to: "/admin/market/trends",            label: "4. Price Trends",        icon: LineChart },
+      { to: "/admin/market/sources",           label: "5. Data Sources",        icon: Radio },
+      { to: "/admin/market/duplicates",        label: "6. Duplicate Matches",   icon: GitMerge },
+      { to: "/admin/market/price-compare",     label: "7. Price Compare Results", icon: Scale },
+      { to: "/admin/market/review-cases",      label: "8. Review Cases",        icon: ClipboardCheck },
+      { to: "/admin/market/config",            label: "9. Configuration",       icon: Sliders },
+      { to: "/admin/market/audit",             label: "10. Audit Log",          icon: ScrollText },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { to: "/admin/users", label: "Users", icon: UserCog },
+      { to: "/admin/locations", label: "Locations", icon: MapPin },
+      { to: "/admin/content", label: "Content", icon: FileText },
+      { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+    ],
+  },
 ];
+
+function slug(to) {
+  const p = to.replace("/admin", "").replace(/^\//, "");
+  return p.replace(/\//g, "-") || "dashboard";
+}
 
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
-
   const handleLogout = async () => { await logout(); nav("/admin/login"); };
 
   return (
@@ -33,21 +71,28 @@ export default function AdminLayout() {
           <div className="font-serif text-xl mt-1">Operations</div>
         </div>
         <nav className="p-3 flex-1 overflow-y-auto">
-          {items.map((it) => (
-            <NavLink
-              key={it.to}
-              to={it.to}
-              end={it.end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-md text-sm mb-1 transition-colors ${
-                  isActive ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
-                }`
-              }
-              data-testid={`sidebar-${it.to.replace("/admin","").replace("/","") || "dashboard"}`}
-            >
-              <it.icon className="w-4 h-4" />
-              {it.label}
-            </NavLink>
+          {sections.map((section, si) => (
+            <div key={section.label} className={si === 0 ? "" : "mt-4"} data-testid={`sidebar-section-${slug(section.label)}`}>
+              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                {section.label}
+              </div>
+              {section.items.map((it) => (
+                <NavLink
+                  key={it.to}
+                  to={it.to}
+                  end={it.end}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-md text-sm mb-1 transition-colors ${
+                      isActive ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+                    }`
+                  }
+                  data-testid={`sidebar-${slug(it.to)}`}
+                >
+                  <it.icon className="w-4 h-4" />
+                  {it.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="p-4 border-t border-white/10 text-sm">
