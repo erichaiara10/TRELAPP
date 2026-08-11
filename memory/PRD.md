@@ -320,3 +320,68 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 2. Add real email + WhatsApp Business API integration when keys available
 3. Split `server.py` into modular routers for maintainability
 4. Implement Communication History module (calls/notes timeline)
+
+---
+
+## Phase 1 — Market Intelligence Data Aggregation (Feb 2026)
+
+Foundational schema for the PNG Property Market Intelligence platform built
+against the two TRELPNG algorithm specs:
+- MATCH-1.0 — Duplicate Matching & Property Identity
+- GUIDE-1.0 — Comparable Property Selection & Market Price Guidance
+
+### New collections (all with idempotent indexes)
+- `market_sources` — configured scrapers/feeds (unique `name`)
+- `collection_runs` — scrape audit log per source
+- `market_listings` — raw source ads (unique `(source_id, source_listing_id)`)
+- `market_listing_snapshots` — price/status history per listing
+- `master_properties` — persistent parcel/site identity (indexed on
+  `(lot_number, section_number, suburb)` + `trel_property_id`)
+- `property_units` — child sub-units under a master
+- `property_matches` — reversible listing→master/unit link (history preserved
+  via `status: active|detached|superseded`)
+- `market_review_cases` — manual queue for probable/possible/conflict
+- `market_audit_events` — immutable audit trail (every write emits one)
+- `location_reference` — canonical province → district → suburb → local_area
+  → street hierarchy + aliases (bootstrapped from existing province/city/
+  suburb data)
+- `market_configuration` — versioned params (baseline `COMBINED-1.0` seeded
+  with every threshold/weight/tolerance from the algo specs — 34 param
+  sections). Versioning enforced by `(version, algorithm)` unique index; one
+  active row per algorithm.
+- `valuation_requests` + `guidance_results` + `guidance_comparables` —
+  guidance-engine schemas modeled now, populated in Phase C.
+
+### Backfill migration (idempotent)
+- `migrate_backfill_master_properties`: any `properties` row without a
+  `master_property_id` gets a 1:1 master auto-created (class inferred from
+  property type, area converted ha→m², portion/lot/section carried across).
+  Ran on first boot — 9/9 existing properties linked.
+
+### New API endpoints (all under `/api/admin/market/*`)
+- Sources: GET / POST / PUT / DELETE
+- Collection runs: GET
+- Market listings: GET (list, single)
+- Master properties: GET (list, single), POST, PUT
+- Property units: GET, POST, PUT
+- Property matches: GET, POST `/matches/{id}/detach`
+- Review cases: GET, PUT
+- Audit events: GET
+- Configuration: GET (list, active), POST (new version), POST `/config/{id}/activate`
+- Location reference: GET, POST
+- Dashboard summary: GET `/summary`
+
+### Test status (Phase 1)
+- ✅ curl smoke tests: source CRUD, dedup rejection, audit trail growth,
+  config versioning + activation swap, master-property list, location
+  reference bootstrap, property→master linkage (9/9)
+- Not blocked. Ready to proceed to Phase B (matching engine).
+
+## Next Actions (updated)
+1. Phase B — Manual Master Property + Match UX (Admin UI)
+2. Phase B — Deterministic-rule matcher (D1–D6) + weighted scorer implementation
+3. Phase C — Rule-based Guidance Engine (Comparable selection + CQS + weighted P25/P75)
+4. Phase D — 4 customer-facing Price Compare screens
+5. Phase E — Public listing collectors/scrapers (per-source modules)
+6. Phase F — Admin aggregation dashboard + evidence inspector
+7. Phase G — Location dictionaries expansion + parameter tuning governance

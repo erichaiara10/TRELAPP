@@ -14,11 +14,14 @@ from pathlib import Path
 
 from core.db import db, new_id, now_iso
 from core.security import hash_password
-from models import Property, PropertyType, Requirement
+from models import (
+    LocationReference, MarketConfiguration, MasterProperty,
+    Property, PropertyType, Requirement,
+)
 from seed_data import (
-    DEFAULT_CONTENT, DEFAULT_LOCATIONS, DEFAULT_PAGE_CONTENT,
-    DEFAULT_PROPERTY_TYPES, DEMO_PROPERTIES, LEGACY_EMAIL_MAP,
-    LEGACY_PROPERTY_TYPE_NAME_MAP, SAMPLE_REQUIREMENTS,
+    DEFAULT_CONTENT, DEFAULT_LOCATIONS, DEFAULT_MARKET_CONFIG_PARAMS,
+    DEFAULT_PAGE_CONTENT, DEFAULT_PROPERTY_TYPES, DEMO_PROPERTIES,
+    LEGACY_EMAIL_MAP, LEGACY_PROPERTY_TYPE_NAME_MAP, SAMPLE_REQUIREMENTS,
 )
 
 logger = logging.getLogger("trel")
@@ -141,6 +144,103 @@ async def seed_property_types():
         )
 
 
+# ---------------- Market Intelligence (Phase 1 Data Aggregation) ----------------
+def _infer_master_class(property_type: str) -> tuple[str, bool]:
+    """Rough class + vacancy inference for backfill only. Human-editable via
+    the master-property update endpoint later."""
+    pt = (property_type or "").lower()
+    is_vacant = "vacant" in pt or "land" in pt or "portion" in pt
+    if "commercial" in pt or "industrial" in pt or "warehouse" in pt or "office" in pt or "retail" in pt:
+        return "commercial_industrial", is_vacant
+    if is_vacant:
+        return "vacant_land", True
+    return "residential", False
+
+
+async def migrate_backfill_master_properties():
+    """One-off, idempotent: every TREL property that doesn't yet have a
+    `master_property_id` gets a 1:1 master property auto-created and linked.
+    Runs on every boot; the `$exists: false` filter makes it a no-op once
+    every record is already linked."""
+    cursor = db.properties.find(
+        {"$or": [{"master_property_id": {"$exists": False}}, {"master_property_id": None}]},
+        {"_id": 0},
+    )
+    created = 0
+    async for p in cursor:
+        cls, is_vacant = _infer_master_class(p.get("property_type") or "")
+        land_m2 = None
+        if p.get("total_area_ha") is not None:
+            try:
+                land_m2 = float(p["total_area_ha"]) * 10000.0
+            except (TypeError, ValueError):
+                land_m2 = None
+        master = MasterProperty(
+            property_class=cls,
+            property_subtype=p.get("property_type"),
+            lot_number=p.get("allotment_number"),
+            section_number=p.get("section_number"),
+            portion_number=p.get("full_portion_number"),
+            street=p.get("street_name"),
+            suburb=p.get("suburb"),
+            city=p.get("location"),
+            province=p.get("province"),
+            land_area_m2=land_m2,
+            trel_property_id=p["id"],
+            is_vacant=is_vacant,
+            canonical_fields={"provenance": "trel_backfill", "trel_property_id": p["id"]},
+        ).model_dump()
+        await db.master_properties.insert_one(master)
+        await db.properties.update_one(
+            {"id": p["id"]},
+            {"$set": {"master_property_id": master["id"], "updated_at": now_iso()}},
+        )
+        created += 1
+    if created:
+        logger.info(f"Backfill: created {created} master_properties linked to existing properties")
+
+
+async def seed_market_configuration():
+    if await db.market_configuration.count_documents({}) > 0:
+        return
+    doc = MarketConfiguration(
+        version="COMBINED-1.0",
+        algorithm="combined",
+        active=True,
+        parameters=DEFAULT_MARKET_CONFIG_PARAMS,
+        notes="Baseline v1.0 — TRELPNG algorithm specs (MATCH-1.0 + GUIDE-1.0).",
+    ).model_dump()
+    await db.market_configuration.insert_one(doc)
+
+
+async def seed_location_reference():
+    """Bootstraps `location_reference` from the existing province/city/suburb
+    hierarchy. Skipped once the collection has any docs."""
+    if await db.location_reference.count_documents({}) > 0:
+        return
+    provinces = await db.provinces.find({}, {"_id": 0}).to_list(500)
+    for prov in provinces:
+        cities = await db.cities.find({"province_id": prov["id"]}, {"_id": 0}).to_list(500)
+        if not cities:
+            await db.location_reference.insert_one(
+                LocationReference(province=prov["name"]).model_dump()
+            )
+            continue
+        for city in cities:
+            suburbs = await db.suburbs.find({"city_id": city["id"]}, {"_id": 0}).to_list(2000)
+            if not suburbs:
+                await db.location_reference.insert_one(
+                    LocationReference(province=prov["name"], city=city["name"]).model_dump()
+                )
+                continue
+            for sub in suburbs:
+                await db.location_reference.insert_one(
+                    LocationReference(
+                        province=prov["name"], city=city["name"], suburb=sub["name"],
+                    ).model_dump()
+                )
+
+
 def write_test_credentials():
     admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@trel.com.pg")
@@ -181,6 +281,41 @@ async def run_startup():
     await db.suburbs.create_index([("name", 1), ("city_id", 1)], unique=True)
     await db.property_types.create_index("name", unique=True)
 
+    # ---- Market Intelligence indexes (Phase 1) ----
+    await db.market_sources.create_index("name", unique=True)
+    await db.market_listings.create_index(
+        [("source_id", 1), ("source_listing_id", 1)], unique=True
+    )
+    await db.market_listings.create_index("suburb")
+    await db.market_listings.create_index(
+        [("lot_number", 1), ("section_number", 1), ("suburb", 1)]
+    )
+    await db.market_listings.create_index("last_seen")
+    await db.market_listing_snapshots.create_index("market_listing_id")
+    await db.master_properties.create_index(
+        [("lot_number", 1), ("section_number", 1), ("suburb", 1)]
+    )
+    await db.master_properties.create_index("trel_property_id")
+    await db.master_properties.create_index("suburb")
+    await db.property_units.create_index("master_property_id")
+    await db.property_matches.create_index("market_listing_id")
+    await db.property_matches.create_index("master_property_id")
+    await db.property_matches.create_index([("status", 1), ("created_at", -1)])
+    await db.market_review_cases.create_index([("status", 1), ("created_at", -1)])
+    await db.market_audit_events.create_index([("created_at", -1)])
+    await db.market_audit_events.create_index([("entity_type", 1), ("entity_id", 1)])
+    await db.market_configuration.create_index(
+        [("version", 1), ("algorithm", 1)], unique=True
+    )
+    await db.market_configuration.create_index([("algorithm", 1), ("active", 1)])
+    await db.location_reference.create_index(
+        [("province", 1), ("city", 1), ("suburb", 1), ("local_area", 1), ("street", 1)]
+    )
+    await db.collection_runs.create_index([("source_id", 1), ("started_at", -1)])
+    await db.valuation_requests.create_index("created_at")
+    await db.guidance_results.create_index("valuation_request_id")
+    await db.guidance_comparables.create_index("guidance_result_id")
+
     # ---- Legacy migrations (one-off, idempotent) ----
     await migrate_legacy_user_emails()
     await migrate_land_category()
@@ -193,6 +328,11 @@ async def run_startup():
     await seed_requirements()
     await seed_locations()
     await seed_property_types()
+    await seed_market_configuration()
+    await seed_location_reference()
+
+    # ---- Market Intelligence backfill (idempotent — only affects new/unlinked properties) ----
+    await migrate_backfill_master_properties()
 
     write_test_credentials()
     logger.info("Startup complete — seeds are first-boot only; existing data preserved")

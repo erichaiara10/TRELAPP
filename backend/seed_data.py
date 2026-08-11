@@ -235,3 +235,85 @@ DEFAULT_PAGE_CONTENT = {
         "body": "By using the TREL website (\"the Site\"), you agree to these terms.\n\nProperty listings and information on the Site are provided in good faith. While we verify every listing, TREL makes no warranty of accuracy or availability. All prices are indicative and subject to change.\n\nSubmitting a form on the Site does not create a contract of sale or lease. Any transaction must be formalised in a separate written agreement.\n\nAll content on the Site is © Triumph Real Estate Limited and may not be reproduced without permission.",
     },
 }
+
+
+# ============================================================
+# Market Intelligence — baseline configuration (COMBINED-1.0)
+# Sourced verbatim from TRELPNG algorithm specs:
+#   * Duplicate Matching & Property Identity Algorithm v1.0 (MATCH-1.0)
+#   * Comparable Property Selection & Market Price Guidance v1.0 (GUIDE-1.0)
+# Tunable at runtime via POST /api/admin/market/config (versioned).
+# ============================================================
+DEFAULT_MARKET_CONFIG_PARAMS = {
+    # ---- Match — decision-band thresholds ----
+    "auto_match_threshold": 90,
+    "probable_threshold": 75,
+    "possible_threshold": 55,
+    "certain_min_score": 95,
+    # ---- Match — GPS + size tolerances ----
+    "exact_gps_support_m": 100,
+    "exact_gps_conflict_m": 500,
+    "land_close_tolerance_pct": 20,
+    "land_broad_tolerance_pct": 40,
+    "building_close_tolerance_pct": 20,
+    # ---- Match — safety switches ----
+    "allow_auto_match": True,
+    # ---- Match — positive signal weights (baseline urban parcel) ----
+    "signal_weights": {
+        "lot_number": 24, "section_number": 24,
+        "street": 14, "suburb": 14, "local_area": 8,
+        "land_area": 6, "building_area": 4,
+        "property_class": 3, "property_subtype": 2,
+        "gps": 3, "image_fingerprint": 5, "description_similarity": 2,
+    },
+    # ---- Match — unit/premises weights ----
+    "unit_weights": {
+        "exact_unit_number": 30, "building_name": 15,
+        "same_parent_master": 25, "same_floor": 5, "same_subtype": 5,
+    },
+    # ---- Guidance — evidence count gates ----
+    "min_direct_for_formal_range": 3,
+    "limited_max_count": 5,
+    "moderate_max_count": 10,
+    "strong_min_count": 11,
+    # ---- Guidance — recency months ----
+    "current_months": 6,
+    "relevant_months": 12,
+    "historical_support_months": 24,
+    # ---- Guidance — Comparable Quality Score thresholds ----
+    "quality_min_usable": 45,
+    "quality_close_min": 80,
+    "quality_reasonable_min": 65,
+    # ---- Guidance — location-tier factors ----
+    "location_same_street_factor": 1.00,
+    "location_same_local_area_factor": 0.90,
+    "location_same_suburb_factor": 0.75,
+    # ---- Guidance — recency factors ----
+    "recency_0_6_factor": 1.00,
+    "recency_7_12_factor": 0.80,
+    "recency_13_24_factor": 0.45,
+    # ---- Guidance — statistical params ----
+    "iqr_outlier_multiplier": 1.5,
+    "indicative_lower_percentile": 25,
+    "indicative_upper_percentile": 75,
+    # ---- Guidance — CQS baseline by class (each row sums to 100 or 90) ----
+    "cqs_baseline": {
+        "residential": {"location": 35, "class_subtype": 15, "size": 18,
+                        "features": 17, "condition": 5, "recency": 10},
+        "commercial_industrial": {"location": 35, "class_subtype": 20, "size": 25,
+                                  "features": 5, "condition": 5, "recency": 10},
+        "vacant_land": {"location": 35, "class_subtype": 15, "size": 30,
+                        "features": 0, "condition": 0, "recency": 10},
+    },
+    # ---- Guidance — size-similarity bands (algo doc §13) ----
+    "size_similarity_bands": [
+        {"max_diff_pct": 20, "factor": 1.00, "label": "close"},
+        {"max_diff_pct": 40, "factor": 0.60, "label": "moderate"},
+        {"max_diff_pct": 999, "factor": 0.20, "label": "broad"},
+    ],
+    # ---- Guidance — confidence component weights (algo doc §25) ----
+    "confidence_weights": {
+        "quantity": 30, "quality": 35, "recency": 20, "dispersion": 15,
+    },
+}
+
