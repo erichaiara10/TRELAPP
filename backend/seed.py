@@ -68,6 +68,22 @@ async def migrate_land_category():
                 await db.properties.update_one({"id": p["id"]}, spec)
 
 
+async def migrate_lot_to_allotment():
+    """Rename legacy `lot_number` field to `allotment_number` across every
+    market collection so scraper output stays consistent with the public
+    Property model. Idempotent — Mongo's `$rename` is a no-op when the source
+    field doesn't exist."""
+    for coll in ("market_listings", "market_listing_snapshots",
+                 "master_properties", "property_units"):
+        try:
+            await db[coll].update_many(
+                {"lot_number": {"$exists": True}},
+                {"$rename": {"lot_number": "allotment_number"}},
+            )
+        except Exception as e:                                             # noqa: BLE001
+            logger.info(f"lot_number → allotment_number migration on {coll}: {e}")
+
+
 # ---------------- Seeds (first-boot only — skip if collection has data) ----------------
 async def seed_users():
     """Insert demo users ONLY when they don't already exist. Never overwrite
@@ -178,7 +194,7 @@ async def migrate_backfill_master_properties():
         master = MasterProperty(
             property_class=cls,
             property_subtype=p.get("property_type"),
-            lot_number=p.get("allotment_number"),
+            allotment_number=p.get("allotment_number"),
             section_number=p.get("section_number"),
             portion_number=p.get("full_portion_number"),
             street=p.get("street_name"),
@@ -221,6 +237,48 @@ async def seed_market_configuration():
         notes="Baseline v1.0 — TRELPNG algorithm specs (MATCH-1.0 + GUIDE-1.0).",
     ).model_dump()
     await db.market_configuration.insert_one(doc)
+
+
+# ---- Live scraper source catalogue ----
+# Idempotent: only inserts sources that don't yet exist by name. Existing
+# rows (with their operator-tuned parser_config, active flag, etc.) are
+# never overwritten.
+LIVE_SOURCES = [
+    {"name": "Hausples PNG",              "collector": "hausples_png",
+     "base_url": "https://www.hausples.com.pg", "active": False,
+     "parser_version": "1.0"},
+    {"name": "LJ Hooker PNG",             "collector": "ljhookerpng",
+     "base_url": "https://www.ljhookerpng.com", "active": False,
+     "parser_version": "1.0"},
+    {"name": "MyPNGHome",                 "collector": "mypnghome",
+     "base_url": "https://www.mypnghome.com",   "active": False,
+     "parser_version": "1.0"},
+    {"name": "Strickland Real Estate",    "collector": "sre",
+     "base_url": "https://www.sre.com.pg",       "active": False,
+     "parser_version": "1.0"},
+    {"name": "Devine & Associates",       "collector": "dac",
+     "base_url": "https://www.dac.com.pg",       "active": False,
+     "parser_version": "1.0"},
+    {"name": "MarketMeri",                "collector": "marketmeri",
+     "base_url": "https://www.marketmeri.com",   "active": False,
+     "parser_version": "1.0"},
+    {"name": "TREL Seed Generator",       "collector": "seed",
+     "base_url": "",                              "active": True,
+     "parser_version": "1.0", "seed_count": 12},
+]
+
+
+async def seed_market_sources():
+    """Ensure the 6 live scraper sources + the seed-data generator all
+    exist. New sources start `active=False` so they never scrape without an
+    explicit operator flip. Existing rows are left untouched."""
+    from models import MarketSource
+    for spec in LIVE_SOURCES:
+        if await db.market_sources.find_one({"name": spec["name"]}):
+            continue
+        doc = MarketSource(**spec).model_dump()
+        await db.market_sources.insert_one(doc)
+        logger.info(f"Seeded market_source: {spec['name']} ({spec['collector']})")
 
 
 async def seed_location_reference():
@@ -298,12 +356,12 @@ async def run_startup():
     )
     await db.market_listings.create_index("suburb")
     await db.market_listings.create_index(
-        [("lot_number", 1), ("section_number", 1), ("suburb", 1)]
+        [("allotment_number", 1), ("section_number", 1), ("suburb", 1)]
     )
     await db.market_listings.create_index("last_seen")
     await db.market_listing_snapshots.create_index("market_listing_id")
     await db.master_properties.create_index(
-        [("lot_number", 1), ("section_number", 1), ("suburb", 1)]
+        [("allotment_number", 1), ("section_number", 1), ("suburb", 1)]
     )
     await db.master_properties.create_index("trel_property_id")
     await db.master_properties.create_index("suburb")
@@ -329,6 +387,7 @@ async def run_startup():
     # ---- Legacy migrations (one-off, idempotent) ----
     await migrate_legacy_user_emails()
     await migrate_land_category()
+    await migrate_lot_to_allotment()
 
     # ---- First-boot seeds (skip if collection has data) ----
     await seed_users()
@@ -339,6 +398,7 @@ async def run_startup():
     await seed_locations()
     await seed_property_types()
     await seed_market_configuration()
+    await seed_market_sources()
     await seed_location_reference()
 
     # ---- Market Intelligence backfill (idempotent — only affects new/unlinked properties) ----

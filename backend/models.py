@@ -369,6 +369,12 @@ class MarketSource(BaseModel):
     last_run_at: Optional[str] = None
     last_successful_run_at: Optional[str] = None
     consecutive_failures: int = 0
+    # Free-form scraper knobs — CSS selectors, custom search paths, purpose
+    # overrides. Every HttpListingCollector reads from here so operators can
+    # tune extraction via the admin UI without touching code.
+    parser_config: dict = {}
+    # Seed-generator-only: how many synthetic listings to emit per run.
+    seed_count: Optional[int] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -382,6 +388,8 @@ class MarketSourceCreate(BaseModel):
     collector: str = "seed"
     collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
     parser_version: Optional[str] = "1.0"
+    parser_config: dict = {}
+    seed_count: Optional[int] = None
 
 
 # ---- Collection runs (scrape audit) ----
@@ -422,7 +430,7 @@ class MarketListing(BaseModel):
     bathrooms: Optional[int] = None
     land_area_m2: Optional[float] = None
     building_area_m2: Optional[float] = None
-    lot_number: Optional[str] = None
+    allotment_number: Optional[str] = None
     section_number: Optional[str] = None
     portion_number: Optional[str] = None
     street: Optional[str] = None
@@ -458,7 +466,7 @@ class MasterProperty(BaseModel):
     id: str = Field(default_factory=new_id)
     property_class: Optional[str] = None
     property_subtype: Optional[str] = None
-    lot_number: Optional[str] = None
+    allotment_number: Optional[str] = None
     section_number: Optional[str] = None
     portion_number: Optional[str] = None
     street: Optional[str] = None
@@ -482,7 +490,7 @@ class MasterProperty(BaseModel):
 class MasterPropertyCreate(BaseModel):
     property_class: Optional[str] = None
     property_subtype: Optional[str] = None
-    lot_number: Optional[str] = None
+    allotment_number: Optional[str] = None
     section_number: Optional[str] = None
     portion_number: Optional[str] = None
     street: Optional[str] = None

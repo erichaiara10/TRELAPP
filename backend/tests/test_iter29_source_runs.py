@@ -172,7 +172,7 @@ class TestRunBatchIngest:
         return {"source_id": sid, "source_listing_id": slid,
                 "purpose": "sale", "property_class": "residential",
                 "price": price, "currency": "PGK",
-                "lot_number": lot, "section_number": "42",
+                "allotment_number": lot, "section_number": "42",
                 "street": "Angau Drive", "suburb": "Gordons",
                 "city": "Port Moresby", "province": "NCD",
                 "bedrooms": 3, "bathrooms": 2, "land_area_m2": 800}

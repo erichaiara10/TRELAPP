@@ -420,7 +420,7 @@ async def list_masters(suburb: Optional[str] = None, property_class: Optional[st
     if trel_property_id:  query["trel_property_id"] = trel_property_id
     if q:
         query["$or"] = [{f: {"$regex": q, "$options": "i"}}
-                        for f in ("suburb", "street", "building_name", "lot_number", "portion_number")]
+                        for f in ("suburb", "street", "building_name", "allotment_number", "portion_number")]
     return await db.master_properties.find(query, {"_id": 0}).sort("updated_at", -1).to_list(limit)
 
 

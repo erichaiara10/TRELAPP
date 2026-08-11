@@ -147,7 +147,7 @@ def _listing(source_id, sid_str, **over):
         "price": 850000,
         "property_class": "residential",
         "property_subtype": "House",
-        "lot_number": "42",
+        "allotment_number": "42",
         "section_number": "17",
         "street": "Angau Drive",
         "suburb": "Gordons",
@@ -206,7 +206,7 @@ def test_repost_same_source_dedups(client, source_ids):
 
 def test_two_sources_same_parcel_link_to_same_master(client, source_ids):
     # Use a unique parcel
-    parcel = dict(lot_number="99", section_number="88", street="Cross St",
+    parcel = dict(allotment_number="99", section_number="88", street="Cross St",
                   suburb="Boroko", city="Port Moresby",
                   province="National Capital District")
     p_a = _listing(source_ids["a"], "TEST_PARCEL_A", **parcel, price=750000)
@@ -234,7 +234,7 @@ def seeded_comparables(client, source_ids):
     prices = [720000, 760000, 800000, 830000, 860000, 900000, 940000]
     for i, price in enumerate(prices):
         lst = _listing(source_ids["a"], f"TEST_GUIDE_G{i}",
-                       lot_number=str(50 + i), section_number="17",
+                       allotment_number=str(50 + i), section_number="17",
                        street="Angau Drive", suburb="Gordons",
                        price=price, land_area_m2=580 + i * 20,
                        building_area_m2=170 + i * 5)

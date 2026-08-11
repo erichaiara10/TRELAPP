@@ -9,14 +9,25 @@ Registration is by string key so the admin UI can pick which collector runs
 for a given `MarketSource`. Adding a new collector = drop a file into
 `core/collectors/` and register it.
 
-We ship two collectors out of the box:
+We ship a full stable of collectors out of the box:
 
 * **`seed`** — synthetic PNG-market generator. Always works, produces varied
   Port Moresby listings. Used for demos, load tests, matcher sanity checks.
-* **`hausples_png`** — best-effort HTTP adapter for hausples.com.pg. Uses
-  the collector framework's graceful-degradation: network errors go onto
-  the run doc, listings that DO come back get ingested normally. Ships in
-  "disabled by default" state so it never fires without an explicit switch.
+* **`hausples_png`**  — hausples.com.pg
+* **`ljhookerpng`**   — ljhookerpng.com
+* **`mypnghome`**     — mypnghome.com
+* **`sre`**           — sre.com.pg (Strickland Real Estate)
+* **`dac`**           — dac.com.pg (Devine & Associates)
+* **`marketmeri`**    — marketmeri.com
+
+All HTTP collectors use the common `HttpListingCollector` base in
+`_common.py` — fetch/pagination/allotment+section parsing is centralised so
+adding a new site is a ~30-line file.
+
+Every HTTP collector inherits the same graceful-degradation contract: network
+errors are captured on the run doc, missing individual fields are still
+yielded (MATCH-1.0 handles gaps), and DOM changes only require operators to
+edit `parser_config` — no code deploy.
 """
 from __future__ import annotations
 
@@ -60,4 +71,12 @@ def registered() -> list[dict]:
 
 
 # Import concrete collectors so their `@register` decorators run.
-from core.collectors import hausples_png, seed         # noqa: F401,E402
+from core.collectors import (                                              # noqa: F401,E402
+    dac,
+    hausples_png,
+    ljhookerpng,
+    marketmeri,
+    mypnghome,
+    seed,
+    sre,
+)

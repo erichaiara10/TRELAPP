@@ -747,3 +747,73 @@ Tester") were already shipped in iter-33/34, four are new:
 - `POST /public/leads` with `source=price_compare` returns `{ok:true,
   lead_id:…}` and a matching Lead + Customer are visible in the admin CRM.
 
+
+## Iter-36 — 6 Live Scrapers · `lot_number` → `allotment_number` Rename (Feb 2026)
+
+### Backend
+
+**Common scraper primitives (`core/collectors/_common.py` — new)**
+- `HttpListingCollector` base class — every network-backed collector inherits
+  fetch, pagination (query- or template-mode), card-grid extraction, and the
+  common address / allotment / bedroom parsing.
+- Text extractors: `parse_allotment_section` handles both `Allotment X Section
+  Y` and reverse `Section Y Allotment X` orderings + abbreviations
+  (Allot/Alloc/Lot, Sec). `parse_portion` for customary-land portion numbers.
+  `parse_price` copes with `PGK`, `K`, `$` prefixes + commas + decimals.
+  `parse_address` splits `street, suburb, city, province`. `infer_subtype`
+  guesses class/subtype from title/description hints (with warehouse ordered
+  before "house" so it isn't shadowed).
+
+**Six live scrapers (`core/collectors/*.py`)**
+- `hausples_png.py` — refactored to ~35 lines; inherits the shared base.
+- New: `ljhookerpng.py`, `mypnghome.py`, `sre.py`, `dac.py`, `marketmeri.py`.
+- Every scraper ships with best-effort default CSS selectors + PNG-typical
+  paths (`/property-for-sale`, `/property-for-rent`, etc.). All ship
+  `active=false` — an operator flips the switch after tuning selectors via
+  the Hausples-style tester or `parser_config` edit.
+- `MarketSource.parser_config` now on the pydantic model so parser tweaks
+  round-trip through the admin UI.
+
+**Full `lot_number → allotment_number` rename**
+- Every mention across `models.py`, `core/matcher.py` (deterministic rules,
+  candidate generation, hard-conflict detection, weighted-score signals),
+  `core/collectors/seed.py`, `seed.py` indexes, `seed_data.py`,
+  `routes/market.py` (master-property search), plus admin UI
+  `Duplicates.jsx` mock data.
+- New `migrate_lot_to_allotment` runs on every startup: `$rename` across
+  `market_listings`, `market_listing_snapshots`, `master_properties`,
+  `property_units`. Idempotent (`$rename` no-ops when source field absent).
+
+**Live scraper source seeding (`seed.py` — new `seed_market_sources`)**
+- On first boot, inserts one `MarketSource` per collector
+  (`hausples_png`, `ljhookerpng`, `mypnghome`, `sre`, `dac`, `marketmeri`,
+  plus the always-on `TREL Seed Generator`).
+- All 6 live sources start `active=False` so no scrape fires without an
+  explicit operator flip. Existing sources are NEVER overwritten
+  (idempotent by name).
+
+### Frontend
+- No new screens needed — the existing **Data Sources** admin page already
+  supports arbitrary collectors, and the **Run** button on every row already
+  routes to `POST /admin/market/sources/{sid}/collect` which now dispatches
+  to the correct scraper implementation.
+
+### Verified end-to-end (curl + pytest)
+- `GET /api/admin/market/collectors` returns 7 collectors including the 6
+  new ones.
+- `GET /api/admin/market/sources` shows all 6 new sources seeded, each
+  wired to its collector.
+- Running the seed source still produces 12 listings; sample listing has
+  `allotment_number` populated, no `lot_number` key.
+- Activating Hausples + running it against the live URL returns `success`
+  with 0 listings (default selectors don't match production DOM — expected;
+  ops tunes via the Hausples Selector Tester). No crashes, no errors.
+- Guidance run still ranks 3 comparables → `limited` confidence (matches
+  previously seeded data).
+- New pytest suite (`tests/test_collectors_common.py`): **24 tests pass**
+  covering allot/section extraction (both orderings + abbreviations), price
+  parsing (PGK/K/$ prefixes + decimals), portion detection, address split,
+  subtype inference (warehouse-vs-house shadowing), and registry
+  completeness.
+
+

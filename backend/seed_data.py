@@ -260,7 +260,7 @@ DEFAULT_MARKET_CONFIG_PARAMS = {
     "allow_auto_match": True,
     # ---- Match — positive signal weights (baseline urban parcel) ----
     "signal_weights": {
-        "lot_number": 24, "section_number": 24,
+        "allotment_number": 24, "section_number": 24,
         "street": 14, "suburb": 14, "local_area": 8,
         "land_area": 6, "building_area": 4,
         "property_class": 3, "property_subtype": 2,

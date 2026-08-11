@@ -75,7 +75,7 @@ class SeedCollector(CollectorBase):
                 "rent_period": "monthly" if purpose == "rent" else None,
                 "property_class": cls,
                 "property_subtype": subtype,
-                "lot_number": lot,
+                "allotment_number": lot,
                 "section_number": section,
                 "street": street,
                 "suburb": suburb,

@@ -260,7 +260,7 @@ function IngestModal({ onClose, onDone }) {
     source_id: "src-dev", source_listing_id: `L${Date.now()}`,
     purpose: "sale", price: 850000,
     property_class: "residential", property_subtype: "House",
-    lot_number: "10", section_number: "5", street: "Angau Drive", suburb: "Gordons",
+    allotment_number: "10", section_number: "5", street: "Angau Drive", suburb: "Gordons",
     bedrooms: 3, bathrooms: 2, land_area_m2: 600, building_area_m2: 180,
   });
   const [busy, setBusy] = useState(false);

@@ -9,7 +9,11 @@ from __future__ import annotations
 import httpx
 from selectolax.parser import HTMLParser
 
-from core.collectors.hausples_png import DEFAULT_PARSER_CONFIG, _num, _text
+from core.collectors._common import parse_price as _num, text_of as _text
+from core.collectors.hausples_png import HausplesCollector
+
+
+DEFAULT_PARSER_CONFIG = HausplesCollector.DEFAULT_CONFIG
 
 
 async def probe_hausples(url: str, selectors: dict | None = None) -> dict:

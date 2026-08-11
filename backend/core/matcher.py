@@ -68,7 +68,7 @@ async def _upsert_listing(payload: dict) -> tuple[dict, bool]:
         patch = {"last_seen": now_iso(), "updated_at": now_iso()}
         for k in ("price", "rent_period", "status", "source_url", "purpose",
                   "property_class", "property_subtype", "bedrooms", "bathrooms",
-                  "land_area_m2", "building_area_m2", "lot_number", "section_number",
+                  "land_area_m2", "building_area_m2", "allotment_number", "section_number",
                   "portion_number", "street", "suburb", "local_area", "city",
                   "province", "latitude", "longitude", "gps_accuracy"):
             if k in payload and payload[k] is not None:
@@ -102,17 +102,17 @@ async def _upsert_listing(payload: dict) -> tuple[dict, bool]:
 async def _candidates(listing: dict) -> list[dict]:
     """Bounded set of plausible master properties."""
     qs = []
-    # Priority 1: lot + section + suburb
-    if listing.get("lot_number") and listing.get("section_number") and listing.get("suburb"):
+    # Priority 1: allotment + section + suburb
+    if listing.get("allotment_number") and listing.get("section_number") and listing.get("suburb"):
         qs.append({
-            "lot_number": listing["lot_number"],
+            "allotment_number": listing["allotment_number"],
             "section_number": listing["section_number"],
             "suburb": listing["suburb"],
         })
-    # Priority 2: lot + section + street (suburb missing)
-    if listing.get("lot_number") and listing.get("section_number") and listing.get("street"):
+    # Priority 2: allotment + section + street (suburb missing)
+    if listing.get("allotment_number") and listing.get("section_number") and listing.get("street"):
         qs.append({
-            "lot_number": listing["lot_number"],
+            "allotment_number": listing["allotment_number"],
             "section_number": listing["section_number"],
             "street": listing["street"],
         })
@@ -152,14 +152,14 @@ def _hard_conflicts(listing: dict, master: dict, cfg: dict) -> list[str]:
     ):
         conflicts.append("class_vacant_vs_improved")
 
-    # Different lot on same section+suburb → different parcel
-    if (listing.get("lot_number") and master.get("lot_number")
-            and _norm(listing["lot_number"]) != _norm(master["lot_number"])
+    # Different allotment on same section+suburb → different parcel
+    if (listing.get("allotment_number") and master.get("allotment_number")
+            and _norm(listing["allotment_number"]) != _norm(master["allotment_number"])
             and listing.get("section_number") and master.get("section_number")
             and _norm(listing["section_number"]) == _norm(master["section_number"])
             and listing.get("suburb") and master.get("suburb")
             and _norm(listing["suburb"]) == _norm(master["suburb"])):
-        conflicts.append("lot_conflict")
+        conflicts.append("allotment_conflict")
 
     # Different suburb on same street — could be alias but flag
     if (listing.get("suburb") and master.get("suburb")
@@ -188,17 +188,17 @@ def _apply_deterministic(listing: dict, master: dict, cfg: dict) -> Optional[str
             and listing["trel_property_id"] == master["trel_property_id"]:
         return "D6"
 
-    lot = _norm(listing.get("lot_number")); msec = _norm(listing.get("section_number"))
+    lot = _norm(listing.get("allotment_number")); msec = _norm(listing.get("section_number"))
     street = _norm(listing.get("street")); suburb = _norm(listing.get("suburb"))
-    mlot = _norm(master.get("lot_number")); msec2 = _norm(master.get("section_number"))
+    mlot = _norm(master.get("allotment_number")); msec2 = _norm(master.get("section_number"))
     mstreet = _norm(master.get("street")); msuburb = _norm(master.get("suburb"))
 
-    # D1 — exact lot + section + street + suburb
+    # D1 — exact allotment + section + street + suburb
     if lot and msec and street and suburb and lot == mlot and msec == msec2 \
             and street == mstreet and suburb == msuburb:
         return "D1"
 
-    # D2 — exact lot + section + suburb, street missing/absent
+    # D2 — exact allotment + section + suburb, street missing/absent
     if lot and msec and suburb and lot == mlot and msec == msec2 and suburb == msuburb \
             and (not street or not mstreet):
         return "D2"
@@ -247,8 +247,8 @@ def _weighted_score(listing: dict, master: dict, cfg: dict) -> tuple[float, dict
         sig[name] = float(w) * factor if ok else 0.0
 
     # exact matches on strong identifiers
-    add("lot_number", _norm(listing.get("lot_number")) != "" and
-        _norm(listing.get("lot_number")) == _norm(master.get("lot_number")))
+    add("allotment_number", _norm(listing.get("allotment_number")) != "" and
+        _norm(listing.get("allotment_number")) == _norm(master.get("allotment_number")))
     add("section_number", _norm(listing.get("section_number")) != "" and
         _norm(listing.get("section_number")) == _norm(master.get("section_number")))
     add("street", _norm(listing.get("street")) != "" and
@@ -312,7 +312,7 @@ async def _create_master_from_listing(listing: dict) -> dict:
     m = MasterProperty(
         property_class=listing.get("property_class"),
         property_subtype=listing.get("property_subtype"),
-        lot_number=listing.get("lot_number"),
+        allotment_number=listing.get("allotment_number"),
         section_number=listing.get("section_number"),
         portion_number=listing.get("portion_number"),
         street=listing.get("street"),
