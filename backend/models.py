@@ -664,3 +664,5 @@ class GuidanceComparable(BaseModel):
         "included", "excluded_outlier", "excluded_quality", "excluded_manual"
     ] = "included"
     exclusion_reason: Optional[str] = None
+    cqs_breakdown: dict = {}                # {location, class_subtype, size, features, condition, recency}
+    months_since: Optional[float] = None

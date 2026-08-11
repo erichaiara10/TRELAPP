@@ -567,3 +567,56 @@ source-health counters, emits `run_success|partial|failed` audit event.
 - iter-30: 17/17 backend pytest + 5/5 frontend flows verified. 1 critical
   bug fixed (list_runs decorator).
 - iter-31: 2/2 targeted regression checks pass. DB clean.
+
+## Iter-32 — Retention Cron, Hausples Parser, Health LED, CQS Deep-Dive, Homepage CTA, Rent Data (Feb 2026)
+
+### Retention Enforcement (`core/retention.py`)
+- `run_retention()` soft-deletes rows whose `created_at` is older than each
+  collection's window (from the Retention tab): snapshots=365d, listings=
+  730d, review_cases=365d, audit_events=2555d, collection_runs=365d.
+- Every soft-delete sets `archived_at + archived_by='retention_policy' +
+  retention_days` — row stays queryable, hard-delete only when
+  `soft_delete_only=false` (audit events always soft-only).
+- Scheduler tick calls `run_retention_if_due()` — runs at most every 24h,
+  cadence controlled by `RETENTION_EVERY_SECONDS`.
+- Manual trigger: `POST /admin/market/retention/run`.
+
+### Hausples Parser (`core/collectors/hausples_png.py`)
+- Real HTTP via httpx + selectolax HTML parsing
+- Configurable CSS selectors in `DEFAULT_PARSER_CONFIG`, overridable per
+  source via `MarketSource.parser_config`
+- Address auto-splitting (street/suburb/city), price/beds/baths/area
+  extraction with regex fallbacks
+- Graceful degradation: unreachable → empty iter, unparseable page →
+  captured on run doc, missing fields → row still emitted for MATCH-1.0
+
+### Aggregation Health LED (`components/AggregationHealthLed.jsx`)
+- Small badge in the admin sidebar header on every screen
+- Polls `/admin/market/analytics/source-strip` every 60s
+- Colours: green (all sources ≥90% success), amber (any <90%), red (any
+  streak ≥2 consecutive failures), grey (no sources)
+- Animated ping ring, tooltip with per-source breakdown, clicking navigates
+  to /admin/market
+
+### Comparables CQS Deep-Dive (`ComparableDetail` in Comparables.jsx)
+- `guidance_comparables` now persists `cqs_breakdown` + `months_since` on
+  every row (model + guidance engine updated)
+- Click any comp row → modal opens with:
+  - 4 KPIs: Total CQS · Recency Factor · Effective Weight · Months since
+  - Horizontal bar chart per signal (location / class_subtype / size /
+    features / condition / recency) with distinct colours
+
+### Public Homepage CTA
+- Amber "Get Free Price Guidance" button on hero next to standard CTAs
+- BarChart3 icon (lucide), links to `/price-compare` landing
+
+### Trend Rent-View Fix (`collectors/seed.py`)
+- Seed RNG choice tuple changed from `["sale","sale","sale","rent"]` (25%
+  rent) to `["sale","sale","sale","rent","rent"]` (40% rent) so the
+  Trends "For Rent" view populates once a seed collector runs.
+
+### Test status (iter-32)
+- 7/7 backend pytest pass (`test_iter32_batch.py`)
+- 4/4 frontend flows verified via Playwright (LED / CQS modal / homepage
+  CTA / rent view)
+- Zero issues. DB clean.

@@ -1,6 +1,9 @@
 // 3. Comparable Properties — subject form → live GUIDE-1.0 run → ranked comps.
 // Powered by POST /api/admin/market/guidance/run + persisted results.
 import React, { useEffect, useState } from "react";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from "recharts";
 import { toast } from "sonner";
 import { api, formatError, money } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
@@ -27,6 +30,7 @@ export default function MarketComparables() {
   const [comps, setComps] = useState([]);
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("included");
+  const [detail, setDetail] = useState(null);
 
   useEffect(() => { loadHistory(); }, []);
   const loadHistory = async () => {
@@ -161,7 +165,10 @@ export default function MarketComparables() {
                       </thead>
                       <tbody>
                         {current.map((c) => (
-                          <tr key={c.id} className="border-b border-border/60" data-testid={`comp-row-${c.id}`}>
+                          <tr key={c.id}
+                              onClick={() => setDetail(c)}
+                              className={`border-b border-border/60 cursor-pointer hover:bg-muted/30 ${detail?.id === c.id ? "bg-muted/30" : ""}`}
+                              data-testid={`comp-row-${c.id}`}>
                             <td className="py-2 pr-3 font-mono text-xs">{c.master_property_id?.slice(0, 8)}</td>
                             <td className="py-2 pr-3">{c.tier}</td>
                             <td className="py-2 pr-3 tabular-nums">{c.quality_score?.toFixed?.(1)}</td>
@@ -191,6 +198,79 @@ export default function MarketComparables() {
               </div>
             </Section>
           )}
+        </div>
+      </div>
+
+      {detail && <ComparableDetail comp={detail} subject={subject} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+const CQS_COLORS = { location: "#2A5B46", class_subtype: "#4B8B70", size: "#7BB593",
+                     features: "#B5DAB8", condition: "#F1B24A", recency: "#DC7B3E" };
+
+function ComparableDetail({ comp, subject, onClose }) {
+  const breakdown = comp.cqs_breakdown || {};
+  const data = Object.entries(breakdown).map(([k, v]) => ({
+    signal: k.replace(/_/g, " "), score: Number(v || 0), color: CQS_COLORS[k] || "#6B7280",
+  }));
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6"
+         onClick={onClose} data-testid="comp-detail-modal">
+      <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+           onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Comparable · {comp.tier}</div>
+            <div className="text-xl font-semibold mt-1">CQS Breakdown</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              Master <span className="font-mono">{comp.master_property_id?.slice(0, 8)}</span>
+              {" · "}Value <span className="tabular-nums">{money(comp.value)}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"
+                  data-testid="comp-detail-close">✕</button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
+          <KpiCard label="Total CQS" value={comp.quality_score?.toFixed?.(1)} testid="kpi-cqs" />
+          <KpiCard label="Recency factor" value={comp.recency_factor?.toFixed?.(2)} testid="kpi-recency" />
+          <KpiCard label="Effective weight" value={comp.effective_weight?.toFixed?.(3)} testid="kpi-eff" />
+          <KpiCard label="Months since obs." value={comp.months_since?.toFixed?.(1)} testid="kpi-months" />
+        </div>
+
+        {data.length > 0 ? (
+          <>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
+              Signal contribution
+            </div>
+            <div className="h-56" data-testid="cqs-breakdown-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="signal" tick={{ fontSize: 11 }} width={100} />
+                  <Tooltip />
+                  <Bar dataKey="score">
+                    {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-xs text-muted-foreground mt-3">
+              Each bar shows the CQS points contributed by that signal against the subject
+              ({subject.property_class} · {subject.suburb}). Total sums to the CQS above.
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-muted-foreground py-6 text-center">
+            No breakdown recorded on this comparable (older guidance run — re-run to capture).
+          </div>
+        )}
+
+        <div className="mt-5 flex justify-between text-xs text-muted-foreground">
+          <span>Status: <strong className="uppercase tracking-widest">{comp.inclusion_status}</strong></span>
+          {comp.exclusion_reason && <span>Reason: {comp.exclusion_reason}</span>}
         </div>
       </div>
     </div>

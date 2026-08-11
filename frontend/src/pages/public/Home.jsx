@@ -85,6 +85,10 @@ export default function Home() {
                   {hero.cta_secondary.label}
                 </Link>
               )}
+              <Link to="/price-compare" data-testid="home-cta-price-compare"
+                className="px-5 py-2 rounded-full bg-[#F1B24A] text-ink-900 hover:brightness-105 font-medium flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" /> Get Free Price Guidance
+              </Link>
             </div>
           )}
         </div>

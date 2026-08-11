@@ -39,7 +39,7 @@ class SeedCollector(CollectorBase):
         target = int(self.source.get("seed_count") or 12)
         for i in range(target):
             suburb, prov, city, street = rng.choice(SUBURBS)
-            purpose = rng.choice(["sale", "sale", "sale", "rent"])
+            purpose = rng.choice(["sale", "sale", "sale", "rent", "rent"])
             if rng.random() < 0.75:
                 cls, subtype = "residential", rng.choice(SUBTYPES_RESI)
             elif rng.random() < 0.5:

@@ -17,6 +17,7 @@ from core.collectors import get_collector, registered as registered_collectors
 from core.db import db, new_id, now_iso, strip_id
 from core.guidance import generate_guidance
 from core.matcher import ingest_market_listing, rematch_listing
+from core.retention import run_retention
 from core.runs import collection_run, source_health
 from core.scheduler import scheduler_state, set_paused
 from core.security import get_current_user
@@ -97,6 +98,13 @@ async def delete_source(sid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(404, "Source not found")
     await _audit("source_deleted", user, entity_type="market_source", entity_id=sid)
     return {"ok": True}
+
+
+@router.post("/admin/market/retention/run")
+async def force_retention(user: dict = Depends(get_current_user)):
+    """Manually trigger the retention pass — otherwise runs once every 24h
+    via the scheduler tick."""
+    return await run_retention(force=True, actor_id=user.get("id"))
 
 
 @router.get("/admin/market/scheduler")

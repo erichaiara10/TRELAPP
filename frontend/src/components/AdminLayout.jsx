@@ -7,6 +7,7 @@ import {
   ClipboardCheck, Radio,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import AggregationHealthLed from "@/components/AggregationHealthLed";
 
 // Sidebar is organised into grouped sections. Each group has a small caption
 // header (uppercase, low contrast) followed by its NavLinks. This lets us
@@ -67,8 +68,13 @@ export default function AdminLayout() {
     <div className="min-h-screen flex bg-[#F3F4F6] text-[#111827]" style={{ fontFamily: "Outfit, sans-serif" }}>
       <aside className="w-64 shrink-0 bg-[#0F172A] text-white flex flex-col" data-testid="admin-sidebar">
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="text-sm uppercase tracking-[0.3em] text-white/50">TREL</div>
-          <div className="font-serif text-xl mt-1">Operations</div>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-sm uppercase tracking-[0.3em] text-white/50">TREL</div>
+              <div className="font-serif text-xl mt-1">Operations</div>
+            </div>
+            <AggregationHealthLed />
+          </div>
         </div>
         <nav className="p-3 flex-1 overflow-y-auto">
           {sections.map((section, si) => (

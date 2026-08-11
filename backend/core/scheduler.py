@@ -64,6 +64,13 @@ async def _tick() -> None:
     global _paused
     if _paused:
         return
+    # Retention runs once per day regardless of scheduler tick frequency
+    try:
+        from core.retention import run_retention_if_due
+        await run_retention_if_due()
+    except Exception as e:                                              # noqa: BLE001
+        logger.exception(f"Retention tick failed: {e}")
+
     now = datetime.now(timezone.utc)
     async for src in db.market_sources.find({"active": True}, {"_id": 0}):
         freq = src.get("collection_frequency") or "manual"

@@ -417,15 +417,12 @@ async def generate_guidance(subject: dict, workflow: str = "admin",
                 "excluded_quality" if s in excluded_quality else "included"
             ),
             exclusion_reason=s.get("exclusion_reason"),
+            cqs_breakdown=s.get("cqs_breakdown") or {},
+            months_since=s.get("months_since"),
         ).model_dump()
-        cd["_breakdown"] = s["cqs_breakdown"]     # attach for UI (not stored — dropped below)
-        cd["_months_since"] = s["months_since"]
+        await db.guidance_comparables.insert_one(cd)
+        cd.pop("_id", None)
         comp_docs.append(cd)
-
-    # Strip UI-only underscore fields before persistence
-    for cd in comp_docs:
-        db_row = {k: v for k, v in cd.items() if not k.startswith("_")}
-        await db.guidance_comparables.insert_one(db_row)
 
     await db.market_audit_events.insert_one(
         MarketAuditEvent(
