@@ -996,3 +996,78 @@ base URL. That produced wrong URLs like
   passes.
 
 
+
+## Iter-39 — Bulk Rediscover · Per-Source Diff · One-Click Apply (Feb 2026)
+
+### Backend
+
+**`POST /admin/market/sources/rediscover-all` (new)**
+- Loads every `MarketSource`, fans out `discover_listing_pages` across them
+  behind `asyncio.Semaphore(3)` so the round-trip stays polite.
+- Sources whose collector isn't HTTP (or whose base_url doesn't start with
+  `http`) are returned as `{ok:false, skipped:true, reason}` — never
+  attempted.
+- Per source, diffs the previously-persisted `listing_pages` against the
+  new auto-confirmed candidates (`c.auto_confirm == True`):
+  - `added`   — URLs in new only
+  - `removed` — URLs in old only
+  - `unchanged` — URLs in both
+- Response also carries top-level counters (`total`, `with_changes`,
+  `no_changes`, `errored`, `skipped`) so the UI can render summary pills
+  in one shot.
+- Emits `sources_rediscover_all` audit event with the counters.
+- **NOTHING is persisted here** — the diff is presentational; ops choose
+  what to apply.
+
+**`PUT /admin/market/sources/{sid}/listing-pages` (new)**
+- Full REPLACE of a source's `listing_pages` (no merge). Body:
+  `{listing_pages: [{...}]}`.
+- Validates array shape; every entry stored **verbatim** (no URL rewriting).
+- Returns the updated source doc.
+- Emits `source_listing_pages_updated` audit event with count_before /
+  count_after.
+
+**Route ordering**
+- The new literal route sits before `/sources/{sid}` parametric routes — no
+  route-shadow conflicts (they're all different HTTP methods anyway).
+
+### Frontend
+
+**`BulkRediscoverModal.jsx` (new)**
+- Opens with a big "Run scan" CTA; while scanning shows a spinner and
+  disables re-entry.
+- Post-scan header shows five `SummaryPill`s: Total, Changed, No changes,
+  Errors, Skipped.
+- Body is a per-source table (sorted: changed → errored → unchanged →
+  skipped). Columns: Source · Base URL · Status pill · Added · Removed ·
+  Unchanged · Action.
+- Every row is expandable via a chevron → shows an inner `DiffDetail`:
+  Added URLs (green), Removed URLs (red), Unchanged URLs (muted). Each URL
+  is copy-friendly (monospace) with category label + card count metadata.
+- Per-row `Apply` button (visible only for rows with real added/removed)
+  → replaces that source's `listing_pages` via the new PUT endpoint,
+  emits toast, locally marks the row as unchanged so the button hides.
+- Footer has "Re-run scan" + "Apply all changed (N)" for one-click cleanup
+  across the entire catalogue.
+
+**`Sources.jsx`**
+- New `rediscover-all-btn` in the header alongside `add-source-btn`.
+  Outline-style green button with a rotating ↻ prefix so it doesn't compete
+  with the primary "+ Add Source" CTA.
+- `bulkOpen` state gates the modal; the modal's `onApplied` reloads the
+  sources list so the row reflects the newly-applied URLs.
+
+### Verified end-to-end
+- 12/12 review scenarios pass (curl + Playwright).
+- Bulk scan of the live catalogue completes in ~30–60 s across 10 sources.
+- Hausples PNG appears in the diff with `/buy/` + `/rent/` as suggested
+  URLs; no candidate URL contains `/property-for-sale` or
+  `/property-for-rent`.
+- Applying a single row via `rediscover-apply-{sid}` persists the URLs
+  verbatim (round-tripped through `GET /admin/market/sources`).
+- Bad payloads on the PUT endpoint return 404 (unknown sid) or 400
+  (non-array). Empty array clears the source's `listing_pages`.
+- Errored sources (unreachable hosts) surface with `ok=false` + a clear
+  error string; the rest of the scan still returns.
+
+

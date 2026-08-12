@@ -224,6 +224,122 @@ async def save_source_parser_config(sid: str, payload: dict,
     return await db.market_sources.find_one({"id": sid}, {"_id": 0})
 
 
+@router.post("/admin/market/sources/rediscover-all")
+async def sources_rediscover_all(user: dict = Depends(get_current_user)):
+    """Bulk re-runs the Discover Pages workflow for every HTTP source that
+    has a base_url. Returns a per-source diff (added / removed / unchanged
+    URLs) so ops can review before applying. NOTHING is persisted here —
+    ops call `/admin/market/sources/{sid}/listing-pages` (below) to apply."""
+    sources = await db.market_sources.find(
+        {"active": {"$ne": None}}, {"_id": 0},
+    ).to_list(500)
+
+    import asyncio
+    sem = asyncio.Semaphore(3)   # be polite to remote hosts
+
+    async def _one(src: dict) -> dict:
+        if collector_defaults(src.get("collector") or "") is None:
+            return {
+                "source_id": src["id"], "source_name": src["name"],
+                "collector": src.get("collector"), "base_url": src.get("base_url"),
+                "ok": False, "skipped": True,
+                "reason": "Not an HTTP scraper",
+                "added": [], "removed": [], "unchanged": [],
+                "before": src.get("listing_pages") or [],
+                "candidates": [],
+            }
+        if not (src.get("base_url") or "").startswith("http"):
+            return {
+                "source_id": src["id"], "source_name": src["name"],
+                "collector": src.get("collector"), "base_url": src.get("base_url"),
+                "ok": False, "skipped": True,
+                "reason": "No base URL configured",
+                "added": [], "removed": [], "unchanged": [],
+                "before": src.get("listing_pages") or [],
+                "candidates": [],
+            }
+        async with sem:
+            try:
+                disc = await discover_listing_pages(
+                    src["base_url"], src["collector"],
+                    src.get("parser_config"),
+                )
+            except Exception as e:                                          # noqa: BLE001
+                return {
+                    "source_id": src["id"], "source_name": src["name"],
+                    "collector": src.get("collector"), "base_url": src.get("base_url"),
+                    "ok": False, "error": f"{type(e).__name__}: {e}",
+                    "added": [], "removed": [], "unchanged": [],
+                    "before": src.get("listing_pages") or [],
+                    "candidates": [],
+                }
+        before_urls = {p.get("listing_url"): p for p in (src.get("listing_pages") or [])}
+        candidates = disc.get("candidates") or []
+        # Only auto-suggested ones (accessible + auto_confirm) count as the
+        # new baseline — ops still ticks manually via the modal if needed.
+        after_pool = [c for c in candidates if c.get("auto_confirm")]
+        after_urls = {c["listing_url"]: c for c in after_pool}
+
+        added = [u for u in after_urls if u not in before_urls]
+        removed = [u for u in before_urls if u not in after_urls]
+        unchanged = [u for u in after_urls if u in before_urls]
+
+        return {
+            "source_id": src["id"], "source_name": src["name"],
+            "collector": src.get("collector"), "base_url": src.get("base_url"),
+            "ok": disc.get("ok", False),
+            "error": disc.get("error"),
+            "before": src.get("listing_pages") or [],
+            "candidates": candidates,        # full list — accessible + not
+            "suggested": after_pool,         # auto-confirmed subset
+            "added": added, "removed": removed, "unchanged": unchanged,
+        }
+
+    diffs = await asyncio.gather(*[_one(s) for s in sources])
+
+    changed = [d for d in diffs if d.get("ok") and (d["added"] or d["removed"])]
+    skipped = [d for d in diffs if d.get("skipped")]
+    errored = [d for d in diffs if not d.get("ok") and not d.get("skipped")]
+
+    await _audit("sources_rediscover_all", user,
+                 payload={"total": len(diffs), "with_changes": len(changed),
+                          "errored": len(errored), "skipped": len(skipped)})
+    return {
+        "total": len(diffs),
+        "with_changes": len(changed),
+        "no_changes": len(diffs) - len(changed) - len(errored) - len(skipped),
+        "errored": len(errored),
+        "skipped": len(skipped),
+        "diffs": diffs,
+    }
+
+
+@router.put("/admin/market/sources/{sid}/listing-pages")
+async def apply_source_listing_pages(sid: str, payload: dict,
+                                      user: dict = Depends(get_current_user)):
+    """Replace a source's `listing_pages` with the caller-supplied list.
+    Used by the Bulk Rediscover modal's per-row Apply button and by the
+    Source modal's Save action. Each entry is stored VERBATIM — no path
+    reconstruction."""
+    source = await db.market_sources.find_one({"id": sid}, {"_id": 0})
+    if not source:
+        raise HTTPException(404, "Source not found")
+    incoming = (payload or {}).get("listing_pages")
+    if not isinstance(incoming, list):
+        raise HTTPException(400, "listing_pages must be an array")
+    # Trust the caller — the shape is validated by the Pydantic MarketSource
+    # model on the next PUT; here we simply persist the array as-is.
+    await db.market_sources.update_one(
+        {"id": sid},
+        {"$set": {"listing_pages": incoming, "updated_at": now_iso()}},
+    )
+    await _audit("source_listing_pages_updated", user,
+                 entity_type="market_source", entity_id=sid,
+                 payload={"count_before": len(source.get("listing_pages") or []),
+                          "count_after": len(incoming)})
+    return await db.market_sources.find_one({"id": sid}, {"_id": 0})
+
+
 @router.post("/admin/market/collectors/hausples_png/test")
 async def hausples_selector_test(payload: dict,
                                   user: dict = Depends(get_current_user)):

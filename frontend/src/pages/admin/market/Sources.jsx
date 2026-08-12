@@ -7,6 +7,7 @@ import { api, formatError } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
 import SelectorTester from "./SelectorTester";
 import SourceModal from "./SourceModal";
+import BulkRediscoverModal from "./BulkRediscoverModal";
 
 export default function DataSources() {
   const [rows, setRows] = useState([]);
@@ -17,6 +18,7 @@ export default function DataSources() {
   const [sched, setSched] = useState(null);
   const [editingSource, setEditingSource] = useState(null);           // full row or "new"
   const [testerSource, setTesterSource] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const load = async () => {
     // Promise.allSettled — a single failing endpoint must NOT blank the whole
@@ -81,6 +83,10 @@ export default function DataSources() {
                 Scheduler: {sched.paused ? "Paused — click to resume" : "Running — click to pause"}
               </button>
             )}
+            <button onClick={() => setBulkOpen(true)} data-testid="rediscover-all-btn"
+                    className="px-3 py-2 rounded-md border border-[#2A5B46] text-[#2A5B46] text-sm hover:bg-[#F1F6F3]">
+              ↻ Rediscover all
+            </button>
             <button onClick={openNew} data-testid="add-source-btn"
                     className="px-3 py-2 rounded-md bg-[#2A5B46] text-white text-sm hover:bg-[#204838]">
               + Add Source
@@ -204,6 +210,13 @@ export default function DataSources() {
         <SelectorTester source={testerSource}
                         collectorMeta={collectors.find((c) => c.key === testerSource.collector)}
                         onClose={() => setTesterSource(null)} />
+      )}
+
+      {bulkOpen && (
+        <BulkRediscoverModal
+          onClose={() => setBulkOpen(false)}
+          onApplied={load}
+        />
       )}
     </div>
   );
