@@ -1,0 +1,20 @@
+{
+  "summary": "Retested record-inspector backdrop fix on /admin/market/evidence. All targeted behaviors pass: backdrop has computed pointer-events:none, clicking a different row while inspector is open switches the record (verified across 3 rows: 'House · Boroko' -> 'Apartment · Kokopo' -> 'Apartment · Ela Beach') without closing the inspector; ESC closes; X (inspector-close) closes. Iter-38 regression items all still pass: table headers exactly [Record ID, Source, Purpose, Class, Location, Price, Last Seen, Status]; all six inspector-group-* testids present; all required fields present under inspector-field-* prefix (allotment-number, section-number, portion-number, bedrooms, bathrooms, land-area-m2, building-area-m2, street, local-area, city, province, source-id-full, listing-url, property-subtype); inspector-source-url anchor has target=_blank; inspector-raw-toggle expands inspector-raw-body.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None; used existing seeded evidence rows (100 present).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "Inspector fields use `inspector-field-<slug>` naming (slug lowercases label; ² becomes 2, so 'Land area (m²)' -> 'inspector-field-land-area-m2'). Backdrop has pointer-events:none by design — row-click-through is intentional. Close paths: ESC and inspector-close only.",
+  "rca_of_the_issue": "Prior iter-38/39 defect: full-viewport backdrop intercepted clicks so users couldn't row-switch. Fix in Evidence.jsx line 186 applies pointer-events-none to the backdrop div, so pointer events fall through to the underlying table rows, enabling row-switch UX while keeping ESC/X as explicit close paths."
+}

@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend testing of /admin/market/evidence RecordInspector. Table columns unchanged and exact, KPIs render, 100 rows clickable, inspector opens with all 6 groups, populated seed data (Allotment 33, Section 28, Bed 2, Bath 2, Street 'Sabama Road', Province NCD, Land 513, Building 217), listing URL is a real anchor with target and href to https://seed.trel.pg/..., raw payload toggle expands with JSON, and close via X / Escape / backdrop all work. Fixed the slug function in FieldGroup so the 3 required data-testids for parenthesized labels and unit-superscript labels now resolve. Discovered one functional/UX defect: full-viewport backdrop prevents row-switching without first closing the inspector.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Row switching in Market Evidence inspector",
+        "issue": "Spec requires 'click a different row (without closing) -> inspector updates to row B's data', but the RecordInspector's backdrop <div data-testid='record-inspector-backdrop' class='absolute inset-0 bg-black/40'> covers the entire viewport including the underlying table. Clicking any other row is intercepted by the backdrop, which calls onClose and unmounts the inspector, so the user cannot switch rows without first closing. Verified via Playwright: after opening the inspector, clicking rows.nth(3) is intercepted by record-inspector-backdrop and never reaches the tr.",
+        "affected_selectors": ["[data-testid='record-inspector-backdrop']", "tr[data-testid^='evidence-row-']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix row-switching UX in Evidence RecordInspector: either (a) remove the full-viewport backdrop and use a non-modal side panel (backdrop only in the area to the LEFT of the panel, with pointer-events adjusted so table rows remain clickable), or (b) on backdrop click, if the click target is actually a table row via document.elementsFromPoint, re-dispatch to that row instead of just closing. Current implementation cannot satisfy the spec's row-switching requirement."
+  ],
+  "critical_code_review_comments": [
+    "FieldGroup slug function used label.replace(/[^a-z0-9]+/gi,'-').toLowerCase() with no trimming and no handling of unicode digits/superscripts, which produced 'inspector-field-source-id-full-' (trailing dash from '(full)') and 'inspector-field-land-area-m-' / 'inspector-field-building-area-m-' (² dropped) instead of the spec-required '...-source-id-full', '...-land-area-m2', '...-building-area-m2'. Fixed by normalizing ²->2, ³->3 and trimming leading/trailing hyphens."
+  ],
+  "updated_files": ["/app/frontend/src/pages/admin/market/Evidence.jsx"],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "92%"},
+  "seed_data_creation": "None; 100 TREL seed listings already present.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "Evidence.jsx testid slug fixed (added ²->2/³->3 normalization and trim of leading/trailing hyphens on FieldGroup label->testid). All 14 required inspector-field-* testids resolve. All 6 inspector-group-* testids resolve. Close via inspector-close, Escape, and record-inspector-backdrop all confirmed. Real remaining bug: full-viewport backdrop prevents click-through row-switching; developer needs to redesign the panel/backdrop layering.",
+  "rca_of_the_issue": "1) Slug bug: label.replace(/[^a-z0-9]+/gi,'-').toLowerCase() produced trailing-dash and dropped superscripts because ² is neither [a-z] nor [0-9] in the regex. Fixed in FieldGroup. 2) Row-switch bug: record-inspector-backdrop is a full-viewport absolute-inset div with onClick=onClose stacked above the table. React click event dispatches to topmost element -> backdrop closes inspector -> row never receives the click. Requires developer-side redesign (non-modal side panel or elementsFromPoint re-dispatch)."
+}

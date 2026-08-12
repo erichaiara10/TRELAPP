@@ -1,0 +1,32 @@
+{
+  "summary": "Retested iter-38 row-switching fix on /admin/market/evidence. Backdrop was split (right:720px) but it still sits ON TOP of the table area (z-40, no pointer-events:none). Rows in the left area cannot be clicked to switch records — every click in the leftward viewport is intercepted by the backdrop and closes the inspector. Regression checks (Backdrop close, ESC, X, all groups/fields testids, source-url anchor target=_blank, raw toggle/body) all still pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "RecordInspector (Evidence.jsx)",
+        "issue": "Row-switching WITHOUT closing is still BROKEN. The backdrop element (data-testid=record-inspector-backdrop) is fixed inset-y-0 left-0 z-40 with right:720px and has an onClick={onClose}. It covers the entire left viewport ABOVE the <table>. document.elementFromPoint at x=50/300/500/700/850,y=428 always returns the backdrop div — so any click on a visible row in the leftward area hits the backdrop first and closes the inspector instead of switching records. Verified: opened row A (title 'House · Boroko'), attempted to click row 2 (bbox x=297..1559, well within left area); Playwright reported 'record-inspector subtree intercepts pointer events' and after force navigation the inspector stayed on the same record. This is the exact defect flagged in iter-38 — the split-backdrop approach does not solve it because the backdrop is still layered above the rows.",
+        "selector": "[data-testid='record-inspector-backdrop']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Make the backdrop non-interactive for pointer events so table rows in the left area are directly clickable — e.g., add `pointer-events-none` (Tailwind) to the backdrop and move the outside-click detection onto document/window with a mousedown listener that ignores clicks inside [data-testid='record-inspector']. Alternatively raise the table rows above the backdrop (position:relative + z-50) and drop the backdrop click-to-close behaviour, keeping ESC and X as closers.",
+    "After the fix, re-verify: (a) clicking a different row while inspector is open swaps `inspector-title` without closing, (b) clicking on empty backdrop area (or outside inspector) still closes (if intended), (c) ESC + X still close, (d) all iter-38 regression testids remain."
+  ],
+  "critical_code_review_comments": [
+    "Evidence.jsx line ~185: backdrop is z-40 above the table (which has no explicit z-index). Splitting the backdrop horizontally does not enable click-through — CSS still routes clicks to the topmost element at that point. Use pointer-events:none on the backdrop, or restructure so rows sit above the backdrop layer."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "5/6 checks passed (row-switch broken)"},
+  "seed_data_creation": "None. Used existing 100 seeded evidence rows.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "Retest just the row-switching flow on /admin/market/evidence at viewport >=1400px. Open row A, click a different row (row 2/3) at x<=800; verify inspector stays open AND inspector-title changes. Regression: iter-38 field/group testids continue to pass in iter-39, no need to re-exhaust them unless RecordInspector is restructured significantly.",
+  "rca_of_the_issue": "The 'split backdrop' fix only masks the panel column geometrically — it does not change stacking. The backdrop <div> is still positioned above the <table> with a click handler that calls onClose. Browsers hit-test the topmost element at the click point, so row clicks in the leftward region trigger the backdrop's onClick and never reach the row. Fix requires either pointer-events:none on the backdrop with a document-level outside-click listener, or elevating each <tr> above the backdrop's stacking context."
+}

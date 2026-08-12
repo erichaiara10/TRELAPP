@@ -1071,3 +1071,65 @@ base URL. That produced wrong URLs like
   error string; the rest of the scan still returns.
 
 
+
+## Iter-40 — Evidence Record Inspector (Feb 2026)
+
+### What changed
+The Market Evidence admin page (`/admin/market/evidence`) had a Phase-1
+skeleton table with no row interaction — the PhaseBanner explicitly said
+the inspector was deferred to Phase E. Users clicked and nothing happened.
+
+### Frontend (`Evidence.jsx` — full rewrite of the file)
+
+**Main table** (deliberately untouched)
+- Same 8 columns in the same order: Record ID · Source · Purpose · Class ·
+  Location · Price · Last Seen · Status. No columns added or removed.
+- Every `<tr>` now has `cursor-pointer`, hover highlight, and an
+  `onClick={() => setSelected(l)}` handler. Selected row keeps its
+  highlight while the inspector is open.
+- Small "Click any row to open the full record inspector." caption below
+  the table body so ops don't miss the affordance.
+- KPI cards and PhaseBanner unchanged (banner copy updated to reflect
+  inspector shipping).
+
+**`RecordInspector` (new component in the same file)**
+- Right-hand slide-out, 720px, sticky header with `inspector-title` +
+  record ID + `inspector-close` (X).
+- Six field groups rendered via `FieldGroup` (2-column Field / Value table
+  each, muted background on the label column):
+  - Identifiers (Record ID full, Source ID full, Source listing ID,
+    Listing URL — clickable anchor with target=_blank)
+  - Classification (Property subtype, Currency, Rent period)
+  - Parcel (Allotment / Section / Portion)
+  - Size / Rooms (Bedrooms, Bathrooms, Land area m², Building area m²)
+  - Location detail (Street, Suburb, Local area, City, Province, Latitude,
+    Longitude, GPS accuracy)
+  - Timestamps / ops (First seen, Created, Updated, Exclusion reason,
+    Alias map version)
+- Two collapsed `<details>` blocks at the bottom: `inspector-raw-toggle`
+  dumps the scraper's `raw_fields`, `inspector-normalized-toggle` shows
+  `normalized_fields` (only if non-empty).
+- Empty values render as em-dash so gaps in scraper coverage are obvious.
+
+**Interaction UX**
+- Backdrop is a purely decorative dim overlay with `pointer-events: none`
+  so table clicks pass straight through — clicking another row while the
+  inspector is open **switches the inspected record without closing**.
+- Close paths: X button, Escape key. Helper hint under the title tells
+  ops both paths + row-switching.
+- Field slug function handles unicode superscripts (m² → m2) and strips
+  leading/trailing dashes so every testid resolves cleanly.
+
+### Verified end-to-end (Playwright, iter-38 + iter-39 + iter-40)
+- Table columns unchanged.
+- 100 rows clickable; hover + selected highlight fire correctly.
+- Inspector opens with all 6 group headers + all 14+ required field
+  testids populated with real seed data (e.g. Allotment 33, Section 28,
+  Bed 2, Bath 2, Land 513 m², Building 217 m², Street "Sabama Road",
+  Province NCD).
+- Row-switching verified across 3 different rows without closing.
+- ESC + X close paths both work.
+- `inspector-source-url` is a real anchor with target=_blank; raw
+  payload toggle expands to the JSON blob.
+
+
