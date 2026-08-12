@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 36 — Live listing-page discovery + Save-to-source selectors. Comprehensive backend + frontend testing against Hausples PNG live site. 10/10 backend pytest cases pass; all frontend acceptance flows pass (Add Source modal layout, live discovery, save with exact URLs, edit round-trip, Selector Tester Save-to-source).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter36_discovery.py",
+    "/app/test_reports/pytest/iter36_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "core/collectors/_common.py comments still reference legacy /property-for-sale example — cosmetic only; behaviour is correct (no reconstruction). Consider updating the comment for clarity."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter36_discovery.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporary source 'TEST_Hausples_Iter36' created via UI and deleted at the end. Backend test created & deleted 'TEST_iter36_empty_pages'.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Acceptance test: discovery of https://www.hausples.com.pg/ returned 12 candidates including exact '/buy/' and '/rent/' URLs (both status 200, cards_found > 0, auto_confirm=true). No candidate contained legacy /property-for-sale or /property-for-rent paths. listing_pages round-trip through PUT /api/admin/market/sources/{id} preserved URL verbatim. Legacy migration confirmed: no source has search_paths / page_url_template / purpose_by_path in parser_config; all sources expose a listing_pages field. Empty-listing_pages collect returned partial run without crash. Save-to-source parser-config endpoint merged correctly. Selector Tester 'tester-save-to-source' button emits a toast and persists parser_config.title verified via /api/admin/market/sources. No fixes required.",
+  "rca_of_the_issue": "N/A — no defects found."
+}

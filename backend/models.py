@@ -369,10 +369,18 @@ class MarketSource(BaseModel):
     last_run_at: Optional[str] = None
     last_successful_run_at: Optional[str] = None
     consecutive_failures: int = 0
-    # Free-form scraper knobs — CSS selectors, custom search paths, purpose
-    # overrides. Every HttpListingCollector reads from here so operators can
-    # tune extraction via the admin UI without touching code.
+    # Free-form scraper knobs — CSS selectors, custom pagination templates,
+    # user-agent overrides. Every HttpListingCollector reads from here so
+    # operators can tune extraction via the admin UI without touching code.
+    # NOTE: `search_paths` are NO LONGER stored here — see `listing_pages`
+    # below. Discovery is now mandatory for HTTP scrapers.
     parser_config: dict = {}
+    # Confirmed listing category URLs — populated by the "Discover Pages"
+    # workflow. Each entry is:
+    #   {category, category_label, listing_url, purpose?, cards_found?}
+    # `listing_url` is stored as the EXACT literal URL returned by discovery
+    # (post-redirect) and used verbatim by the scraper — no reconstruction.
+    listing_pages: List[dict] = []
     # Seed-generator-only: how many synthetic listings to emit per run.
     seed_count: Optional[int] = None
     created_at: str = Field(default_factory=now_iso)
@@ -389,6 +397,7 @@ class MarketSourceCreate(BaseModel):
     collection_frequency: Literal["manual", "hourly", "daily", "weekly"] = "manual"
     parser_version: Optional[str] = "1.0"
     parser_config: dict = {}
+    listing_pages: List[dict] = []
     seed_count: Optional[int] = None
 
 

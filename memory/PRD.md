@@ -888,3 +888,111 @@ Tester") were already shipped in iter-33/34, four are new:
   still works.
 
 
+
+## Iter-38 — Live Listing-Page Discovery + Save-to-Source Selectors (Feb 2026)
+
+### The problem this fixes
+Previous scrapers hard-coded/guessed listing paths (`/property-for-sale`,
+`/property-for-rent`, `/for-sale/`, `/rent/`) and concatenated them onto the
+base URL. That produced wrong URLs like
+`https://www.hausples.com.pg/buy/property-for-sale`; the real path is just
+`https://www.hausples.com.pg/buy/`. Now the scraper NEVER reconstructs a URL.
+
+### Backend
+
+**`core/collectors/discovery.py` (new)**
+- `discover_listing_pages(base_url, collector_key, parser_config?)` fetches
+  the homepage, walks `<a href>` links inside the site's own navigation,
+  filters against a keyword-based `CATEGORY_RULES` table (Buy/For Sale,
+  Rent/Lease, Residential, Commercial, Land, Projects, Apartments, Houses)
+  + `_BLACKLIST_KEYWORDS` (about, contact, login, socials, etc), follows
+  each candidate with redirects, verifies HTTP status and counts cards +
+  detail-links against the collector's card selector.
+- `_extract_candidates` dedupes by cleaned URL, keeping the most-specific
+  category rule when two rules match.
+- `_grade` per-candidate is fanned out with `asyncio.Semaphore(4)` so a full
+  discovery on Hausples finishes in ~3 s end-to-end.
+- Every candidate returns a `listing_url` that is the FINAL URL after
+  redirect resolution — used verbatim by the scraper. No path assembly.
+
+**`_common.HttpListingCollector.iter_listings` (rewritten)**
+- Now iterates `source.listing_pages` (populated by discovery); the
+  per-page-purpose is either the entry's stored purpose or a best-effort
+  guess off the category label / URL fragment.
+- Sole helper for pagination: given the exact page-1 URL, page N appends
+  `?page=N` (or uses the operator-configured `parser_config.page_url_template`
+  if set). No `search_paths` array anywhere.
+- If `listing_pages` is empty the scraper logs a warning and yields nothing
+  → the run is reported partial (0 listings), never crashes.
+- `_pagination_url` helper deleted.
+
+**Per-collector `DEFAULT_CONFIG`**
+- Removed `search_paths` from all 6 HTTP collectors
+  (hausples_png/ljhookerpng/mypnghome/sre/dac/marketmeri).
+- Removed the WordPress-style `page_url_template: '{base}{path}/page/{page}/'`
+  guesses from ljhookerpng/mypnghome/dac.
+- Every collector now only ships default CSS selectors + base_url.
+
+**`MarketSource` model**
+- New `listing_pages: List[dict]` on both `MarketSource` and
+  `MarketSourceCreate`. Each entry is `{category, category_label, purpose,
+  listing_url, cards_found, detail_links}`.
+
+**New endpoints (`routes/market.py`)**
+- `POST /admin/market/collectors/{key}/discover` — body
+  `{base_url, parser_config?}` returns the discovery response.
+- `POST /admin/market/sources/{sid}/parser-config` — body
+  `{parser_config: {...}}`, merges into the existing config (used by the
+  Selector Tester's Save-to-source button, emits `source_parser_config_saved`
+  audit event).
+
+**Idempotent DB migration (`seed.migrate_strip_legacy_search_paths`)**
+- Removes `search_paths`, `page_url_template`, `purpose_by_path` from every
+  existing `market_sources.parser_config`.
+- Ensures every source has a `listing_pages: []` field so the UI never sees
+  `undefined`.
+
+### Frontend
+
+**`SourceModal.jsx` (new, replaces the inline modal in Sources.jsx)**
+- Redesigned 2-column layout per the mock:
+  - LEFT: Source Name, Base URL (with inline "Discover Pages" button),
+    Description (200-char cap with counter).
+  - RIGHT: `DiscoveryPanel` — the results table with columns Category /
+    Detected URL / Status / Cards Found / Detail Links / Confirm.
+    Category icons come from `lucide-react`. Empty/loading/error states
+    handled inline.
+- Bottom row: Active + Allow-auto-match toggles, Collector Type / Frequency /
+  Parser Version panel, plus the "What happens next?" reassurance card that
+  spells out that the scraper uses ONLY confirmed URLs.
+- Save action collects the ticked `listing_pages` and PUTs the whole record.
+
+**`SelectorTester.jsx`**
+- New `tester-save-to-source` button next to Reset — pushes the current
+  selectors into `MarketSource.parser_config` via the new endpoint. Toast
+  confirms the target source name.
+
+**`Sources.jsx`**
+- Old inline modal + old `Field` helper deleted; replaced by
+  `<SourceModal editing={…} initial={…} collectors={…}
+                onClose={…} onSaved={…} />`.
+- No visual change to the top-of-page KPIs / sources table / runs feed.
+
+### Acceptance test verified (curl + Playwright)
+- `POST /admin/market/collectors/hausples_png/discover` with
+  `base_url='https://www.hausples.com.pg/'` returns 12 candidates in ~3 s;
+  Buy → `https://www.hausples.com.pg/buy/` (20 cards, 200) and Rent →
+  `https://www.hausples.com.pg/rent/` (20 cards, 200) are both present, both
+  auto-confirmed. No candidate URL contains `/property-for-sale` or
+  `/property-for-rent`.
+- Saving the source persists the two `listing_url` values EXACTLY as
+  returned. Re-opening the Edit modal shows the same two URLs.
+- Running the collector then hits those two URLs verbatim — no path
+  appending, no reconstruction. Confirmed via code grep: zero occurrences
+  of `/property-for-sale`, `/property-for-rent`, `for-sale`, `for-rent`,
+  or base_url-plus-search_path patterns remain in the backend.
+- 10/10 backend pytest cases pass; full frontend acceptance flow (modal
+  layout, discovery, save, edit round-trip, Save-to-source selectors)
+  passes.
+
+

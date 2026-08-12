@@ -6,23 +6,16 @@ import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
 import { PageHeader, KpiCard, Section } from "./_shared";
 import SelectorTester from "./SelectorTester";
-
-const emptyForm = {
-  name: "", base_url: "", description: "",
-  allow_source_auto_match: true, active: true,
-  collector: "seed",
-  collection_frequency: "manual", parser_version: "1.0",
-};
+import SourceModal from "./SourceModal";
 
 export default function DataSources() {
   const [rows, setRows] = useState([]);
   const [health, setHealth] = useState([]);
   const [runs, setRuns] = useState([]);
   const [summary, setSummary] = useState({});
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(emptyForm);
   const [collectors, setCollectors] = useState([]);
   const [sched, setSched] = useState(null);
+  const [editingSource, setEditingSource] = useState(null);           // full row or "new"
   const [testerSource, setTesterSource] = useState(null);
 
   const load = async () => {
@@ -54,27 +47,11 @@ export default function DataSources() {
     } catch (e) { toast.error(formatError(e)); }
   };
 
-  const openNew = () => { setEditing("new"); setForm(emptyForm); };
-  const openEdit = (row) => {
-    setEditing(row.id);
-    setForm({
-      name: row.name || "", base_url: row.base_url || "", description: row.description || "",
-      allow_source_auto_match: !!row.allow_source_auto_match, active: !!row.active,
-      collector: row.collector || "seed",
-      collection_frequency: row.collection_frequency || "manual",
-      parser_version: row.parser_version || "1.0",
-    });
-  };
-  const close = () => { setEditing(null); setForm(emptyForm); };
+  const openNew = () => setEditingSource("new");
+  const openEdit = (row) => setEditingSource(row);
+  const closeSourceModal = () => setEditingSource(null);
+  const handleSaved = () => { closeSourceModal(); load(); };
 
-  const save = async () => {
-    try {
-      if (editing === "new") await api.post("/admin/market/sources", form);
-      else await api.put(`/admin/market/sources/${editing}`, form);
-      toast.success("Source saved");
-      close(); load();
-    } catch (e) { toast.error(formatError(e)); }
-  };
   const remove = async (row) => {
     if (!window.confirm(`Delete source "${row.name}"? Its listings will remain.`)) return;
     try { await api.delete(`/admin/market/sources/${row.id}`); toast.success("Deleted"); load(); }
@@ -213,68 +190,14 @@ export default function DataSources() {
         </Section>
       </div>
 
-      {editing && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="source-modal">
-          <div className="bg-white rounded-lg p-5 w-full max-w-lg">
-            <div className="text-lg font-semibold mb-4">{editing === "new" ? "Add Source" : "Edit Source"}</div>
-            <div className="space-y-3 text-sm">
-              <Field label="Name *" testid="source-name">
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                       className="w-full border border-border rounded px-2 py-1.5" data-testid="input-source-name" />
-              </Field>
-              <Field label="Base URL" testid="source-url">
-                <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-                       className="w-full border border-border rounded px-2 py-1.5" data-testid="input-source-url" />
-              </Field>
-              <Field label="Description" testid="source-desc">
-                <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                          rows={3} className="w-full border border-border rounded px-2 py-1.5" data-testid="input-source-desc" />
-              </Field>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2" data-testid="toggle-source-active">
-                  <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Active
-                </label>
-                <label className="flex items-center gap-2" data-testid="toggle-source-automatch">
-                  <input type="checkbox" checked={form.allow_source_auto_match}
-                         onChange={(e) => setForm({ ...form, allow_source_auto_match: e.target.checked })} /> Allow auto-match
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Collector" testid="source-collector">
-                  <select value={form.collector}
-                          onChange={(e) => setForm({ ...form, collector: e.target.value })}
-                          className="w-full border border-border rounded px-2 py-1.5"
-                          data-testid="select-source-collector">
-                    {collectors.map((c) => (
-                      <option key={c.key} value={c.key}>{c.label}{c.requires_network ? " · net" : ""}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Collection frequency" testid="source-frequency">
-                  <select value={form.collection_frequency}
-                          onChange={(e) => setForm({ ...form, collection_frequency: e.target.value })}
-                          className="w-full border border-border rounded px-2 py-1.5"
-                          data-testid="select-source-frequency">
-                    <option value="manual">Manual</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                  </select>
-                </Field>
-                <Field label="Parser version" testid="source-parser">
-                  <input value={form.parser_version}
-                         onChange={(e) => setForm({ ...form, parser_version: e.target.value })}
-                         className="w-full border border-border rounded px-2 py-1.5"
-                         data-testid="input-source-parser" />
-                </Field>
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button onClick={close} className="px-3 py-1.5 text-sm rounded border border-border" data-testid="cancel-source">Cancel</button>
-              <button onClick={save} className="px-3 py-1.5 text-sm rounded bg-[#2A5B46] text-white" data-testid="save-source">Save</button>
-            </div>
-          </div>
-        </div>
+      {editingSource && (
+        <SourceModal
+          editing={editingSource === "new" ? "new" : editingSource.id}
+          initial={editingSource === "new" ? null : editingSource}
+          collectors={collectors}
+          onClose={closeSourceModal}
+          onSaved={handleSaved}
+        />
       )}
 
       {testerSource && (
@@ -282,15 +205,6 @@ export default function DataSources() {
                         collectorMeta={collectors.find((c) => c.key === testerSource.collector)}
                         onClose={() => setTesterSource(null)} />
       )}
-    </div>
-  );
-}
-
-function Field({ label, children, testid }) {
-  return (
-    <div data-testid={`field-${testid}`}>
-      <div className="text-xs text-muted-foreground mb-1">{label}</div>
-      {children}
     </div>
   );
 }

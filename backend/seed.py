@@ -84,6 +84,34 @@ async def migrate_lot_to_allotment():
             logger.info(f"lot_number → allotment_number migration on {coll}: {e}")
 
 
+async def migrate_strip_legacy_search_paths():
+    """Remove seeded/guessed `search_paths` (and their template alias
+    `page_url_template`) from every existing MarketSource's `parser_config`.
+    The scraper now uses ONLY `MarketSource.listing_pages` (populated by the
+    Add Source "Discover Pages" workflow). Idempotent."""
+    async for src in db.market_sources.find(
+        {"parser_config": {"$exists": True}},
+        {"_id": 0, "id": 1, "parser_config": 1, "name": 1},
+    ):
+        cfg = src.get("parser_config") or {}
+        touched = False
+        for key in ("search_paths", "page_url_template", "purpose_by_path"):
+            if key in cfg:
+                cfg.pop(key, None); touched = True
+        if touched:
+            await db.market_sources.update_one(
+                {"id": src["id"]},
+                {"$set": {"parser_config": cfg, "updated_at": now_iso()}},
+            )
+            logger.info(f"Stripped legacy search_paths from source {src.get('name')}")
+    # Ensure every source has the new listing_pages field (empty list
+    # means "run Discover Pages first").
+    await db.market_sources.update_many(
+        {"listing_pages": {"$exists": False}},
+        {"$set": {"listing_pages": []}},
+    )
+
+
 # ---------------- Seeds (first-boot only — skip if collection has data) ----------------
 async def seed_users():
     """Insert demo users ONLY when they don't already exist. Never overwrite
@@ -388,6 +416,7 @@ async def run_startup():
     await migrate_legacy_user_emails()
     await migrate_land_category()
     await migrate_lot_to_allotment()
+    await migrate_strip_legacy_search_paths()
 
     # ---- First-boot seeds (skip if collection has data) ----
     await seed_users()

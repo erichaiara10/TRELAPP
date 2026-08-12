@@ -197,21 +197,6 @@ class HttpListingCollector(CollectorBase):
         return (self.source.get("base_url")
                 or self.DEFAULT_CONFIG.get("base_url", "")).rstrip("/")
 
-    def _pagination_url(self, cfg: dict, path: str, page: int) -> str:
-        """Slot page number into the search URL. Two flavours supported:
-
-        * `template` mode — `cfg['page_url_template']` with `{path}` and
-          `{page}` placeholders (needed by mypnghome, ljhooker etc that use
-          `/page/N/`).
-        * `query` mode (default) — simply appends `?page=N`.
-        """
-        base = self._base_url()
-        tpl = cfg.get("page_url_template")
-        if tpl:
-            return tpl.format(base=base, path=path, page=page)
-        sep = "&" if "?" in path else "?"
-        return f"{base}{path}{sep}page={page}"
-
     async def _fetch(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
         try:
             r = await client.get(url)
@@ -300,34 +285,81 @@ class HttpListingCollector(CollectorBase):
                                           "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
         max_pages = int(cfg.get("max_pages_per_purpose", 3))
 
+        # NEW: exact listing_urls confirmed at Add-Source time drive the
+        # scrape. NO URL reconstruction, no guessed paths, no /property-for-sale
+        # appending. If a source has no confirmed listing_pages the scrape
+        # yields zero rows (a partial run is reported); ops must open the
+        # source and run "Discover Pages" first.
+        listing_pages = self.source.get("listing_pages") or []
+        if not listing_pages:
+            logger.warning(
+                f"{self.key} source '{self.source.get('name')}' has no "
+                f"listing_pages — run Discover Pages in the admin UI first"
+            )
+            return
+
         seen_ids: set[str] = set()
 
         async with httpx.AsyncClient(timeout=20.0, headers=headers,
                                      follow_redirects=True) as client:
-            for path in cfg.get("search_paths", []):
-                # Purpose inference: caller can set explicit `search_purposes`
-                # aligned to `search_paths` (SRE mixes both on one page); we
-                # otherwise infer from the URL fragment.
-                purpose = cfg.get("purpose_by_path", {}).get(path)
-                if not purpose:
-                    purpose = "rent" if "rent" in path.lower() else "sale"
-                for page in range(1, max_pages + 1):
-                    url = self._pagination_url(cfg, path, page)
-                    html = await self._fetch(client, url)
-                    if html is None:
-                        break
-                    rows = self._parse_page(html, cfg, purpose, base)
-                    if not rows:
-                        break
-                    fresh = 0
-                    for r in rows:
-                        sid = r.get("source_listing_id")
-                        if sid in seen_ids:
-                            continue
-                        seen_ids.add(sid)
-                        fresh += 1
-                        yield r
-                    if fresh == 0:
-                        # No new IDs on this page → likely paginating past the
-                        # last real page; abort to stay polite to the source.
-                        break
+            for page_entry in listing_pages:
+                listing_url = (page_entry or {}).get("listing_url")
+                if not listing_url:
+                    continue
+                purpose = (page_entry.get("purpose")
+                           or self._infer_purpose(page_entry, listing_url))
+                async for row in self._iter_paginated(client, listing_url, cfg,
+                                                     purpose, base,
+                                                     max_pages, seen_ids):
+                    yield row
+
+    def _infer_purpose(self, page_entry: dict, url: str) -> str:
+        """Best-effort purpose classification from category label or URL
+        fragment. Kept intentionally boring — no key-derived heuristics."""
+        blob = " ".join([
+            (page_entry.get("category") or ""),
+            (page_entry.get("category_label") or ""),
+            url,
+        ]).lower()
+        if any(w in blob for w in ("rent", "lease", "leasing", "rental")):
+            return "rent"
+        return "sale"
+
+    async def _iter_paginated(self, client, listing_url: str, cfg: dict,
+                              purpose: str, base: str, max_pages: int,
+                              seen_ids: set[str]) -> AsyncIterator[dict]:
+        """Walk pagination for ONE confirmed listing_url. The listing_url is
+        used verbatim for page 1; subsequent pages append `?page=N` (or use
+        `cfg.page_url_template` if set) against that exact URL."""
+        for page in range(1, max_pages + 1):
+            if page == 1:
+                url = listing_url
+            elif cfg.get("page_url_template"):
+                # Templated pagination — user-configured, applied to the
+                # listing_url path/base.
+                url = cfg["page_url_template"].format(
+                    base=base.rstrip("/"),
+                    path=listing_url.replace(base.rstrip("/"), "").rstrip("/") or "/",
+                    page=page,
+                )
+            else:
+                sep = "&" if "?" in listing_url else "?"
+                url = f"{listing_url.rstrip('/')}{sep}page={page}"
+            html = await self._fetch(client, url)
+            if html is None:
+                break
+            rows = self._parse_page(html, cfg, purpose, base)
+            if not rows:
+                break
+            fresh = 0
+            for r in rows:
+                sid = r.get("source_listing_id")
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
+                fresh += 1
+                yield r
+            if fresh == 0:
+                # No new IDs on this page → likely paginating past the last
+                # real page; abort to stay polite to the source.
+                break

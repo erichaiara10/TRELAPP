@@ -20,7 +20,10 @@ class HausplesCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.hausples.com.pg",
-        "search_paths": ["/property-for-sale", "/property-for-rent"],
+        # Listing category URLs are NOT hard-coded here — see the Add Source
+        # "Discover Pages" workflow which fetches the live homepage and
+        # detects the real category URLs. Discovered URLs are stored on
+        # MarketSource.listing_pages and used verbatim by the scraper.
         "card": ".listing-card, .property-card, article",
         "url":   "a.listing-link, a.card-link, a[href*='/property/']",
         "title": ".listing-title, .card-title, h3",

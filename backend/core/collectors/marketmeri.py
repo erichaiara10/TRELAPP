@@ -17,8 +17,6 @@ class MarketMeriCollector(HttpListingCollector):
         "base_url": "https://www.marketmeri.com",
         # MarketMeri lists real-estate under /category/real-estate — variants
         # for sale + rent are ops-tuneable via parser_config.
-        "search_paths": ["/category/real-estate-for-sale",
-                         "/category/real-estate-for-rent"],
         "card": ".listing, .ad, .listing-card, article.ad, .classified",
         "url":   "a.ad-link, a.listing-link, a[href*='/ad/'], a[href*='/listing/']",
         "title": ".ad-title, .listing-title, h2, h3",

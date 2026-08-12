@@ -17,7 +17,6 @@ class StricklandRECollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.sre.com.pg",
-        "search_paths": ["/for-sale", "/for-rent"],
         "card": ".property-item, .property-card, .listing-item, article",
         "url":   "a.property-link, a[href*='/property/'], a.listing-link",
         "title": ".property-title, .listing-title, h2, h3",

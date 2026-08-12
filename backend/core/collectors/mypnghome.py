@@ -17,10 +17,7 @@ class MyPNGHomeCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.mypnghome.com",
-        "search_paths": ["/property-for-sale", "/property-for-rent"],
-        # WordPress-style pagination: /page/N/
-        "page_url_template": "{base}{path}/page/{page}/",
-        "card": ".property-listing, .listing-item, article.property",
+        # "card": ".property-listing, .listing-item, article.property",
         "url":   "a.property-link, .property-title a, a[href*='/property/']",
         "title": ".property-title, .entry-title, h2",
         "price": ".property-price, .price, .property-meta-price",

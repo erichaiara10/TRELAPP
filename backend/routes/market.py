@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.collectors import get_collector, registered as registered_collectors
+from core.collectors.discovery import discover_listing_pages
 from core.collectors.hausples_tester import probe_hausples
 from core.collectors.selector_tester import collector_defaults, probe_collector
 from core.db import db, new_id, now_iso, strip_id
@@ -184,6 +185,43 @@ async def collector_default_config(key: str, user: dict = Depends(get_current_us
     if d is None:
         raise HTTPException(404, f"Collector '{key}' has no HTTP defaults")
     return {"collector": key, "default_config": d}
+
+
+@router.post("/admin/market/collectors/{key}/discover")
+async def collector_discover(key: str, payload: dict,
+                              user: dict = Depends(get_current_user)):
+    """Live listing-page discovery. Body: `{ base_url: string,
+    parser_config?: dict }`. Fetches the homepage, walks its navigation,
+    verifies each candidate category URL, returns per-candidate cards_found
+    + detail_links so the operator can confirm before saving."""
+    base_url = (payload or {}).get("base_url", "").strip()
+    if not base_url.startswith("http"):
+        raise HTTPException(400, "Valid base URL required")
+    return await discover_listing_pages(base_url, key,
+                                         (payload or {}).get("parser_config"))
+
+
+@router.post("/admin/market/sources/{sid}/parser-config")
+async def save_source_parser_config(sid: str, payload: dict,
+                                     user: dict = Depends(get_current_user)):
+    """Merge caller-supplied selectors into the source's `parser_config`.
+    Used by the Selector Tester's "Save to source" button so ops can push
+    working selectors straight in without hand-editing the source modal."""
+    source = await db.market_sources.find_one({"id": sid}, {"_id": 0})
+    if not source:
+        raise HTTPException(404, "Source not found")
+    incoming = (payload or {}).get("parser_config") or {}
+    if not isinstance(incoming, dict):
+        raise HTTPException(400, "parser_config must be an object")
+    merged = {**(source.get("parser_config") or {}), **incoming}
+    await db.market_sources.update_one(
+        {"id": sid},
+        {"$set": {"parser_config": merged, "updated_at": now_iso()}},
+    )
+    await _audit("source_parser_config_saved", user,
+                 entity_type="market_source", entity_id=sid,
+                 payload={"fields": list(incoming.keys())})
+    return await db.market_sources.find_one({"id": sid}, {"_id": 0})
 
 
 @router.post("/admin/market/collectors/hausples_png/test")

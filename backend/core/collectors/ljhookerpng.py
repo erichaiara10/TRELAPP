@@ -1,8 +1,7 @@
 """LJ Hooker PNG collector — https://www.ljhookerpng.com
 
-Standard LJ Hooker franchise site uses the shared "propertylist"/"card"
-markup pattern common to their global network. Pagination is via `/page/N/`
-so we use the template mode of `HttpListingCollector`.
+Standard LJ Hooker franchise markup. Listing category URLs come from the
+"Discover Pages" workflow at Add-Source time — no hard-coded paths here.
 """
 from __future__ import annotations
 
@@ -17,9 +16,7 @@ class LJHookerPNGCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.ljhookerpng.com",
-        "search_paths": ["/properties-for-sale", "/properties-for-rent"],
         # LJ Hooker franchises typically expose /page/N/ style pagination
-        "page_url_template": "{base}{path}/page/{page}/",
         "card": ".property-list-item, .listing-card, article.property, .propertyItem",
         "url":   "a.property-link, a.listing-link, a[href*='/property/'], a[href*='/listing/']",
         "title": ".property-title, .listing-title, h2, h3",

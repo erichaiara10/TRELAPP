@@ -88,6 +88,17 @@ export default function SelectorTester({ source, collectorMeta, onClose }) {
     toast.info(`Reset to ${collectorLabel} defaults`);
   };
 
+  const saveToSource = async () => {
+    if (!source?.id) { toast.error("No source associated with this test session"); return; }
+    setBusy(true);
+    try {
+      await api.post(`/admin/market/sources/${source.id}/parser-config`,
+                     { parser_config: selectors });
+      toast.success(`Selectors saved to "${source.name}"`);
+    } catch (e) { toast.error(formatError(e)); }
+    finally { setBusy(false); }
+  };
+
   if (!defaults) {
     return (
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
@@ -156,9 +167,14 @@ export default function SelectorTester({ source, collectorMeta, onClose }) {
             </label>
           ))}
         </div>
-        <div className="mt-2 text-right">
+        <div className="mt-2 flex items-center justify-between">
           <button onClick={reset} className="text-xs underline text-muted-foreground"
                   data-testid="tester-reset">Reset to defaults</button>
+          <button onClick={saveToSource} disabled={busy || !source?.id}
+                  className="px-3 py-1 text-xs rounded border border-[#2A5B46] text-[#2A5B46] hover:bg-[#F1F6F3] disabled:opacity-50"
+                  data-testid="tester-save-to-source">
+            Save to source
+          </button>
         </div>
 
         {result && (

@@ -15,8 +15,6 @@ class DACCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.dac.com.pg",
-        "search_paths": ["/property-for-sale", "/property-for-rent"],
-        "page_url_template": "{base}{path}/page/{page}/",
         "card": ".property-listing, .listing-item, article.property, .property",
         "url":   "a.property-link, .property-title a, a[href*='/property/']",
         "title": ".property-title, .entry-title, h2, h3",
