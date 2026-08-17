@@ -341,14 +341,17 @@ async def ingest_market_listing(payload: dict, actor_id: Optional[str] = None) -
 
     listing, is_new = await _upsert_listing(payload)
 
-    # Skip matching if listing has no price (per spec eligibility)
+    # Skip matching if listing has no price (per spec eligibility). Preserve
+    # `is_new` on the response so the run counter records inserts correctly
+    # (a listing can be brand new AND priceless — the collector already
+    # rejects those, but legacy paths may still land here).
     if listing.get("price") is None:
         await db.market_listings.update_one(
             {"id": listing["id"]},
             {"$set": {"status": "excluded", "exclusion_reason": "no_price"}},
         )
         return {"listing": listing, "match": None, "review_case": None,
-                "excluded": True, "reason": "no_price"}
+                "excluded": True, "reason": "no_price", "is_new": is_new}
 
     candidates = await _candidates(listing)
 

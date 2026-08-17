@@ -1,0 +1,30 @@
+{
+  "summary": "Iter-42 retest of the two iter-41 backend bugs — BOTH VERIFIED FIXED. (1) MarketMeri extraction: fresh run 08d9e3e5-f378-41b0-b04d-ec199d9c207c on source 89cf6ddd finished status='success' with cards_seen=1257, cards_accepted=769 (listings_seen=769, matches_created=769), 62/70 pages_visited had cards_accepted>0 — the .listing-wrapper-grid selector fix works. (2) Accounting invariant now holds at run-level AND per-page level: cs=1257 == ca=769 + cr=488; sum(rejection_reasons)=294+69+125=488==cr; sum(pages_visited[*].cards_seen)=1257==cs; same equality for accepted/rejected. Detail-page math holds: attempted=769 == succeeded=769 + failed=0, and attempted>=accepted (769>=769). Legacy Hausples/other pre-fix runs still parse (diagnostics kept as-is, UI does not crash). Frontend smoke on /admin/market/sources confirmed: MarketMeri RunRow expanded shows all 8 counter cards (1257/769/488/125/70/769/769/0), 3 rejection badges with correct data-testid (rejection-no_numeric_price=294, rejection-no_url_in_card=69, rejection-duplicate_source_id_within_run=125), pages_visited sub-table lists all 70 rows (>>11 minimum), and MarketMeri real-estate URLs (real-estate/apartments, real-estate/land, real-estate/office, etc.) show cards_accepted>0. Regression: /health, /sources, /runs, /summary, /collectors, /scheduler still 200; POST /admin/market/scheduler/pause toggles both directions; POST collect on TREL Seed Generator returns success with pages_visited==[] and cards_seen==0 per contract; _id never leaks in any /api/admin/market/* response. Backend pytest: 13/13 PASSED (was 11 passed + 1 xfail pre-fix). xfail flipped to hard-assert in test_acceptance_math_holds and a new class TestMarketMeriCardExtractionFix::test_marketmeri_extracts_cards asserts the selector fix — both green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_diagnostics.py",
+    "/app/test_reports/pytest/iter42.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Optional cleanup: pages_visited rows in the API response could use a stable data-testid on each row (e.g. `page-visited-row-<n>`) to make the frontend smoke-test more robust; the current selector-less scraping still worked visually."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_diagnostics.py (flipped xfail to hard-assert; added TestMarketMeriCardExtractionFix class; added TestLiveRunRejectionAndPaginationContract to keep pre-existing rejection/detail/pagination live checks green while introducing the fresh-run acceptance-math check)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% smoke"},
+  "seed_data_creation": "None new — the in-flight MarketMeri run 08d9e3e5 (started by the developer before test kickoff) completed during this iteration and is the fresh proof-of-fix.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "Iter-42 closed both iter-41 issues (MarketMeri selector + run-level accounting invariant). Fresh MarketMeri run id: 08d9e3e5-f378-41b0-b04d-ec199d9c207c. Historical Hausples runs 0a436d6d and b47e8072 STILL fail the invariant — that is expected pre-fix data and the test intentionally selects only post-fix runs (where per-page sums equal top-level totals) before hard-asserting the math. Scheduler was left running (resumed) at end. If retesting MarketMeri after further changes, a fresh scrape takes ~15 minutes.",
+  "rca_of_the_issue": "Both root causes from iter-41 addressed by the developer's fixes: (a) core/collectors/marketmeri.py card selector changed to .listing-wrapper-grid — confirmed by 1257 cards seen across 70 pages with 62 productive pages; (b) core/runs.py RunContext.record_diag no longer double-bumps cards_accepted/cards_rejected and _finalise_run reconciles run-level totals from per-page sums — confirmed by exact equality across all three counter axes on the fresh run."
+}

@@ -1,25 +1,49 @@
 """Shared building blocks for PNG real-estate HTML collectors.
 
-Every collector in this package (hausples, ljhookerpng, mypnghome, sre,
-dac, marketmeri) plugs the same tiny primitives:
+Every collector inherits `HttpListingCollector`; site-specific files just
+declare CSS selectors + optional detail-page selectors. The card grid on a
+category page is the initial observation; the collector then follows the
+verified detail URL to enrich the record.
 
-* `HttpListingCollector` — a generic base that walks paginated search pages,
-  extracts a card grid, and yields normalised listing dicts. Concrete
-  collectors just declare their default selectors + purpose paths.
-* `parse_allotment_section(text)` — teases out Allotment/Lot + Section numbers
-  from free-text titles or descriptions (PNG listings frequently write
-  "Allotment 14 Section 27 Waigani" or "Lot 5, Sec 9, Boroko").
-* `parse_address(addr)` — best-effort split of "12 Main St, Gordons, Port
-  Moresby" into (street, suburb, city).
-* `parse_price(text)` — pulls the first big number out of a price cell.
+Contract with the RunContext (`core.runs.RunContext`)
+-----------------------------------------------------
+* The collector accepts a RunContext via `iter_listings(run=…)` and calls
+  `run.record_diag(...)` at every meaningful checkpoint (page visited,
+  card seen/accepted/rejected, detail attempted, pagination stopped).
+* If `run` is None (unit-test / discovery-preview mode) diagnostics are
+  simply dropped — no crash, no state.
 
-All values are optional — the MATCH-1.0 pipeline handles gaps gracefully.
+No path guessing anywhere
+-------------------------
+* Listing category URLs come from `MarketSource.listing_pages` (populated
+  by live Discover Pages) — used verbatim.
+* Pagination discovers real "Next" mechanisms: `<link rel=next>`,
+  `<a rel=next>`, then live "Next" controls, then an explicit
+  `parser_config.next_page_selector`. NO `?page=N` fallback.
+* Detail URLs are chosen with `_identify_detail_url` (screens for same-
+  host, non-nav, deeper-than-category, unique-tail). No first-anchor
+  fallback.
+
+Rejection contract (external Market Evidence)
+---------------------------------------------
+A card is accepted iff BOTH:
+* identity → detail URL OR stable source_listing_id (via `_identify_detail_url`)
+* numeric sale/rent price extractable from the card
+
+Rejection reasons emitted:
+* `no_url_in_card`      — could not identify a detail URL from the card
+* `no_numeric_price`    — POA / EOI / Tender / Contact Agent / blank price
+* `duplicate_source_id` — same source_listing_id already emitted this run
+* `detail_fetch_failed` — card kept, detail enrichment failed (soft)
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Iterable, Optional
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -30,39 +54,54 @@ logger = logging.getLogger(__name__)
 try:
     from selectolax.parser import HTMLParser
     _HAVE_SELECTOLAX = True
-except ImportError:                                                    # pragma: no cover
+except ImportError:                                                        # pragma: no cover
     _HAVE_SELECTOLAX = False
 
 
 # ---------------------------------------------------------------------
 # Regex primitives
 # ---------------------------------------------------------------------
-_PRICE_RE = re.compile(r"([\d,]+(?:\.\d+)?)")
+_NUM_RE = re.compile(r"(\d{1,3}(?:[,\s]\d{3})+|\d+(?:\.\d+)?)")
 _INT_RE = re.compile(r"\d+")
 
-# "Allotment 14 Section 27" | "Lot 5 Section 9" | "Alloc 14 / Sec 27" | "Lot 5, Sec 9"
+# Explicit "no numeric price" markers — case-insensitive match aborts price parse.
+_POA_MARKERS = re.compile(
+    r"\b(?:poa|price on application|price on request|eoi|"
+    r"expressions? of interest|tender|contact agent|contact us|call us|"
+    r"enquire|enquiry|by negotiation|neg\.?|negotiable)\b",
+    re.IGNORECASE,
+)
+
+# Anchor text/URL blacklist for detail-URL screening. Extends discovery.
+_NAV_KEYWORDS = [
+    "about", "contact", "career", "job", "blog", "news", "team",
+    "login", "sign in", "sign-in", "signup", "sign-up", "register",
+    "policy", "terms", "privacy", "cookie", "disclaimer", "faq",
+    "help", "support", "sitemap", "franchise", "our office", "office",
+    "instagram", "facebook", "twitter", "linkedin", "youtube",
+    "whatsapp", "tel:", "mailto:", "share", "print",
+    "search", "filter", "sort", "compare", "favourite", "favorite", "wishlist",
+    "next page", "prev", "previous", "pagination", "page ",
+    "agent", "agents", "listing agent", "meet the team",
+]
+
+# "Allotment X Section Y" (and permutations)
 _ALLOT_RE = re.compile(
     r"(?:allotment|allot|alloc|lot)[\s._-]*(\d+[A-Za-z]?)"
     r"[\s,._/-]+(?:section|sec)[\s._-]*(\d+[A-Za-z]?)",
     re.IGNORECASE,
 )
-# Reverse form: "Section 27 Allotment 14"
 _SECT_ALLOT_RE = re.compile(
     r"(?:section|sec)[\s._-]*(\d+[A-Za-z]?)"
     r"[\s,._/-]+(?:allotment|allot|alloc|lot)[\s._-]*(\d+[A-Za-z]?)",
     re.IGNORECASE,
 )
-# "Portion 1234" (customary land)
 _PORTION_RE = re.compile(r"portion[\s._-]*(\d+[A-Za-z]?)", re.IGNORECASE)
 
-# Bedroom/bathroom short-hands frequently used inline: "3 bed 2 bath", "3br 2ba"
 _BEDS_RE = re.compile(r"(\d+)\s*(?:br|bd|bed|bedroom)", re.IGNORECASE)
 _BATHS_RE = re.compile(r"(\d+)\s*(?:ba|bth|bath|bathroom)", re.IGNORECASE)
 
-# Subtype hints (lowercase compare)
 _SUBTYPE_HINTS = [
-    # Compound / more-specific keywords go BEFORE the generic ones so
-    # "warehouse" doesn't get shadowed by "house", "townhouse" by "house", etc.
     ("warehouse", "commercial_industrial", "Warehouse"),
     ("townhouse", "residential", "Townhouse"),
     ("apartment", "residential", "Apartment"),
@@ -81,20 +120,33 @@ _SUBTYPE_HINTS = [
 ]
 
 
-# ---------------------------------------------------------------------
-# Text extractors
-# ---------------------------------------------------------------------
+# =====================================================================
+# Text extractors (public — reused by discovery.py + tests)
+# =====================================================================
 def parse_price(text: Optional[str]) -> Optional[float]:
+    """Numeric extractor. Returns None for POA / EOI / Tender / blank.
+    FROM/RANGE strings ("From K450,000", "K450k–K550k") take the first
+    numeric anchor."""
     if not text:
         return None
-    cleaned = text.replace(" ", "").replace("PGK", "").replace("K", "").replace("$", "")
-    m = _PRICE_RE.search(cleaned)
+    if _POA_MARKERS.search(text):
+        return None
+    cleaned = text.replace("PGK", "").replace("K ", " ")
+    # "450k"/"450K" shorthand → 450000
+    def _shorthand(m: re.Match) -> str:
+        n = float(m.group(1).replace(",", ""))
+        return str(int(n * 1000))
+    cleaned = re.sub(r"(\d+(?:\.\d+)?)\s*[kK](?![a-zA-Z])", _shorthand, cleaned)
+    m = _NUM_RE.search(cleaned)
     if not m:
         return None
     try:
-        return float(m.group(1).replace(",", ""))
+        val = float(m.group(1).replace(",", "").replace(" ", ""))
     except ValueError:
         return None
+    # Below-1 values are almost always false positives (bathrooms, half-baths,
+    # etc.); real PNG prices start at PGK 300+.
+    return val if val >= 100 else None
 
 
 def first_int(text: Optional[str]) -> Optional[int]:
@@ -105,9 +157,6 @@ def first_int(text: Optional[str]) -> Optional[int]:
 
 
 def parse_allotment_section(text: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """Return (allotment_number, section_number) extracted from any free-text
-    field. Handles both `Allotment X Section Y` and `Section Y Allotment X`
-    orderings, plus common abbreviations."""
     if not text:
         return None, None
     m = _ALLOT_RE.search(text)
@@ -115,7 +164,7 @@ def parse_allotment_section(text: Optional[str]) -> tuple[Optional[str], Optiona
         return m.group(1), m.group(2)
     m = _SECT_ALLOT_RE.search(text)
     if m:
-        return m.group(2), m.group(1)         # (allotment, section)
+        return m.group(2), m.group(1)
     return None, None
 
 
@@ -142,20 +191,16 @@ def parse_bathrooms(text: Optional[str]) -> Optional[int]:
 
 def parse_address(addr: Optional[str]) -> tuple[Optional[str], Optional[str],
                                                 Optional[str], Optional[str]]:
-    """Best-effort split of `12 Main St, Gordons, Port Moresby, NCD` →
-    (street, suburb, city, province)."""
     if not addr:
         return None, None, None, None
     parts = [p.strip() for p in addr.split(",") if p.strip()]
-    street = parts[0] if len(parts) >= 1 else None
-    suburb = parts[1] if len(parts) >= 2 else None
-    city   = parts[2] if len(parts) >= 3 else None
-    prov   = parts[3] if len(parts) >= 4 else None
-    return street, suburb, city, prov
+    return (parts[0] if len(parts) >= 1 else None,
+            parts[1] if len(parts) >= 2 else None,
+            parts[2] if len(parts) >= 3 else None,
+            parts[3] if len(parts) >= 4 else None)
 
 
 def infer_subtype(*texts: str) -> tuple[Optional[str], Optional[str]]:
-    """Guess property_class + property_subtype from any snippet of text."""
     hay = " ".join((t or "").lower() for t in texts)
     for kw, cls, sub in _SUBTYPE_HINTS:
         if kw in hay:
@@ -173,61 +218,370 @@ def attr_of(node, name: str) -> Optional[str]:
     return node.attributes.get(name)
 
 
-# ---------------------------------------------------------------------
+# =====================================================================
+# Detail-URL identification (shared by collector + discovery)
+# =====================================================================
+def _norm_host(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower().lstrip("www.")
+    except Exception:
+        return ""
+
+
+def _looks_navish(text: str, href: str) -> bool:
+    blob = f"{text.lower()} {href.lower()}"
+    return any(kw in blob for kw in _NAV_KEYWORDS)
+
+
+def _path_parts(url: str) -> list[str]:
+    return [p for p in urlparse(url).path.split("/") if p]
+
+
+def _identify_detail_url(card_or_anchors, base_url: str,
+                         category_page_url: Optional[str] = None) -> Optional[str]:
+    """Pick the most-likely detail URL for a listing card. Screens candidates:
+
+    * same host as base_url
+    * not equal to the category page
+    * not a nav/social/agent/pagination link
+    * path extends BENEATH the category page path (has one or more extra
+      non-empty segments), OR contains a numeric-ID tail
+    * unique-looking tail (has letters+digits or a hyphenated slug)
+
+    Accepts either an HTMLParser node (a card) OR an iterable of anchor
+    nodes. Returns the resolved absolute URL, or None if nothing qualifies.
+    """
+    if card_or_anchors is None:
+        return None
+    if hasattr(card_or_anchors, "css"):
+        anchors = card_or_anchors.css("a[href]")
+    else:
+        anchors = list(card_or_anchors)
+    if not anchors:
+        return None
+
+    base_host = _norm_host(base_url)
+    cat_parts = _path_parts(category_page_url) if category_page_url else []
+    cat_url_clean = (category_page_url or "").rstrip("/").split("#", 1)[0].split("?", 1)[0]
+
+    scored: list[tuple[int, str]] = []
+    for a in anchors:
+        href = (a.attributes.get("href") or "").strip()
+        if not href or href.startswith("#") or href.lower().startswith(("javascript:", "mailto:", "tel:")):
+            continue
+        abs_url = urljoin(base_url, href)
+        clean = abs_url.rstrip("/").split("#", 1)[0].split("?", 1)[0]
+        if clean == cat_url_clean:
+            continue
+        if _norm_host(abs_url) != base_host:
+            continue
+        text = (a.text(strip=True) or "").strip()
+        if _looks_navish(text, abs_url):
+            continue
+        parts = _path_parts(abs_url)
+        if not parts:
+            continue
+        tail = parts[-1]
+        # Score candidates — highest score wins.
+        score = 0
+        # Below category path
+        if cat_parts and parts[:len(cat_parts)] == cat_parts and len(parts) > len(cat_parts):
+            score += 4
+        # Extra depth vs. category
+        if cat_parts and len(parts) > len(cat_parts):
+            score += 1
+        # Numeric-ID somewhere in the tail (e.g. /property/12345/foo, /buy/12345-house)
+        if _INT_RE.search(tail):
+            score += 3
+        # Hyphenated slug (multi-word)
+        if "-" in tail and len(tail) > 5:
+            score += 2
+        # Has text (likely a title anchor rather than an icon-only link)
+        if text and len(text) > 8:
+            score += 1
+        # Bonus for common canonical patterns
+        for hint in ("/property/", "/listing/", "/properties/", "/listings/",
+                     "/ad/", "/homes/", "/houses/", "/estate/", "/details/"):
+            if hint in abs_url.lower():
+                score += 2
+                break
+        if score <= 0:
+            continue
+        scored.append((score, abs_url))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda t: -t[0])
+    return scored[0][1]
+
+
+# =====================================================================
+# Pagination discovery (no ?page=N fallback)
+# =====================================================================
+def _find_next_page_url(html: str, current_url: str,
+                        cfg: dict) -> Optional[str]:
+    """Discover the actual "Next" URL exposed by the source. Precedence:
+
+    1. `<link rel="next">` in `<head>`
+    2. `<a rel="next">` anywhere in body
+    3. Live "Next" controls — `.next a`, `[aria-label*=next i]`,
+       anchors with visible text "Next" / "→" / "»" / "›"
+    4. Source-specific `parser_config.next_page_selector` (CSS selector
+       resolving to an `<a href>`)
+
+    Returns the absolute URL or None. NEVER guesses `?page=N`.
+    """
+    if not html or not _HAVE_SELECTOLAX:
+        return None
+    tree = HTMLParser(html)
+    base = current_url
+
+    # 1 + 2
+    for sel in ("link[rel='next'][href]", "a[rel='next'][href]"):
+        n = tree.css_first(sel)
+        href = attr_of(n, "href")
+        if href:
+            return urljoin(base, href)
+
+    # 3 — live "Next" controls
+    live_selectors = [
+        "nav[aria-label*='pagination' i] a[rel='next']",
+        "[aria-label*='next' i][href]",
+        ".pagination a[rel='next']",
+        ".pagination .next a",
+        "a.next",
+        "li.next a",
+    ]
+    for sel in live_selectors:
+        n = tree.css_first(sel)
+        href = attr_of(n, "href")
+        if href:
+            return urljoin(base, href)
+
+    # 3b — anchor whose visible text is one of Next / › / » / →
+    for a in tree.css("a[href]"):
+        t = (a.text(strip=True) or "").strip().lower()
+        if t in ("next", "next »", "next ›", "next >", "›", "»", "→", ">"):
+            href = a.attributes.get("href") or ""
+            if href and not href.startswith("#"):
+                return urljoin(base, href)
+
+    # 4 — source-specific
+    custom = cfg.get("next_page_selector")
+    if custom:
+        n = tree.css_first(custom)
+        href = attr_of(n, "href")
+        if href:
+            return urljoin(base, href)
+
+    return None
+
+
+# =====================================================================
+# HTTP fetcher with Retry-After honouring + exponential backoff
+# =====================================================================
+async def _fetch_with_retries(client: httpx.AsyncClient, url: str,
+                              *, max_retries: int = 3,
+                              base_delay_ms: int = 2000) -> tuple[Optional[str], int]:
+    """Return `(html, status)`. On 429/503 honours `Retry-After` up to
+    `max_retries` times with exponential backoff, then gives up."""
+    delay_ms = base_delay_ms
+    for attempt in range(max_retries + 1):
+        try:
+            r = await client.get(url)
+            if r.status_code in (429, 503) and attempt < max_retries:
+                ra = r.headers.get("Retry-After")
+                wait = delay_ms
+                if ra and ra.isdigit():
+                    wait = int(ra) * 1000
+                await asyncio.sleep(wait / 1000.0)
+                delay_ms *= 2
+                continue
+            return r.text if r.status_code < 400 else None, r.status_code
+        except Exception as e:                                          # noqa: BLE001
+            logger.info(f"fetch {url}: {type(e).__name__}: {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(delay_ms / 1000.0)
+                delay_ms *= 2
+                continue
+            return None, 0
+    return None, 0
+
+
+# =====================================================================
 # Base HTTP + HTML collector
-# ---------------------------------------------------------------------
+# =====================================================================
 class HttpListingCollector(CollectorBase):
-    """Skeleton every network-backed collector inherits. Subclasses set
-    class-level `DEFAULT_CONFIG` (see the concrete collector files for
-    shape). All selectors + paths are overridable at run-time via
-    `MarketSource.parser_config`, so operators can adjust when a site
-    tweaks its markup."""
+    """Contract every network-backed collector inherits. Subclasses set
+    `DEFAULT_CONFIG` (see the concrete collector files)."""
 
     requires_network = True
-    DEFAULT_CONFIG: dict = {}       # subclass fills
+    DEFAULT_CONFIG: dict = {}
+    # Per-source overrides live on MarketSource.parser_config. Every key
+    # in DEFAULT_CONFIG is override-able. Keys with special meaning:
+    #   next_page_selector      — CSS selector for a next-page <a>
+    #   crawl_details           — bool, default True
+    #   detail_selectors        — dict of field → CSS selector for the
+    #                             detail page
+    #   detail_concurrency      — int, default 2
+    #   request_delay_ms        — int, default 500 (per-request jitter)
+    #   max_pages_safety_ceiling — int, default 50 (runaway guard, not
+    #                              a "stop here" target)
 
     def _config(self) -> dict:
         cfg = dict(self.DEFAULT_CONFIG)
         cfg.update(self.source.get("parser_config") or {})
+        cfg.setdefault("crawl_details", True)
+        cfg.setdefault("detail_concurrency", 2)
+        cfg.setdefault("request_delay_ms", 500)
+        cfg.setdefault("max_pages_safety_ceiling", 50)
         return cfg
 
     def _base_url(self) -> str:
-        # Fall back to the collector's default host if the source itself
-        # doesn't override it (keeps demo data setups friction-free).
         return (self.source.get("base_url")
                 or self.DEFAULT_CONFIG.get("base_url", "")).rstrip("/")
 
-    async def _fetch(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
-        try:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.text
-        except Exception as e:                                          # noqa: BLE001
-            logger.info(f"{self.key} fetch {url}: {e}")
-            return None
+    async def iter_listings(self, run=None) -> AsyncIterator[dict]:
+        cfg = self._config()
+        base = self._base_url()
+        headers = {"User-Agent": cfg.get("user_agent",
+                   "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
 
-    def _parse_card(self, card, cfg: dict, purpose: str,
-                    base_url: str) -> Optional[dict]:
-        """Extract a single listing tile. Returns None if the card is
-        unusable (no URL / no ID). Subclasses can override for site-specific
-        quirks."""
+        listing_pages = self.source.get("listing_pages") or []
+        if not listing_pages:
+            logger.warning(f"{self.key} source '{self.source.get('name')}' has no "
+                           f"listing_pages — run Discover Pages first")
+            _record(run, "no_listing_pages_configured")
+            return
+
+        seen_ids: set[str] = set()
+        detail_sem = asyncio.Semaphore(int(cfg["detail_concurrency"]))
+        delay_ms = int(cfg["request_delay_ms"])
+
+        async with httpx.AsyncClient(timeout=15.0, headers=headers,
+                                     follow_redirects=True) as client:
+            for page_entry in listing_pages:
+                listing_url = (page_entry or {}).get("listing_url")
+                if not listing_url:
+                    continue
+                purpose = (page_entry.get("purpose")
+                           or self._infer_purpose(page_entry, listing_url))
+                async for row in self._walk_category(
+                        client, listing_url, cfg, purpose, base,
+                        seen_ids, detail_sem, delay_ms, run):
+                    yield row
+
+    def _infer_purpose(self, page_entry: dict, url: str) -> str:
+        blob = " ".join([
+            (page_entry.get("category") or ""),
+            (page_entry.get("category_label") or ""), url,
+        ]).lower()
+        if any(w in blob for w in ("rent", "lease", "leasing", "rental")):
+            return "rent"
+        return "sale"
+
+    async def _walk_category(self, client, listing_url: str, cfg: dict,
+                             purpose: str, base: str, seen_ids: set[str],
+                             detail_sem: asyncio.Semaphore, delay_ms: int,
+                             run) -> AsyncIterator[dict]:
+        """Walk one confirmed category page + its Next pages."""
+        current_url: Optional[str] = listing_url
+        page_no = 0
+        ceiling = int(cfg["max_pages_safety_ceiling"])
+        while current_url and page_no < ceiling:
+            page_no += 1
+            html, status = await _fetch_with_retries(client, current_url)
+            if not html:
+                _record(run, "page_fetch_failed", url=current_url, status=status)
+                _record_page(run, current_url, cards_seen=0,
+                             cards_accepted=0, cards_rejected=0, final=True)
+                break
+
+            cards = self._select_cards(html, cfg)
+            accepted = 0; rejected = 0
+            for card in cards:
+                row, reject_reason = self._parse_card(
+                    card, cfg, purpose, base, category_page_url=current_url,
+                )
+                if reject_reason:
+                    rejected += 1
+                    _record(run, reject_reason)
+                    continue
+                sid = row.get("source_listing_id")
+                if sid and sid in seen_ids:
+                    rejected += 1
+                    _record(run, "duplicate_source_id_within_run")
+                    continue
+                if sid:
+                    seen_ids.add(sid)
+
+                # Enrich from the detail page (best-effort)
+                if cfg["crawl_details"] and row.get("source_url"):
+                    _record(run, "detail_page_attempted", inc="detail_pages_attempted")
+                    enriched, ok = await self._enrich(
+                        client, row["source_url"], cfg,
+                        detail_sem, delay_ms, run)
+                    if ok:
+                        _record(run, "detail_page_succeeded",
+                                inc="detail_pages_succeeded")
+                        row = {**row, **{k: v for k, v in enriched.items()
+                                          if v is not None and v != ""}}
+                    else:
+                        _record(run, "detail_fetch_failed",
+                                inc="detail_pages_failed")
+                accepted += 1
+                _record(run, "card_accepted")
+                yield row
+
+            _record_page(run, current_url, cards_seen=len(cards),
+                         cards_accepted=accepted, cards_rejected=rejected,
+                         final=True)
+
+            if accepted == 0 and rejected == 0 and cards:
+                # Cards existed but every one was scored 0 by URL screener —
+                # extremely unlikely, but stop pagination to avoid runaway.
+                _record_pagination_end(run, "no_extractable_cards")
+                break
+
+            next_url = _find_next_page_url(html, current_url, cfg)
+            if not next_url or next_url == current_url:
+                _record_pagination_end(
+                    run, "no_next_link" if not next_url else "next_equals_current")
+                break
+
+            # Jitter between page fetches (politeness)
+            await asyncio.sleep((delay_ms + random.randint(0, delay_ms)) / 1000.0)
+            current_url = next_url
+
+        if page_no >= ceiling:
+            _record_pagination_end(run, "safety_ceiling_hit")
+
+    def _select_cards(self, html: str, cfg: dict) -> list:
         if not _HAVE_SELECTOLAX:
-            return None
+            return []
+        tree = HTMLParser(html)
+        return tree.css(cfg.get("card") or "article, .listing, .property")
 
-        link = card.css_first(cfg["url"]) if cfg.get("url") else None
-        href = attr_of(link, "href")
-        if not href:
-            return None
-        source_url = href if href.startswith("http") else f"{base_url}{href}"
-        source_listing_id = href.rstrip("/").split("/")[-1] or href
-        if not source_listing_id or source_listing_id in {"#", ""}:
-            return None
+    def _parse_card(self, card, cfg: dict, purpose: str, base_url: str,
+                    category_page_url: Optional[str] = None
+                    ) -> tuple[Optional[dict], Optional[str]]:
+        """Extract one listing tile. Returns `(row, None)` on accept, or
+        `(None, reason)` on reject. Missing beds/baths/area do NOT reject —
+        only URL identity failure or non-numeric price."""
+        # Detail URL — new stricter identifier (used to be first-anchor fallback).
+        source_url = _identify_detail_url(card, base_url, category_page_url)
+        if not source_url:
+            return None, "no_url_in_card"
+        source_listing_id = _path_parts(source_url)[-1] or source_url
 
         title = text_of(card.css_first(cfg["title"])) if cfg.get("title") else ""
-        price = parse_price(text_of(card.css_first(cfg["price"]))) if cfg.get("price") else None
-        addr  = text_of(card.css_first(cfg["address"])) if cfg.get("address") else ""
-        desc  = text_of(card.css_first(cfg.get("description", ""))) if cfg.get("description") else ""
+        price_text = text_of(card.css_first(cfg["price"])) if cfg.get("price") else ""
+        price = parse_price(price_text)
+        if price is None:
+            return None, "no_numeric_price"
 
+        addr = text_of(card.css_first(cfg["address"])) if cfg.get("address") else ""
+        desc = text_of(card.css_first(cfg.get("description", ""))) if cfg.get("description") else ""
         street, suburb, city, province = parse_address(addr)
 
         beds = parse_bedrooms(title + " " + desc)
@@ -236,8 +590,8 @@ class HttpListingCollector(CollectorBase):
         baths = parse_bathrooms(title + " " + desc)
         if baths is None and cfg.get("baths"):
             baths = first_int(text_of(card.css_first(cfg["baths"])))
-        land  = parse_price(text_of(card.css_first(cfg["land"])))     if cfg.get("land")     else None
-        bldg  = parse_price(text_of(card.css_first(cfg["building"]))) if cfg.get("building") else None
+        land = parse_price(text_of(card.css_first(cfg["land"])))     if cfg.get("land")     else None
+        bldg = parse_price(text_of(card.css_first(cfg["building"]))) if cfg.get("building") else None
 
         blob = " ".join(filter(None, [title, addr, desc]))
         allot, sect = parse_allotment_section(blob)
@@ -263,103 +617,94 @@ class HttpListingCollector(CollectorBase):
             "province": province or cfg.get("default_province"),
             "bedrooms": beds, "bathrooms": baths,
             "land_area_m2": land, "building_area_m2": bldg,
-            "raw_fields": {"title": title, "address": addr, "description": desc},
-        }
+            "raw_fields": {"title": title, "address": addr, "description": desc,
+                           "price_raw": price_text},
+        }, None
 
-    def _parse_page(self, html: Optional[str], cfg: dict, purpose: str,
-                    base_url: str) -> list[dict]:
-        if not html or not _HAVE_SELECTOLAX:
-            return []
-        rows: list[dict] = []
+    async def _enrich(self, client: httpx.AsyncClient, url: str, cfg: dict,
+                      sem: asyncio.Semaphore, delay_ms: int, run
+                      ) -> tuple[dict, bool]:
+        """Fetch the detail page and extract configured fields. Returns
+        (enrichment_dict, ok_flag). Never raises."""
+        ds = cfg.get("detail_selectors") or {}
+        if not ds:
+            return {}, True                # collector disabled detail crawl
+        async with sem:
+            await asyncio.sleep((delay_ms + random.randint(0, delay_ms)) / 1000.0)
+            html, status = await _fetch_with_retries(client, url,
+                                                     max_retries=2, base_delay_ms=1500)
+        if not html:
+            return {}, False
+        if not _HAVE_SELECTOLAX:                                            # pragma: no cover
+            return {}, False
         tree = HTMLParser(html)
-        for card in tree.css(cfg["card"]):
-            row = self._parse_card(card, cfg, purpose, base_url)
-            if row:
-                rows.append(row)
-        return rows
+        out: dict = {}
+        text_map = {
+            "title": ("title", text_of),
+            "description": ("description", text_of),
+            "address": ("address", text_of),
+        }
+        for k, (out_key, fn) in text_map.items():
+            sel = ds.get(k)
+            if sel:
+                val = fn(tree.css_first(sel))
+                if val:
+                    out[out_key] = val
+        if ds.get("price"):
+            v = parse_price(text_of(tree.css_first(ds["price"])))
+            if v is not None:
+                out["price"] = v
+        for k in ("bedrooms", "bathrooms"):
+            sel = ds.get(k)
+            if sel:
+                v = first_int(text_of(tree.css_first(sel)))
+                if v is not None:
+                    out[k] = v
+        if ds.get("land_area"):
+            v = parse_price(text_of(tree.css_first(ds["land_area"])))
+            if v is not None:
+                out["land_area_m2"] = v
+        if ds.get("building_area"):
+            v = parse_price(text_of(tree.css_first(ds["building_area"])))
+            if v is not None:
+                out["building_area_m2"] = v
+        # Detail page may also expose Allotment / Section explicitly
+        page_text = tree.body.text() if tree.body else ""
+        allot, sect = parse_allotment_section(page_text)
+        if allot:
+            out["allotment_number"] = allot
+        if sect:
+            out["section_number"] = sect
+        portion = parse_portion(page_text)
+        if portion:
+            out["portion_number"] = portion
+        return out, True
 
-    async def iter_listings(self) -> AsyncIterator[dict]:
-        cfg = self._config()
-        base = self._base_url()
-        headers = {"User-Agent": cfg.get("user_agent",
-                                          "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
-        max_pages = int(cfg.get("max_pages_per_purpose", 3))
 
-        # NEW: exact listing_urls confirmed at Add-Source time drive the
-        # scrape. NO URL reconstruction, no guessed paths, no /property-for-sale
-        # appending. If a source has no confirmed listing_pages the scrape
-        # yields zero rows (a partial run is reported); ops must open the
-        # source and run "Discover Pages" first.
-        listing_pages = self.source.get("listing_pages") or []
-        if not listing_pages:
-            logger.warning(
-                f"{self.key} source '{self.source.get('name')}' has no "
-                f"listing_pages — run Discover Pages in the admin UI first"
-            )
-            return
+# =====================================================================
+# Diagnostic helpers — safe when `run` is None
+# =====================================================================
+def _record(run, reason: str, *, inc: str | None = None,
+             url: str | None = None, status: int | None = None) -> None:
+    if run is None:
+        return
+    fn = getattr(run, "record_diag", None)
+    if fn:
+        fn(reason, inc=inc, url=url, status=status)
 
-        seen_ids: set[str] = set()
 
-        async with httpx.AsyncClient(timeout=20.0, headers=headers,
-                                     follow_redirects=True) as client:
-            for page_entry in listing_pages:
-                listing_url = (page_entry or {}).get("listing_url")
-                if not listing_url:
-                    continue
-                purpose = (page_entry.get("purpose")
-                           or self._infer_purpose(page_entry, listing_url))
-                async for row in self._iter_paginated(client, listing_url, cfg,
-                                                     purpose, base,
-                                                     max_pages, seen_ids):
-                    yield row
+def _record_page(run, url: str, cards_seen: int, cards_accepted: int,
+                 cards_rejected: int, final: bool = False) -> None:
+    if run is None:
+        return
+    fn = getattr(run, "record_page", None)
+    if fn:
+        fn(url, cards_seen, cards_accepted, cards_rejected, final=final)
 
-    def _infer_purpose(self, page_entry: dict, url: str) -> str:
-        """Best-effort purpose classification from category label or URL
-        fragment. Kept intentionally boring — no key-derived heuristics."""
-        blob = " ".join([
-            (page_entry.get("category") or ""),
-            (page_entry.get("category_label") or ""),
-            url,
-        ]).lower()
-        if any(w in blob for w in ("rent", "lease", "leasing", "rental")):
-            return "rent"
-        return "sale"
 
-    async def _iter_paginated(self, client, listing_url: str, cfg: dict,
-                              purpose: str, base: str, max_pages: int,
-                              seen_ids: set[str]) -> AsyncIterator[dict]:
-        """Walk pagination for ONE confirmed listing_url. The listing_url is
-        used verbatim for page 1; subsequent pages append `?page=N` (or use
-        `cfg.page_url_template` if set) against that exact URL."""
-        for page in range(1, max_pages + 1):
-            if page == 1:
-                url = listing_url
-            elif cfg.get("page_url_template"):
-                # Templated pagination — user-configured, applied to the
-                # listing_url path/base.
-                url = cfg["page_url_template"].format(
-                    base=base.rstrip("/"),
-                    path=listing_url.replace(base.rstrip("/"), "").rstrip("/") or "/",
-                    page=page,
-                )
-            else:
-                sep = "&" if "?" in listing_url else "?"
-                url = f"{listing_url.rstrip('/')}{sep}page={page}"
-            html = await self._fetch(client, url)
-            if html is None:
-                break
-            rows = self._parse_page(html, cfg, purpose, base)
-            if not rows:
-                break
-            fresh = 0
-            for r in rows:
-                sid = r.get("source_listing_id")
-                if sid in seen_ids:
-                    continue
-                seen_ids.add(sid)
-                fresh += 1
-                yield r
-            if fresh == 0:
-                # No new IDs on this page → likely paginating past the last
-                # real page; abort to stay polite to the source.
-                break
+def _record_pagination_end(run, reason: str) -> None:
+    if run is None:
+        return
+    fn = getattr(run, "record_pagination_end", None)
+    if fn:
+        fn(reason)

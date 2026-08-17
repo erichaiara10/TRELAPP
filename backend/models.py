@@ -419,6 +419,10 @@ class CollectionRun(BaseModel):
     errors: List[str] = []
     parser_version: Optional[str] = None
     algorithm_version: str = "MATCH-1.0"
+    # Structured collection diagnostics (populated by HttpListingCollector).
+    # Absent for runs created before this field was introduced; the admin
+    # UI shows a "diagnostics unavailable" note in that case.
+    diagnostics: Optional[dict] = None
 
 
 # ---- Market Listings (raw source ads) ----

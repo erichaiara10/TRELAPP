@@ -33,7 +33,7 @@ class SeedCollector(CollectorBase):
     label = "TREL Seed Generator (synthetic PNG data)"
     requires_network = False
 
-    async def iter_listings(self) -> AsyncIterator[dict]:
+    async def iter_listings(self, run=None) -> AsyncIterator[dict]:
         # Stable RNG per source so re-runs update the same set of listings
         rng = random.Random(f"{self.source['id']}-{self.source.get('parser_version', '1.0')}")
         target = int(self.source.get("seed_count") or 12)

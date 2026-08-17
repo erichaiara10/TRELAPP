@@ -18,7 +18,7 @@ class StricklandRECollector(HttpListingCollector):
     DEFAULT_CONFIG = {
         "base_url": "https://www.sre.com.pg",
         "card": ".property-item, .property-card, .listing-item, article",
-        "url":   "a.property-link, a[href*='/property/'], a.listing-link",
+        "url":   "a[href]",              # advisory — real logic in _identify_detail_url
         "title": ".property-title, .listing-title, h2, h3",
         "price": ".price, .property-price, .listing-price",
         "address": ".address, .property-address, .listing-address",
@@ -27,7 +27,18 @@ class StricklandRECollector(HttpListingCollector):
         "baths": ".baths, .bathrooms",
         "land":  ".land-area, .lot-size",
         "building": ".building-area, .floor-area",
+
+        # Detail-page enrichment — best-effort; ops tune via parser_config.
+        "detail_selectors": {
+            "title": "h1, .property-title, .listing-title",
+            "price": ".price, .property-price, [class*='price']",
+            "description": ".description, .property-description",
+            "address": ".address, .property-address, .location",
+            "bedrooms": "[class*='bed'] .value, .beds",
+            "bathrooms": "[class*='bath'] .value, .baths",
+            "land_area": "[class*='land'] .value, .land-area",
+            "building_area": "[class*='floor'] .value, [class*='building'] .value",
+        },
         "default_city": "Port Moresby",
         "default_province": "NCD",
-        "max_pages_per_purpose": 3,
     }

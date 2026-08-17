@@ -14,20 +14,32 @@ class MarketMeriCollector(HttpListingCollector):
     label = "MarketMeri"
 
     DEFAULT_CONFIG = {
-        "base_url": "https://www.marketmeri.com",
-        # MarketMeri lists real-estate under /category/real-estate — variants
-        # for sale + rent are ops-tuneable via parser_config.
-        "card": ".listing, .ad, .listing-card, article.ad, .classified",
-        "url":   "a.ad-link, a.listing-link, a[href*='/ad/'], a[href*='/listing/']",
-        "title": ".ad-title, .listing-title, h2, h3",
-        "price": ".ad-price, .listing-price, .price",
-        "address": ".ad-location, .listing-location, .location",
-        "description": ".ad-description, .listing-description, .excerpt, p",
-        "beds":  ".beds, .bedrooms",
-        "baths": ".baths, .bathrooms",
-        "land":  ".land-area, .land-size",
-        "building": ".building-area, .floor-area",
+        "base_url": "https://marketmeri.com",
+        # MarketMeri's grid-list wraps each ad in .listing-wrapper-grid; the
+        # first anchor (a.target-url) points to the detail page and a small
+        # cluster of .listing-* spans carries title/price/location.
+        "card": ".listing-wrapper-grid",
+        "url":   "a.target-url[href]",   # advisory — real logic in _identify_detail_url
+        "title": ".listing-title",
+        "price": ".listing-price-value, .listing-price",
+        "address": ".listing-location",
+        "description": ".listing-description",
+        "beds":  ".listing-beds, .beds",
+        "baths": ".listing-baths, .baths",
+        "land":  ".listing-land, .land-area",
+        "building": ".listing-floor, .floor-area",
+
+        # Detail-page enrichment — best-effort; ops tune via parser_config.
+        "detail_selectors": {
+            "title": "h1, .listing-detail-title, .property-title",
+            "price": ".listing-detail-price, .price-value, .price",
+            "description": ".listing-detail-description, .description",
+            "address": ".listing-detail-location, .location",
+            "bedrooms": ".listing-detail-bed .value, [class*='bed'] .value",
+            "bathrooms": ".listing-detail-bath .value, [class*='bath'] .value",
+            "land_area": ".listing-detail-land .value, [class*='land'] .value",
+            "building_area": ".listing-detail-floor .value, [class*='floor'] .value",
+        },
         "default_city": "Port Moresby",
         "default_province": "NCD",
-        "max_pages_per_purpose": 3,
     }

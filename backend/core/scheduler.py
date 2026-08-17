@@ -56,7 +56,7 @@ async def _run_one(source: dict) -> None:
     async with collection_run(source["id"], run_type="scheduled",
                                triggered_by="scheduler",
                                parser_version=source.get("parser_version")) as run:
-        async for payload in collector.iter_listings():
+        async for payload in collector.iter_listings(run=run):
             await run.ingest(payload)
 
 

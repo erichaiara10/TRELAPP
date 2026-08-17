@@ -15,6 +15,18 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Iter-42 — Scraper Diagnostics Overhaul: Accounting Invariant + MarketMeri Fix + Sources Admin RunRow UI (Feb 28, 2026)
+
+**Backend — Scraper engine overhaul completed & verified (13/13 pytest green):**
+- `_walk_category` in `/app/backend/core/collectors/_common.py` enforces the new acceptance contract (must have a detail URL AND a numeric sale/rent price), pagination is discovered from live HTML (`<link rel=next>` / `<a rel=next>` / next-controls / configured selector — no `?page=N` fabrication), and every accepted card fires a polite (concurrency=2) detail-page fetch for enrichment.
+- Structured diagnostics now live on every `CollectionRun`: `pages_visited` (list of `{url, cards_seen, cards_accepted, cards_rejected, final}`), `rejection_reasons` breakdown, `detail_pages_attempted/succeeded/failed`, `pagination_end_reason`, `duplicate_source_ids_within_run`, `records_passed_to_ingestion/inserted/updated`.
+- **Accounting invariant now guaranteed**: `RunContext.record_diag` no longer double-bumps `cards_accepted`/`cards_rejected`; `record_page` recomputes run-level counters from per-page sums on every `final=True` and `_finalise_run` runs one more reconciliation pass — so `cards_seen == cards_accepted + cards_rejected` always holds at run and page level.
+- **MarketMeri collector selector drift fixed**: card selector updated from stale `.listing, .ad, ...` to `.listing-wrapper-grid` — fresh run: 1257 cards seen, 769 accepted, 62/70 pages productive.
+
+**Frontend — `Sources.jsx` `RunRow` component (P0 handoff item):**
+- Recent Collection Runs table now has a per-row expand toggle (data-testid `run-toggle-<id>`) that reveals the structured diagnostics: 8 counter cards (Cards seen/accepted/rejected/Duplicates in-run/Pages followed/Detail attempted/succeeded/failed), rejection-reason badges (`rejection-<reason>`), pagination-end line, pages_visited sub-table, and error tails.
+- Legacy runs (whose diagnostics is null or was recorded before the refactor) show a clear "diagnostics unavailable" note instead of crashing the row.
+
 ### TREL Data Management Suite — Phase 1 (validation) + Phase 2 (CSV I/O) + Phase 3 (seed protection) (Feb 27, 2026)
 
 **Phase 1 — Field validation standardised (frontend labels + backend rules 100% aligned):**

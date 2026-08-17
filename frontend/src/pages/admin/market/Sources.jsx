@@ -9,6 +9,184 @@ import SelectorTester from "./SelectorTester";
 import SourceModal from "./SourceModal";
 import BulkRediscoverModal from "./BulkRediscoverModal";
 
+// ---- RunRow -----------------------------------------------------------------
+// Click-to-expand row for the "Recent Collection Runs" table. When collapsed,
+// it shows one line of summary. When expanded it surfaces the structured
+// diagnostics recorded by HttpListingCollector: pages visited, cards seen /
+// accepted / rejected, rejection reason breakdown, detail-page enrichment
+// counters, pagination-end reason, duplicate source-ids, and error tails.
+// Runs created before diagnostics existed show a "diagnostics unavailable"
+// note instead of crashing the render.
+function RunRow({ run }) {
+  const [open, setOpen] = React.useState(false);
+  const d = run.diagnostics || null;
+  const statusBadge = {
+    success: "bg-emerald-100 text-emerald-800",
+    partial: "bg-amber-100 text-amber-800",
+    failed: "bg-red-100 text-red-800",
+    running: "bg-blue-100 text-blue-800",
+  }[run.status] || "bg-gray-100 text-gray-700";
+
+  return (
+    <>
+      <tr className="border-b border-border/60" data-testid={`run-row-${run.id}`}>
+        <td className="py-2 pr-3">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-muted text-xs"
+            data-testid={`run-toggle-${run.id}`}
+            aria-label={open ? "Collapse diagnostics" : "Expand diagnostics"}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+        </td>
+        <td className="py-2 pr-3 font-mono text-xs">{(run.id || "").slice(0, 8)}</td>
+        <td className="py-2 pr-3 text-xs">{run.source_id?.slice(0, 8) || "—"}</td>
+        <td className="py-2 pr-3">
+          <span className={`px-2 py-0.5 rounded text-xs ${statusBadge}`}>{run.status}</span>
+        </td>
+        <td className="py-2 pr-3 text-xs text-muted-foreground">
+          {(run.started_at || "").slice(0, 16).replace("T", " ") || "—"}
+        </td>
+        <td className="py-2 pr-3 tabular-nums text-xs">
+          {run.listings_new}
+          <span className="text-muted-foreground"> / </span>
+          {run.listings_updated}
+          <span className="text-muted-foreground"> · seen {run.listings_seen}</span>
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-b border-border/60 bg-muted/30" data-testid={`run-diag-${run.id}`}>
+          <td colSpan={6} className="py-3 px-4">
+            {!d ? (
+              <div className="text-xs text-muted-foreground italic">
+                Diagnostics unavailable — this run was recorded before structured
+                diagnostics were introduced.
+              </div>
+            ) : (
+              <div className="space-y-4 text-xs">
+                {/* Counter grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <DiagStat label="Cards seen" value={d.cards_seen} />
+                  <DiagStat label="Cards accepted" value={d.cards_accepted}
+                            tone={d.cards_accepted > 0 ? "good" : "bad"} />
+                  <DiagStat label="Cards rejected" value={d.cards_rejected}
+                            tone={d.cards_rejected > 0 ? "warn" : "neutral"} />
+                  <DiagStat label="Duplicates in-run" value={d.duplicate_source_ids_within_run} />
+                  <DiagStat label="Pages followed" value={d.pagination_pages_followed} />
+                  <DiagStat label="Detail attempted" value={d.detail_pages_attempted} />
+                  <DiagStat label="Detail succeeded" value={d.detail_pages_succeeded}
+                            tone={d.detail_pages_succeeded > 0 ? "good" : "neutral"} />
+                  <DiagStat label="Detail failed" value={d.detail_pages_failed}
+                            tone={d.detail_pages_failed > 0 ? "bad" : "neutral"} />
+                </div>
+
+                {/* Rejection reasons */}
+                <div>
+                  <div className="font-semibold mb-1">Rejection reasons</div>
+                  {Object.keys(d.rejection_reasons || {}).length === 0 ? (
+                    <div className="text-muted-foreground italic">No rejections recorded.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(d.rejection_reasons).map(([reason, count]) => (
+                        <span
+                          key={reason}
+                          className="px-2 py-0.5 rounded bg-red-50 text-red-800 border border-red-200"
+                          data-testid={`rejection-${reason}`}
+                        >
+                          {reason}: <span className="font-mono">{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Pagination end reason */}
+                <div>
+                  <span className="font-semibold">Pagination end:</span>{" "}
+                  <span className="font-mono">
+                    {d.pagination_end_reason || "—"}
+                  </span>
+                  {typeof d.records_passed_to_ingestion === "number" && (
+                    <span className="ml-4 text-muted-foreground">
+                      passed to ingestion: <span className="font-mono">{d.records_passed_to_ingestion}</span>
+                      {" · "}inserted: <span className="font-mono">{d.records_inserted}</span>
+                      {" · "}updated: <span className="font-mono">{d.records_updated}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Pages visited */}
+                <div>
+                  <div className="font-semibold mb-1">Pages visited ({(d.pages_visited || []).length})</div>
+                  {(!d.pages_visited || d.pages_visited.length === 0) ? (
+                    <div className="text-muted-foreground italic">No pages fetched.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                            <th className="py-1 pr-2">#</th>
+                            <th className="py-1 pr-2">URL</th>
+                            <th className="py-1 pr-2 text-right">Seen</th>
+                            <th className="py-1 pr-2 text-right">Accepted</th>
+                            <th className="py-1 pr-2 text-right">Rejected</th>
+                            <th className="py-1 pr-2">Final</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {d.pages_visited.map((p, i) => (
+                            <tr key={i} className="border-t border-border/40">
+                              <td className="py-1 pr-2 tabular-nums text-muted-foreground">{i + 1}</td>
+                              <td className="py-1 pr-2 font-mono truncate max-w-[420px]" title={p.url}>{p.url}</td>
+                              <td className="py-1 pr-2 text-right tabular-nums">{p.cards_seen ?? 0}</td>
+                              <td className="py-1 pr-2 text-right tabular-nums text-emerald-700">{p.cards_accepted ?? 0}</td>
+                              <td className="py-1 pr-2 text-right tabular-nums text-red-700">{p.cards_rejected ?? 0}</td>
+                              <td className="py-1 pr-2">{p.final ? "yes" : ""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Errors */}
+                {run.errors && run.errors.length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Errors ({run.errors.length})</div>
+                    <ul className="list-disc pl-5 space-y-0.5 max-h-40 overflow-y-auto">
+                      {run.errors.slice(0, 20).map((e, i) => (
+                        <li key={i} className="font-mono text-red-700 break-all">{e}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function DiagStat({ label, value, tone = "neutral" }) {
+  const toneCls = {
+    good: "text-emerald-700",
+    bad: "text-red-700",
+    warn: "text-amber-700",
+    neutral: "text-foreground",
+  }[tone];
+  return (
+    <div className="rounded border border-border bg-background px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={`font-mono tabular-nums text-sm ${toneCls}`}>{value ?? 0}</div>
+    </div>
+  );
+}
+
 export default function DataSources() {
   const [rows, setRows] = useState([]);
   const [health, setHealth] = useState([]);
@@ -173,6 +351,7 @@ export default function DataSources() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-3 w-6"></th>
                   <th className="py-2 pr-3">Run</th>
                   <th className="py-2 pr-3">Source</th>
                   <th className="py-2 pr-3">Status</th>
@@ -182,13 +361,7 @@ export default function DataSources() {
               </thead>
               <tbody>
                 {runs.map((r) => (
-                  <tr key={r.id} className="border-b border-border/60" data-testid={`run-row-${r.id}`}>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.id.slice(0, 8)}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.source_id.slice(0, 8)}</td>
-                    <td className="py-2 pr-3 uppercase text-xs tracking-widest">{r.status}</td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">{r.started_at}</td>
-                    <td className="py-2 pr-3">{r.listings_new} / {r.listings_updated}</td>
-                  </tr>
+                  <RunRow key={r.id} run={r} />
                 ))}
               </tbody>
             </table>

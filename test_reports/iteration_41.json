@@ -1,0 +1,40 @@
+{
+  "summary": "Iter-41 backend + frontend verification of scraper diagnostics overhaul and new RunRow admin UI. Backend: 11 passed, 1 xfailed (documented accounting bug). Verified TREL Seed Generator collect returns status='success' with fully-populated diagnostics (all 14 required keys), matches_created=12. Verified GET /admin/market/runs?limit=20 tolerates legacy runs with diagnostics=null. Verified rejection contract on the existing Hausples partial runs — rejection_reasons contains no_numeric_price, duplicate_source_id_within_run, no_url_in_card; detail-page math holds (attempted == succeeded + failed, 413 == 413 + 0); pagination_end_reason in the allowed set; pages_visited rows carry required keys. Verified _id is stripped from every /admin/market/* JSON response. Scheduler pause/resume works; regression endpoints (sources, runs, summary, collectors, scheduler, sources/health) all 200. Frontend: all 10 recent runs render with run-toggle-<id>; expanding a Hausples partial row reveals the 8 counter cards (Cards seen 1116, accepted 418, rejected 5809, duplicates 1031, pages 63, detail attempted/succeeded/failed 418/418/0) and 3 rejection badges with correct data-testid (rejection-no_numeric_price, rejection-duplicate_source_id_within_run, rejection-no_url_in_card), plus 'Pagination end' line and 'Pages visited' sub-table. Legacy runs (diagnostics=null) show 'Diagnostics unavailable — this run was recorded before structured diagnostics were introduced.' without crashing. Regression buttons Add Source and Rediscover all present. Evidence page row-click still opens Inspector (38 inspector-* elements). /admin/market/audit renders.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/admin/market/sources/{marketmeri_id}/collect",
+       "issue": "MarketMeri collector visited 70 pages (35 pagination pages followed) and closed as status='success' but with cards_seen=0, cards_accepted=0, records_passed_to_ingestion=0. The extractor is finding zero cards on every listing page — the marketmeri collector's card selectors appear to be broken against the current live site. Contrast with Hausples which correctly extracts 20 cards/page. Diagnostics correctly reports 'no_next_link' pagination_end_reason so the framework itself is fine; the site-specific parser is the defect.",
+       "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/admin/market/sources/{id}/collect (Hausples partial run)",
+       "issue": "Diagnostics accounting invariant does NOT hold: cards_accepted (413) + cards_rejected (1519) = 1932 but cards_seen = 682, and sum of per-page pages_visited[*].cards_seen also = 682. Rejection reasons breakdown (no_numeric_price=969 + duplicate=550 = 1519) suggests the aggregate cards_rejected is counting each re-encounter/duplicate independently while cards_seen only counts first-sighting per URL. Either cards_seen should include repeat encounters, or duplicates should not double-count into cards_rejected. This makes the acceptance panel misleading (rejected > seen looks broken to a user)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_diagnostics.py",
+    "/app/test_reports/pytest/iter41.xml"
+  ],
+  "action_items": [
+    "Fix MarketMeri collector's card extractor: 70 pages visited, 0 cards seen — site parser is broken (report as HIGH; scraper coverage is materially reduced without it).",
+    "Reconcile the diagnostics accounting so cards_accepted + cards_rejected == cards_seen (or explicitly document that rejection_reasons is an event count, distinct from unique-cards seen — and label the UI accordingly to prevent operator confusion)."
+  ],
+  "critical_code_review_comments": [
+    "core/collectors/_common.py — verify whether duplicate_source_id_within_run and detail-page rejections should also bump cards_seen (or whether cards_rejected should be de-duped to align with cards_seen). Current behaviour makes rejected > seen possible on any run with duplicates, which contradicts the acceptance-contract documented in the file's top-of-file docstring."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_diagnostics.py (new)"
+  ],
+  "success_rate": {"backend": "92% (11/12 hard-pass, 1 xfail documented bug)", "frontend": "100%"},
+  "seed_data_creation": "One fresh manual seed run of TREL Seed Generator (12 listings ingested). Scheduler was paused during backend testing and resumed at completion.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "context_for_next_testing_agent": "The xfail on test_acceptance_math_holds in /app/backend/tests/test_iter41_diagnostics.py documents the accounting bug — flip xfail→hard-assert once the dev fixes the invariant. MarketMeri source id: 89cf6ddd-4f20-4fcf-91b6-84543237f76d — retest by POSTing /api/admin/market/sources/{id}/collect and asserting diagnostics.cards_seen > 0. The seed source id is fbc37959-1dfb-4af9-ba52-a709fa095e68. Hausples full runs take ~15 min so avoid on next iteration; the existing partial runs (0a436d6d, b47e8072) already prove the rejection + detail contracts.",
+  "rca_of_the_issue": "1) MarketMeri: the site-specific card selector inside core/collectors/marketmeri.py (or the shared _common extraction path when collector='marketmeri') is not matching the current DOM — the framework's pagination is working (70 pages visited, no_next_link termination) but the card extractor returns 0. 2) Diagnostics math: cards_seen is being incremented once per (url,card) tuple deduped in-page, while cards_rejected/rejection_reasons are incremented on every rejection event (including cross-page duplicate re-encounters that increment duplicate_source_id_within_run). Either both should count events, or both should count uniques."
+}

@@ -24,7 +24,8 @@ from models import CollectionRun, MarketAuditEvent
 
 
 class RunContext:
-    """Handle returned by `collection_run`. Only exposes `ingest`."""
+    """Handle returned by `collection_run`. Exposes `ingest` plus the
+    diagnostic recording surface consumed by HttpListingCollector."""
 
     def __init__(self, run_id: str, source_id: str, actor_id: Optional[str]):
         self.run_id = run_id
@@ -36,12 +37,87 @@ class RunContext:
         self.matches = 0
         self.review_cases = 0
         self.errors: list[str] = []
+        # ---- diagnostics ----
+        self.diag: dict = {
+            "pages_visited": [],
+            "cards_seen": 0,
+            "cards_accepted": 0,
+            "cards_rejected": 0,
+            "rejection_reasons": {},
+            "detail_urls_identified": 0,
+            "detail_pages_attempted": 0,
+            "detail_pages_succeeded": 0,
+            "detail_pages_failed": 0,
+            "pagination_pages_followed": 0,
+            "pagination_end_reason": None,
+            "duplicate_source_ids_within_run": 0,
+            "records_passed_to_ingestion": 0,
+            "records_inserted": 0,
+            "records_updated": 0,
+        }
+        self._page_index: dict[str, int] = {}     # url -> index into pages_visited
+
+    # ---------- diagnostic recording ----------
+    def record_diag(self, reason: str, *, inc: str | None = None,
+                    url: str | None = None, status: int | None = None) -> None:
+        # Named-counter bumps first (detail_pages_attempted / _succeeded /
+        # _failed, or any other counter passed via `inc`).
+        if inc and inc in self.diag:
+            self.diag[inc] = int(self.diag.get(inc, 0)) + 1
+        # `card_accepted` and `detail_page_*` are non-rejection events —
+        # they never bump rejection_reasons and never bump the aggregate
+        # cards_* counters. Those aggregates are re-computed from the
+        # authoritative `pages_visited` page counters (see `record_page`
+        # and `_finalise_run`) so `cards_seen == cards_accepted +
+        # cards_rejected` always holds.
+        if reason in ("card_accepted", "detail_page_attempted",
+                      "detail_page_succeeded"):
+            if reason == "detail_page_attempted":
+                self.diag["detail_urls_identified"] += 1
+            return
+        # Duplicate-in-run gets its own dedicated counter so ops can see
+        # how many duplicates the scraper deduped this pass; it ALSO
+        # counts as a rejection reason for the breakdown view.
+        if reason == "duplicate_source_id_within_run":
+            self.diag["duplicate_source_ids_within_run"] += 1
+        # Everything else is a rejection reason breakdown entry.
+        self.diag["rejection_reasons"][reason] = \
+            self.diag["rejection_reasons"].get(reason, 0) + 1
+
+    def record_page(self, url: str, cards_seen: int, cards_accepted: int,
+                    cards_rejected: int, *, final: bool = False) -> None:
+        if url in self._page_index:
+            idx = self._page_index[url]
+            entry = self.diag["pages_visited"][idx]
+            entry.update({"cards_seen": cards_seen,
+                          "cards_accepted": cards_accepted,
+                          "cards_rejected": cards_rejected,
+                          "final": final})
+        else:
+            self._page_index[url] = len(self.diag["pages_visited"])
+            self.diag["pages_visited"].append({
+                "url": url,
+                "cards_seen": cards_seen,
+                "cards_accepted": cards_accepted,
+                "cards_rejected": cards_rejected,
+                "final": final,
+            })
+        if final:
+            self.diag["pagination_pages_followed"] = len(self.diag["pages_visited"])
+            self.diag["cards_seen"] = sum(p.get("cards_seen", 0) for p in self.diag["pages_visited"])
+            self.diag["cards_accepted"] = sum(p.get("cards_accepted", 0) for p in self.diag["pages_visited"])
+            self.diag["cards_rejected"] = sum(p.get("cards_rejected", 0) for p in self.diag["pages_visited"])
+
+    def record_pagination_end(self, reason: str) -> None:
+        # Preserve first end-reason if already set
+        self.diag["pagination_end_reason"] = self.diag["pagination_end_reason"] or reason
 
     async def ingest(self, payload: dict) -> dict:
         """Ingest one listing under this run. Never raises — errors get
         appended to the run's error list so the whole batch keeps going."""
         payload = {**payload, "source_id": self.source_id}
         self.seen += 1
+        self.diag["records_passed_to_ingestion"] += 1
         try:
             result = await ingest_market_listing(payload, actor_id=self.actor_id)
         except Exception as e:  # noqa: BLE001 — scraper must not crash the whole run
@@ -51,14 +127,16 @@ class RunContext:
 
         if result.get("is_new"):
             self.new += 1
+            self.diag["records_inserted"] += 1
         else:
             self.updated += 1
+            self.diag["records_updated"] += 1
         if result.get("match"):
             self.matches += 1
         if result.get("review_case"):
             self.review_cases += 1
 
-        # Continuously flush counters so live dashboards see progress
+        # Continuously flush counters + diagnostics so live dashboards see progress
         await db.collection_runs.update_one(
             {"id": self.run_id},
             {"$set": {
@@ -67,6 +145,7 @@ class RunContext:
                 "listings_updated": self.updated,
                 "matches_created": self.matches,
                 "review_cases_created": self.review_cases,
+                "diagnostics": self.diag,
             }},
         )
         return result
@@ -113,6 +192,20 @@ async def _finalise_run(run_id: str, source_id: str, ctx: RunContext,
     elif ctx.errors:
         status = "partial"
 
+    # ---- Reconcile run-level card counters against per-page authority ----
+    # The pages_visited entries are the ground truth (each card is counted
+    # exactly once as either accepted or rejected inside `_walk_category`).
+    # The event-based counters bumped in `record_diag` can drift (e.g. a
+    # detail-page rejection also increments a rejection reason), which
+    # historically produced `cards_accepted + cards_rejected > cards_seen`
+    # at run level. Overwrite them with the authoritative page sums.
+    pages = ctx.diag.get("pages_visited") or []
+    if pages:
+        ctx.diag["cards_seen"] = sum(int(p.get("cards_seen") or 0) for p in pages)
+        ctx.diag["cards_accepted"] = sum(int(p.get("cards_accepted") or 0) for p in pages)
+        ctx.diag["cards_rejected"] = sum(int(p.get("cards_rejected") or 0) for p in pages)
+        ctx.diag["pagination_pages_followed"] = len(pages)
+
     now = now_iso()
     await db.collection_runs.update_one(
         {"id": run_id},
@@ -123,6 +216,7 @@ async def _finalise_run(run_id: str, source_id: str, ctx: RunContext,
             "listings_updated": ctx.updated,
             "matches_created": ctx.matches,
             "review_cases_created": ctx.review_cases,
+            "diagnostics": ctx.diag,
         }},
     )
 

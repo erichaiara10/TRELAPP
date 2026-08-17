@@ -22,7 +22,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from core.collectors import get_collector
-from core.collectors._common import HttpListingCollector
+from core.collectors._common import HttpListingCollector, _identify_detail_url
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,12 @@ _BLACKLIST_KEYWORDS = [
     "whatsapp", "tel:", "mailto:",
 ]
 
-_LISTING_LINK_HINTS = ["/property/", "/listing/", "/properties/",
-                       "/listings/", "/ad/", "/homes/", "/houses/",
-                       "/estate/"]
+_LISTING_LINK_HINTS_LEGACY_NOTE = (
+    # Left as documentation only — replaced by the shared `_identify_detail_url`
+    # so the Discover Pages counter and the real scraper always agree on what
+    # qualifies as a detail link.
+    "moved to core.collectors._common._identify_detail_url"
+)
 
 
 def _classify(text: str, url_path: str) -> Optional[dict]:
@@ -162,21 +165,20 @@ def _extract_candidates(html: str, base_url: str) -> list[dict]:
     return list(seen.values())
 
 
-def _count_cards(html: str, card_selector: str) -> tuple[int, int]:
-    """Return `(cards_found, detail_links)` for a candidate listing page."""
+def _count_cards(html: str, card_selector: str, base_url: str,
+                 category_url: str) -> tuple[int, int]:
+    """Return `(cards_found, detail_links)` for a candidate listing page.
+    A detail link is anything `_identify_detail_url` would accept from
+    inside that card — same definition the real scraper uses, so the
+    Discover Pages number and the eventual collection can't disagree."""
     if not html or not _HAVE_SELECTOLAX:
         return 0, 0
     tree = HTMLParser(html)
     cards = tree.css(card_selector or "article, .listing, .property")
     detail_links = 0
     for card in cards:
-        # detail link = any anchor inside the card that points at a URL
-        # containing one of the listing-detail path hints
-        for a in card.css("a[href]"):
-            href = (a.attributes.get("href") or "").lower()
-            if any(hint in href for hint in _LISTING_LINK_HINTS):
-                detail_links += 1
-                break
+        if _identify_detail_url(card, base_url, category_url):
+            detail_links += 1
     return len(cards), detail_links
 
 
@@ -230,7 +232,10 @@ async def discover_listing_pages(base_url: str, collector_key: str,
                     "accessible": False,
                     "auto_confirm": False,
                 }
-            cards_found, detail_links = _count_cards(page_html, card_selector)
+            cards_found, detail_links = _count_cards(
+                page_html, card_selector,
+                base_url=final_home or base_url,
+                category_url=final_url or a["url"])
             return {
                 "category": a["rule"]["key"],
                 "category_label": a["rule"]["label"],

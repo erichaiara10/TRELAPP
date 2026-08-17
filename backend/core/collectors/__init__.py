@@ -46,9 +46,12 @@ class CollectorBase(ABC):
         self.source = source
 
     @abstractmethod
-    async def iter_listings(self) -> AsyncIterator[dict]:
+    async def iter_listings(self, run=None) -> AsyncIterator[dict]:
         """Yield one listing payload at a time. Payload MUST contain
-        `source_listing_id`; the framework injects `source_id`."""
+        `source_listing_id`; the framework injects `source_id`. The
+        optional `run` argument is a RunContext-shaped object exposing
+        `record_diag`/`record_page`/`record_pagination_end` (see
+        `core.runs.RunContext`)."""
         raise NotImplementedError
         yield {}                    # for typing
 

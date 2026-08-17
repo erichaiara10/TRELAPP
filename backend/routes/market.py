@@ -386,7 +386,7 @@ async def collect_source(sid: str, user: dict = Depends(get_current_user)):
     async with collection_run(sid, run_type="manual",
                               triggered_by=user.get("id"),
                               parser_version=source.get("parser_version")) as run:
-        async for payload in collector.iter_listings():
+        async for payload in collector.iter_listings(run=run):
             await run.ingest(payload)
         run_id = run.run_id
 
