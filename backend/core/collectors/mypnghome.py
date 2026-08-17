@@ -17,7 +17,7 @@ class MyPNGHomeCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.mypnghome.com",
-        # "card": ".property-listing, .listing-item, article.property",
+        "card": ".property-listing, .listing-item, article.property",
         "url":   "a[href]",              # advisory — real logic in _identify_detail_url
         "title": ".property-title, .entry-title, h2",
         "price": ".property-price, .price, .property-meta-price",
