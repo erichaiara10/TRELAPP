@@ -6,12 +6,15 @@ import pytest
 from core.collectors import get_collector, registered
 from core.collectors._common import (
     infer_subtype,
+    parse_area,
     parse_address,
     parse_allotment_section,
     parse_bathrooms,
     parse_bedrooms,
     parse_portion,
     parse_price,
+    parse_location,
+    parse_rent_period,
 )
 
 
@@ -60,6 +63,30 @@ class TestPrice:
     def test_no_digits(self):
         assert parse_price("POA") is None
 
+    @pytest.mark.parametrize("text", ["POA K500,000", "Contact Agent 900000", "Tender 1,000,000"])
+    def test_markers_keep_numeric_price_strictly_rejected(self, text):
+        assert parse_price(text) is None
+
+    def test_k_shorthand(self):
+        assert parse_price("K850k") == 850000.0
+
+
+class TestRentAndArea:
+    @pytest.mark.parametrize(("text", "expected"), [
+        ("K 750 per week", "weekly"), ("K1,500/fortnight", "fortnightly"),
+        ("K 4,500 pcm", "monthly"), ("K 80,000 per annum", "annual"),
+    ])
+    def test_source_derived_period(self, text, expected):
+        assert parse_rent_period(text) == expected
+
+    def test_unknown_period_is_not_assumed(self):
+        assert parse_rent_period("K 4,500") is None
+
+    def test_explicit_areas_only(self):
+        assert parse_area("Land 1,250 m²") == 1250
+        assert parse_area("Floor area 320 sqm") == 320
+        assert parse_area("K 450,000") is None
+
 
 class TestBedsBaths:
     def test_bedrooms_various(self):
@@ -82,6 +109,22 @@ class TestAddress:
         street, suburb, city, prov = parse_address("Waigani Drive, Waigani")
         assert street == "Waigani Drive" and suburb == "Waigani"
         assert city is None and prov is None
+
+    def test_building_and_png_location(self):
+        parsed = parse_location(
+            "Pacific View Apartments, Ela Beach Road, Ela Beach, Port Moresby, NCD",
+            default_city="Port Moresby", default_province="NCD",
+        )
+        assert parsed == {
+            "building_name": "Pacific View Apartments", "street": "Ela Beach Road",
+            "suburb": "Ela Beach", "local_area": None, "city": "Port Moresby",
+            "province": "NCD",
+        }
+
+    def test_suburb_only_is_not_mislabelled_as_street(self):
+        parsed = parse_location("Waigani", default_city="Port Moresby", default_province="NCD")
+        assert parsed["suburb"] == "Waigani"
+        assert parsed["street"] is None
 
 
 class TestSubtypeInference:
@@ -122,4 +165,6 @@ class TestRegistry:
             cfg = Coll.DEFAULT_CONFIG
             assert cfg.get("base_url", "").startswith("http"), f"{key} missing base_url"
             assert cfg.get("card"), f"{key} missing card selector"
-            assert cfg.get("search_paths"), f"{key} missing search_paths"
+            # Category paths are discovered and stored on the source; collectors
+            # deliberately do not ship guessed ``search_paths``.
+            assert "search_paths" not in cfg

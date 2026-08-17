@@ -61,7 +61,7 @@ except ImportError:                                                        # pra
 # ---------------------------------------------------------------------
 # Regex primitives
 # ---------------------------------------------------------------------
-_NUM_RE = re.compile(r"(\d{1,3}(?:[,\s]\d{3})+|\d+(?:\.\d+)?)")
+_NUM_RE = re.compile(r"(\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)")
 _INT_RE = re.compile(r"\d+")
 
 # Explicit "no numeric price" markers — case-insensitive match aborts price parse.
@@ -100,6 +100,17 @@ _PORTION_RE = re.compile(r"portion[\s._-]*(\d+[A-Za-z]?)", re.IGNORECASE)
 
 _BEDS_RE = re.compile(r"(\d+)\s*(?:br|bd|bed|bedroom)", re.IGNORECASE)
 _BATHS_RE = re.compile(r"(\d+)\s*(?:ba|bth|bath|bathroom)", re.IGNORECASE)
+_AREA_RE = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*(?:m(?:2|²)|sq\.?\s*m(?:et(?:re|er)s?)?|sqm)\b",
+    re.IGNORECASE,
+)
+_RENT_PERIODS = (
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:week|wk)\b|\bweekly\b", re.I), "weekly"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:fortnight|fn)\b|\bfortnightly\b", re.I), "fortnightly"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:day|night)\b|\b(?:daily|nightly)\b", re.I), "daily"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:month|mth|mo)\b|\bmonthly\b|\bp\.?c\.?m\.?\b", re.I), "monthly"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:year|annum|yr)\b|\bannual(?:ly)?\b|\bp\.?a\.?\b", re.I), "annual"),
+)
 
 _SUBTYPE_HINTS = [
     ("warehouse", "commercial_industrial", "Warehouse"),
@@ -189,6 +200,22 @@ def parse_bathrooms(text: Optional[str]) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
+def parse_area(text: Optional[str]) -> Optional[float]:
+    """Extract an explicitly-labelled square-metre area, never a bare number."""
+    if not text:
+        return None
+    m = _AREA_RE.search(text)
+    return float(m.group(1).replace(",", "")) if m else None
+
+
+def parse_rent_period(text: Optional[str]) -> Optional[str]:
+    """Return only a cadence stated by the source; do not invent a default."""
+    for pattern, period in _RENT_PERIODS:
+        if text and pattern.search(text):
+            return period
+    return None
+
+
 def parse_address(addr: Optional[str]) -> tuple[Optional[str], Optional[str],
                                                 Optional[str], Optional[str]]:
     if not addr:
@@ -198,6 +225,40 @@ def parse_address(addr: Optional[str]) -> tuple[Optional[str], Optional[str],
             parts[1] if len(parts) >= 2 else None,
             parts[2] if len(parts) >= 3 else None,
             parts[3] if len(parts) >= 4 else None)
+
+
+def parse_location(addr: Optional[str], *, default_city: Optional[str] = None,
+                   default_province: Optional[str] = None) -> dict:
+    """Parse PNG listing locations without treating every first token as a street.
+
+    Four-part addresses retain the established street/suburb/city/province mapping.
+    Shorter source strings are aligned from the right when they explicitly end in
+    the configured city/province. A leading non-address component is preserved as
+    the building name (for example ``Pacific View Apartments, Ela Beach, ...``).
+    """
+    parts = [p.strip() for p in (addr or "").split(",") if p.strip()]
+    result = {"building_name": None, "street": None, "suburb": None,
+              "local_area": None, "city": default_city,
+              "province": default_province}
+    if not parts:
+        return result
+    if default_province and parts[-1].casefold() == default_province.casefold():
+        result["province"] = parts.pop()
+    if default_city and parts and parts[-1].casefold() == default_city.casefold():
+        result["city"] = parts.pop()
+    streetish = re.compile(r"(?:\d|\b(?:road|rd|street|st|drive|dr|avenue|ave|close|crescent|lane|way|highway|hwy)\b)", re.I)
+    if len(parts) >= 2 and not streetish.search(parts[0]):
+        result["building_name"] = parts.pop(0)
+    if len(parts) >= 2:
+        result["street"], result["suburb"] = parts[0], parts[1]
+        if len(parts) > 2:
+            result["local_area"] = parts[2]
+    elif len(parts) == 1:
+        if streetish.search(parts[0]):
+            result["street"] = parts[0]
+        else:
+            result["suburb"] = parts[0]
+    return result
 
 
 def infer_subtype(*texts: str) -> tuple[Optional[str], Optional[str]]:
@@ -582,7 +643,8 @@ class HttpListingCollector(CollectorBase):
 
         addr = text_of(card.css_first(cfg["address"])) if cfg.get("address") else ""
         desc = text_of(card.css_first(cfg.get("description", ""))) if cfg.get("description") else ""
-        street, suburb, city, province = parse_address(addr)
+        location = parse_location(addr, default_city=cfg.get("default_city"),
+                                  default_province=cfg.get("default_province"))
 
         beds = parse_bedrooms(title + " " + desc)
         if beds is None and cfg.get("beds"):
@@ -590,8 +652,8 @@ class HttpListingCollector(CollectorBase):
         baths = parse_bathrooms(title + " " + desc)
         if baths is None and cfg.get("baths"):
             baths = first_int(text_of(card.css_first(cfg["baths"])))
-        land = parse_price(text_of(card.css_first(cfg["land"])))     if cfg.get("land")     else None
-        bldg = parse_price(text_of(card.css_first(cfg["building"]))) if cfg.get("building") else None
+        land = parse_area(text_of(card.css_first(cfg["land"])))     if cfg.get("land")     else None
+        bldg = parse_area(text_of(card.css_first(cfg["building"]))) if cfg.get("building") else None
 
         blob = " ".join(filter(None, [title, addr, desc]))
         allot, sect = parse_allotment_section(blob)
@@ -606,15 +668,13 @@ class HttpListingCollector(CollectorBase):
             "source_url": source_url,
             "purpose": purpose,
             "price": price,
-            "rent_period": "monthly" if purpose == "rent" else None,
+            "rent_period": parse_rent_period(price_text) if purpose == "rent" else None,
             "property_class": cls,
             "property_subtype": subtype,
             "allotment_number": allot,
             "section_number": sect,
             "portion_number": portion,
-            "street": street, "suburb": suburb,
-            "city": city or cfg.get("default_city"),
-            "province": province or cfg.get("default_province"),
+            **location,
             "bedrooms": beds, "bathrooms": baths,
             "land_area_m2": land, "building_area_m2": bldg,
             "raw_fields": {"title": title, "address": addr, "description": desc,
@@ -661,11 +721,11 @@ class HttpListingCollector(CollectorBase):
                 if v is not None:
                     out[k] = v
         if ds.get("land_area"):
-            v = parse_price(text_of(tree.css_first(ds["land_area"])))
+            v = parse_area(text_of(tree.css_first(ds["land_area"])))
             if v is not None:
                 out["land_area_m2"] = v
         if ds.get("building_area"):
-            v = parse_price(text_of(tree.css_first(ds["building_area"])))
+            v = parse_area(text_of(tree.css_first(ds["building_area"])))
             if v is not None:
                 out["building_area_m2"] = v
         # Detail page may also expose Allotment / Section explicitly
@@ -678,6 +738,26 @@ class HttpListingCollector(CollectorBase):
         portion = parse_portion(page_text)
         if portion:
             out["portion_number"] = portion
+        detail_price = text_of(tree.css_first(ds["price"])) if ds.get("price") else ""
+        period = parse_rent_period(detail_price)
+        if period:
+            out["rent_period"] = period
+        detail_address = out.pop("address", "")
+        if detail_address:
+            out.update({k: v for k, v in parse_location(
+                detail_address, default_city=cfg.get("default_city"),
+                default_province=cfg.get("default_province")).items() if v})
+        detail_title = out.pop("title", "")
+        detail_description = out.pop("description", "")
+        cls, subtype = infer_subtype(detail_title, detail_description)
+        if cls:
+            out["property_class"] = cls
+        if subtype:
+            out["property_subtype"] = subtype
+        if out.get("bedrooms") is None:
+            out["bedrooms"] = parse_bedrooms(f"{detail_title} {detail_description}")
+        if out.get("bathrooms") is None:
+            out["bathrooms"] = parse_bathrooms(f"{detail_title} {detail_description}")
         return out, True
 
 

@@ -446,6 +446,7 @@ class MarketListing(BaseModel):
     allotment_number: Optional[str] = None
     section_number: Optional[str] = None
     portion_number: Optional[str] = None
+    building_name: Optional[str] = None
     street: Optional[str] = None
     suburb: Optional[str] = None
     local_area: Optional[str] = None
