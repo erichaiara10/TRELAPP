@@ -1,6 +1,7 @@
 """Devine & Associates Consulting collector — https://www.dac.com.pg
 
-Boutique valuation + agency; typically WordPress-based with `?paged=N`.
+Boutique valuation + agency. Category pages are supplied by live discovery;
+pagination follows only Next links exposed by the returned HTML.
 """
 from __future__ import annotations
 

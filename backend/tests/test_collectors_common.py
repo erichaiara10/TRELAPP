@@ -1,10 +1,13 @@
 """Tests for the shared parser primitives in `core.collectors._common`.
-Fast unit tests — no network, no DB — just verify the text-extraction helpers
-that every HTTP collector depends on."""
+Fast unit tests — no network or DB — for the contracts every HTTP collector
+depends on."""
+import asyncio
+
 import pytest
 
 from core.collectors import get_collector, registered
 from core.collectors._common import (
+    _find_next_page_url,
     infer_subtype,
     parse_address,
     parse_allotment_section,
@@ -122,4 +125,39 @@ class TestRegistry:
             cfg = Coll.DEFAULT_CONFIG
             assert cfg.get("base_url", "").startswith("http"), f"{key} missing base_url"
             assert cfg.get("card"), f"{key} missing card selector"
-            assert cfg.get("search_paths"), f"{key} missing search_paths"
+            assert "search_paths" not in cfg, f"{key} still guesses category paths"
+
+
+class TestDiscoveryOnlyCategoryPages:
+    def test_http_collector_without_listing_pages_stops_before_network(self, monkeypatch):
+        Coll = get_collector("hausples_png")
+        collector = Coll({"name": "No discovery yet", "listing_pages": []})
+
+        class FailClient:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("network client created without discovered listing pages")
+
+        monkeypatch.setattr("core.collectors._common.httpx.AsyncClient", FailClient)
+
+        async def collect():
+            return [row async for row in collector.iter_listings()]
+
+        assert asyncio.run(collect()) == []
+
+
+class TestRealPaginationDiscovery:
+    def test_rel_next_is_followed(self):
+        html = '<html><head><link rel="next" href="/buy/results/2"></head></html>'
+        assert _find_next_page_url(html, "https://example.test/buy/results", {}) \
+            == "https://example.test/buy/results/2"
+
+    def test_visible_next_is_followed(self):
+        html = '<a href="/rent/page-two">Next</a>'
+        assert _find_next_page_url(html, "https://example.test/rent", {}) \
+            == "https://example.test/rent/page-two"
+
+    def test_no_next_control_never_guesses_query_page(self):
+        html = '<article><a href="/property/123-house">House</a></article>'
+        assert _find_next_page_url(
+            html, "https://example.test/buy?category=homes", {}
+        ) is None

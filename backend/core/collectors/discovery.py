@@ -246,7 +246,10 @@ async def discover_listing_pages(base_url: str, collector_key: str,
                 "cards_found": cards_found,
                 "detail_links": detail_links,
                 "accessible": True,
-                "auto_confirm": cards_found >= 1 or detail_links >= 3,
+                # A broad card selector alone is not enough: automatic
+                # confirmation must prove that at least one selected card has
+                # the same property-detail identity the collector will require.
+                "auto_confirm": cards_found >= 1 and detail_links >= 1,
             }
 
         # Fan out with a small concurrency cap so we don't hammer the target.

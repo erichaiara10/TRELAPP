@@ -45,8 +45,9 @@ class TestCollectorsRegistry:
             assert k in by_key, f"missing collector {k}"
             cfg = by_key[k].get("default_config")
             assert isinstance(cfg, dict), f"{k} default_config not dict: {cfg}"
-            for req in ("base_url", "card", "search_paths"):
+            for req in ("base_url", "card"):
                 assert req in cfg and cfg[req], f"{k} missing {req}"
+            assert "search_paths" not in cfg, f"{k} still guesses category paths"
 
     @pytest.mark.parametrize("key", HTTP_KEYS)
     def test_defaults_endpoint_http(self, client, key):

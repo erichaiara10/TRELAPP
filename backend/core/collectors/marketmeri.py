@@ -1,6 +1,7 @@
 """MarketMeri collector — https://www.marketmeri.com
 
-PNG classifieds marketplace. Uses `?page=N` query pagination like Hausples.
+PNG classifieds marketplace. Category pages are supplied by live discovery;
+pagination follows only Next links exposed by the returned HTML.
 """
 from __future__ import annotations
 
