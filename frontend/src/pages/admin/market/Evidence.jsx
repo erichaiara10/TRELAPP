@@ -10,6 +10,27 @@ import { X } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader, KpiCard, Section, PhaseBanner } from "./_shared";
 
+const formatMoney = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `K${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—";
+};
+
+const formatPngDateTime = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Pacific/Port_Moresby", day: "2-digit", month: "short", year: "numeric",
+    hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
+  }).format(date).replace(/^0/, "").replace(" at ", ", ").replace(/\b(am|pm)\b/i, (v) => v.toUpperCase());
+};
+
+const rentPeriodLabel = (period) => {
+  const labels = { monthly: "month", weekly: "week", fortnightly: "fortnight", daily: "day", annual: "year" };
+  return period && labels[period] ? ` per ${labels[period]}` : "";
+};
+
 export default function MarketEvidence() {
   const [listings, setListings] = useState([]);
   const [summary, setSummary] = useState({});
@@ -76,8 +97,8 @@ export default function MarketEvidence() {
                     <td className="py-2 pr-3">{l.purpose}</td>
                     <td className="py-2 pr-3">{l.property_class || "—"}</td>
                     <td className="py-2 pr-3">{[l.suburb, l.city].filter(Boolean).join(", ")}</td>
-                    <td className="py-2 pr-3 tabular-nums">{l.price ?? "—"}</td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">{l.last_seen}</td>
+                    <td className="py-2 pr-3 tabular-nums">{formatMoney(l.price)}</td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">{formatPngDateTime(l.last_seen)}</td>
                     <td className="py-2 pr-3 uppercase text-xs tracking-widest">{l.status}</td>
                   </tr>
                 ))}
@@ -111,68 +132,61 @@ export default function MarketEvidence() {
 // obvious at a glance.
 function RecordInspector({ record, onClose }) {
   const url = record.source_url;
+  const moneyLabel = record.purpose === "rent" ? "Rent" : "Asking Price";
+  const moneyValue = `${formatMoney(record.price)}${record.purpose === "rent" ? rentPeriodLabel(record.rent_period) : ""}`;
   const groups = [
     {
-      title: "Identifiers",
+      title: "Listing",
       rows: [
+        ["Purpose", record.purpose],
+        [moneyLabel, <strong className="text-lg tabular-nums text-[#2A5B46]">{moneyValue}</strong>],
+        ["Property Class", record.property_class],
+        ["Property Subtype", record.property_subtype],
         ["Record ID (full)", <span className="font-mono text-xs break-all">{record.id}</span>],
-        ["Source ID (full)", <span className="font-mono text-xs break-all">{record.source_id}</span>],
-        ["Source listing ID", record.source_listing_id],
-        ["Listing URL", url ? (
-          <a href={url} target="_blank" rel="noopener noreferrer"
-             className="text-[#2A5B46] underline break-all text-xs"
-             data-testid="inspector-source-url">
-            {url}
-          </a>
-        ) : "—"],
       ],
     },
     {
-      title: "Classification",
+      title: "Property Identification",
       rows: [
-        ["Property subtype", record.property_subtype],
-        ["Currency", record.currency],
-        ["Rent period", record.rent_period],
+        ["Lot / Allotment", record.allotment_number],
+        ["Section", record.section_number],
+        ["Portion", record.portion_number],
       ],
     },
     {
-      title: "Parcel",
+      title: "Location",
       rows: [
-        ["Allotment number", record.allotment_number],
-        ["Section number", record.section_number],
-        ["Portion number", record.portion_number],
-      ],
-    },
-    {
-      title: "Size / Rooms",
-      rows: [
-        ["Bedrooms", record.bedrooms],
-        ["Bathrooms", record.bathrooms],
-        ["Land area (m²)", record.land_area_m2],
-        ["Building area (m²)", record.building_area_m2],
-      ],
-    },
-    {
-      title: "Location detail",
-      rows: [
-        ["Street", record.street],
-        ["Suburb", record.suburb],
-        ["Local area", record.local_area],
-        ["City", record.city],
+        ["Property / Building Name", record.building_name],
+        ["Street", record.street], ["Suburb", record.suburb],
+        ["Local Area", record.local_area], ["City", record.city],
         ["Province", record.province],
-        ["Latitude", record.latitude],
-        ["Longitude", record.longitude],
-        ["GPS accuracy", record.gps_accuracy],
       ],
     },
     {
-      title: "Timestamps / ops",
+      title: "Property Details",
       rows: [
-        ["First seen", record.first_seen],
-        ["Created", record.created_at],
-        ["Updated", record.updated_at],
-        ["Exclusion reason", record.exclusion_reason],
-        ["Alias map version", record.alias_map_version],
+        ["Bedrooms", record.bedrooms], ["Bathrooms", record.bathrooms],
+        ["Land Area", record.land_area_m2 ? `${record.land_area_m2} m²` : null],
+        ["Building / Floor Area", record.building_area_m2 ? `${record.building_area_m2} m²` : null],
+      ],
+    },
+    {
+      title: "Source",
+      rows: [
+        ["Source", <span className="font-mono text-xs break-all">{record.source_id}</span>],
+        ["Source Listing ID", record.source_listing_id],
+        ["Listing URL", url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-[#2A5B46] underline break-all text-xs" data-testid="inspector-source-url">{url}</a> : "—"],
+      ],
+    },
+    {
+      title: "Record History",
+      rows: [
+        ["First Seen", formatPngDateTime(record.first_seen)],
+        ["Last Seen", formatPngDateTime(record.last_seen)],
+        ["Created", formatPngDateTime(record.created_at)],
+        ["Updated", formatPngDateTime(record.updated_at)],
+        ["Exclusion Reason", record.exclusion_reason],
+        ["Alias Map Version", record.alias_map_version],
       ],
     },
   ];

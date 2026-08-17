@@ -69,7 +69,7 @@ async def _upsert_listing(payload: dict) -> tuple[dict, bool]:
         for k in ("price", "rent_period", "status", "source_url", "purpose",
                   "property_class", "property_subtype", "bedrooms", "bathrooms",
                   "land_area_m2", "building_area_m2", "allotment_number", "section_number",
-                  "portion_number", "street", "suburb", "local_area", "city",
+                  "portion_number", "building_name", "street", "suburb", "local_area", "city",
                   "province", "latitude", "longitude", "gps_accuracy"):
             if k in payload and payload[k] is not None:
                 patch[k] = payload[k]
