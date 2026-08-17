@@ -10,19 +10,6 @@ import { X } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader, KpiCard, Section, PhaseBanner } from "./_shared";
 
-export const formatKina = (value) => value == null || value === ""
-  ? "—"
-  : `K ${Number(value).toLocaleString("en-PG", { maximumFractionDigits: 2 })}`;
-
-export const formatPngTimestamp = (value) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-PG", {
-    timeZone: "Pacific/Port_Moresby", dateStyle: "medium", timeStyle: "short",
-  }).format(date);
-};
-
 export default function MarketEvidence() {
   const [listings, setListings] = useState([]);
   const [summary, setSummary] = useState({});
@@ -89,8 +76,8 @@ export default function MarketEvidence() {
                     <td className="py-2 pr-3">{l.purpose}</td>
                     <td className="py-2 pr-3">{l.property_class || "—"}</td>
                     <td className="py-2 pr-3">{[l.suburb, l.city].filter(Boolean).join(", ")}</td>
-                    <td className="py-2 pr-3 tabular-nums">{formatKina(l.price)}</td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">{formatPngTimestamp(l.last_seen)}</td>
+                    <td className="py-2 pr-3 tabular-nums">{l.price ?? "—"}</td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">{l.last_seen}</td>
                     <td className="py-2 pr-3 uppercase text-xs tracking-widest">{l.status}</td>
                   </tr>
                 ))}
@@ -143,7 +130,6 @@ function RecordInspector({ record, onClose }) {
     {
       title: "Classification",
       rows: [
-        [record.purpose === "rent" ? "Asking Rent" : "Asking Price", formatKina(record.price)],
         ["Property subtype", record.property_subtype],
         ["Currency", record.currency],
         ["Rent period", record.rent_period],
@@ -169,7 +155,6 @@ function RecordInspector({ record, onClose }) {
     {
       title: "Location detail",
       rows: [
-        ["Building name", record.building_name],
         ["Street", record.street],
         ["Suburb", record.suburb],
         ["Local area", record.local_area],
@@ -183,10 +168,9 @@ function RecordInspector({ record, onClose }) {
     {
       title: "Timestamps / ops",
       rows: [
-        ["First seen", formatPngTimestamp(record.first_seen)],
-        ["Last seen", formatPngTimestamp(record.last_seen)],
-        ["Created", formatPngTimestamp(record.created_at)],
-        ["Updated", formatPngTimestamp(record.updated_at)],
+        ["First seen", record.first_seen],
+        ["Created", record.created_at],
+        ["Updated", record.updated_at],
         ["Exclusion reason", record.exclusion_reason],
         ["Alias map version", record.alias_map_version],
       ],
