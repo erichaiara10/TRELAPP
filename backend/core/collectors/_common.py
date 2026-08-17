@@ -423,7 +423,8 @@ class HttpListingCollector(CollectorBase):
     #   crawl_details           — bool, default True
     #   detail_selectors        — dict of field → CSS selector for the
     #                             detail page
-    #   detail_concurrency      — int, default 2
+    #   detail_concurrency      — int, default 2; a conservative upper bound
+    #                             (detail requests are currently sequential)
     #   request_delay_ms        — int, default 500 (per-request jitter)
     #   max_pages_safety_ceiling — int, default 50 (runaway guard, not
     #                              a "stop here" target)

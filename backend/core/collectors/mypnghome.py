@@ -1,8 +1,9 @@
 """MyPNGHome collector — https://www.mypnghome.com
 
-Boutique PNG portal; typically WordPress-based with `?paged=N` pagination.
-Selectors are best-effort — ops tune via `parser_config` when they see the
-first live sample.
+Boutique PNG portal. Category pages are supplied by live discovery and
+pagination follows only Next links exposed by the returned HTML. Selectors
+are best-effort — ops tune them via `parser_config` after inspecting a live
+sample.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ class MyPNGHomeCollector(HttpListingCollector):
 
     DEFAULT_CONFIG = {
         "base_url": "https://www.mypnghome.com",
-        # "card": ".property-listing, .listing-item, article.property",
+        "card": ".property-listing, .listing-item, article.property",
         "url":   "a[href]",              # advisory — real logic in _identify_detail_url
         "title": ".property-title, .entry-title, h2",
         "price": ".property-price, .price, .property-meta-price",
