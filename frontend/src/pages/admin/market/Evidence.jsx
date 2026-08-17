@@ -68,6 +68,7 @@ export default function MarketEvidence() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-3 w-10 text-right tabular-nums" data-testid="evidence-col-index">#</th>
                   <th className="py-2 pr-3">Record ID</th>
                   <th className="py-2 pr-3">Source</th>
                   <th className="py-2 pr-3">Purpose</th>
@@ -79,11 +80,13 @@ export default function MarketEvidence() {
                 </tr>
               </thead>
               <tbody>
-                {listings.map((l) => (
+                {listings.map((l, i) => (
                   <tr key={l.id}
                       onClick={() => setSelected(l)}
                       className={`border-b border-border/60 cursor-pointer hover:bg-[#F1F6F3] transition-colors ${selected?.id === l.id ? "bg-[#F1F6F3]" : ""}`}
                       data-testid={`evidence-row-${l.id}`}>
+                    <td className="py-2 pr-3 text-right text-xs tabular-nums text-muted-foreground"
+                        data-testid={`evidence-row-index-${i + 1}`}>{i + 1}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{l.id.slice(0, 8)}</td>
                     <td className="py-2 pr-3">{l.source_id?.slice(0, 8)}</td>
                     <td className="py-2 pr-3">{l.purpose}</td>
@@ -95,6 +98,14 @@ export default function MarketEvidence() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t border-border">
+                  <td colSpan={9} className="pt-2 text-[11px] text-muted-foreground"
+                      data-testid="evidence-row-count">
+                    Showing {listings.length} record{listings.length === 1 ? "" : "s"}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
             <div className="text-[11px] text-muted-foreground mt-3">
               Click any row to open the full record inspector.
