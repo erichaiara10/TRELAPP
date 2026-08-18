@@ -74,6 +74,14 @@ function Protected({ children }) {
   return children;
 }
 
+function AdvertiserProtected({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
+  if (!user) return <Navigate to="/add-property?auth=login" replace />;
+  if (!["property_advertiser", "advertiser"].includes(user.role)) return <Navigate to="/admin/property-advertising" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -98,7 +106,7 @@ export default function App() {
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
-          <Route path="/advertiser/*" element={<AdvertiserWorkspace />} />
+          <Route path="/advertiser/*" element={<AdvertiserProtected><AdvertiserWorkspace /></AdvertiserProtected>} />
           <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="properties" element={<Properties />} />

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import {
   Bell, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronDown,
@@ -8,6 +8,9 @@ import {
   Settings, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, Users,
   X, ZoomIn
 } from "lucide-react";
+import { toast } from "sonner";
+import { api, formatError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import "./advertiser-workspace.css";
 
 const SKY = "#0398FC";
@@ -38,7 +41,92 @@ const properties = [
   ["Warehouse — Gordons", "Gordons, NCD", "PGK 12,000 / month", photos[4], "Draft", ""],
 ];
 
+function syncSubmissionProperties(items) {
+  const live = (items || []).map((item) => {
+    const d=item.data||{}; const amount=String(d.price||"0").replace(/^PGK\s*/i,"");
+    return [d.title||item.reference, `${d.suburb||""}, ${d.province||""}`, `PGK ${amount}${d.listing_type==="Rent"?" / month":""}`, photos[0], item.status||item.row?.[10]||"Submitted", ""];
+  });
+  properties.splice(0, properties.length, ...live, ...properties.filter((p)=>!live.some((x)=>x[0]===p[0])));
+}
+
+const DEFAULT_DRAFT = {
+  listing_type: "Sale", service: "TREL to sell/manage", relationship: "Owner / Joint Owner",
+  property_class: "Residential", property_type: "House", currency: "PGK",
+  title: "Executive Office Space — Waigani", price: "8,500",
+  description: "A well-positioned property with generous space, quality finishes and convenient access to services.",
+  province: "NCD", city: "Port Moresby", suburb: "Waigani", local_area: "Waigani Heights Estate",
+  street: "Sir John Guise Drive", address: "Lot 48, Hibiscus Avenue", landmark: "Opposite Waigani Secondary School",
+  section: "Section 23", lot: "Lot 48", building_name: "Executive Office Space — Waigani",
+  latitude: "-9.44380", longitude: "147.18092", bedrooms: "3", bathrooms: "2", parking: "2",
+  land_size: "1,200 m²", building_area: "450 m²", furnished: "Unfurnished", condition: "Good",
+  year_built: "2018", special_features: "A recently renovated premium office, with parking, street-front visibility and secure access.",
+  features: ["Air Conditioning", "Security / Fencing", "Balcony", "Water Tank", "Backup Generator", "Solar", "Swimming Pool"],
+  photos: 7, documents: 3, authority_confirmed: true, terms_accepted: true,
+};
+
+const DraftContext = createContext(null);
+function DraftProvider({ children }) {
+  const [draft, setDraft] = useState(DEFAULT_DRAFT);
+  const [submissions, setSubmissions] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
+  const load = async () => {
+    try {
+      const [{ data: saved }, { data: submitted }] = await Promise.all([
+        api.get("/property-advertising/advertiser/drafts/current"),
+        api.get("/property-advertising/advertiser/submissions"),
+      ]);
+      if (saved?.data) setDraft({ ...DEFAULT_DRAFT, ...saved.data });
+      setSubmissions(Array.isArray(submitted) ? submitted : []);
+      syncSubmissionProperties(submitted);
+    } catch (err) { toast.error(formatError(err)); }
+  };
+  useEffect(() => { load(); }, []);
+  const save = async (step = 1, quiet = false) => {
+    setSaving(true);
+    try {
+      await api.put("/property-advertising/advertiser/drafts/current", { data: draft, current_step: step });
+      if (!quiet) toast.success("Draft saved");
+      return true;
+    } catch (err) { toast.error(formatError(err)); return false; }
+    finally { setSaving(false); }
+  };
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.post("/property-advertising/advertiser/drafts/current/submit", { data: draft, current_step: 5 });
+      toast.success(`Property submitted as ${data.reference}`);
+      setSubmissions((current) => [data, ...current]);
+      syncSubmissionProperties([data]);
+      return data;
+    } catch (err) { toast.error(formatError(err)); return null; }
+    finally { setSaving(false); }
+  };
+  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, saving }}>{children}</DraftContext.Provider>;
+}
+const useDraft = () => useContext(DraftContext);
+
 function AppShell({ children }) {
+  const { user } = useAuth();
+  const flow = useDraft();
+  const displayName = user?.name || "Property Advertiser";
+  const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  useEffect(()=>{
+    const wanted=[flow.draft.listing_type==="Rent"?"Rent":"Sell",flow.draft.service==="Advertise only"?"Advertise only":"TREL to sell/manage",flow.draft.relationship==="Authorised Real Estate Agent"?"Authorised Real Estate Agent":flow.draft.relationship==="Authorised representative"?"Authorised to act":"Owner / Joint Owner"];
+    document.querySelectorAll(".adv-choice-row").forEach((row)=>row.querySelectorAll("button").forEach((button)=>button.classList.toggle("selected",wanted.some((text)=>button.textContent.trim().startsWith(text)))));
+  },[flow.draft.listing_type,flow.draft.service,flow.draft.relationship]);
+  const captureChoice = (event) => {
+    const button=event.target.closest(".adv-choice-row button"); if(!button)return;
+    const text=button.textContent.trim(); const mapping=text.startsWith("Sell")?["listing_type","Sale"]:text.startsWith("Rent")?["listing_type","Rent"]:text.startsWith("TREL to sell/manage")?["service","TREL to sell/manage"]:text.startsWith("Advertise only")?["service","Advertise only"]:text.startsWith("Owner / Joint Owner")?["relationship","Owner / Joint Owner"]:text.startsWith("Authorised Real Estate Agent")?["relationship","Authorised Real Estate Agent"]:text.startsWith("Authorised to act")?["relationship","Authorised representative"]:null;
+    if(mapping){button.parentElement.querySelectorAll("button").forEach((item)=>item.classList.remove("selected"));button.classList.add("selected");flow.update(mapping[0],mapping[1]);}
+  };
+  const captureChecks = (event) => {
+    const input=event.target; if(input.type!=="checkbox")return;
+    const label=input.closest("label"); const text=label?.textContent||"";
+    if(label?.closest(".adv-check-grid")){const feature=text.trim();const next=input.checked?[...new Set([...(flow.draft.features||[]),feature])]:(flow.draft.features||[]).filter((item)=>item!==feature);flow.update("features",next);label.classList.toggle("checked",input.checked);}
+    if(text.includes("information is accurate"))flow.update("authority_confirmed",input.checked);
+    if(text.includes("Terms of Use"))flow.update("terms_accepted",input.checked);
+  };
   return <div className="adv-app">
     <aside className="adv-sidebar">
       <Link to="/" className="adv-logo"><img src={logo} alt="TRELPNG" /></Link>
@@ -53,9 +141,9 @@ function AppShell({ children }) {
         <div className="adv-mobile-brand"><img src={logo} alt="TRELPNG" /></div>
         <label className="adv-global-search"><Search size={18}/><input placeholder="Search properties, enquiries, or documents..." /></label>
         <button className="adv-icon-button" aria-label="Notifications"><Bell size={21}/><i>3</i></button>
-        <div className="adv-user"><span>KA</span><div><b>Kumul Agencies</b><small>Property Advertiser</small></div><ChevronDown size={16}/></div>
+        <div className="adv-user"><span>{initials}</span><div><b>{displayName}</b><small>Property Advertiser</small></div><ChevronDown size={16}/></div>
       </header>
-      <main className="adv-main">{children}</main>
+      <main className="adv-main" onClick={captureChoice} onChange={captureChecks}>{children}</main>
     </div>
   </div>;
 }
@@ -64,8 +152,9 @@ function PageHead({ title, sub, action }) { return <div className="adv-page-head
 function Card({ children, className="" }) { return <section className={`adv-card ${className}`}>{children}</section>; }
 function Status({ children, tone="blue" }) { return <span className={`adv-status ${tone}`}>{children}</span>; }
 function Button({ children, secondary=false, className="", ...props }) { return <button className={`adv-button ${secondary ? "secondary" : ""} ${className}`} {...props}>{children}</button>; }
-function Field({ label, value, placeholder, className="", children, textarea=false }) { return <label className={`adv-field ${className}`}><span>{label}</span>{children || (textarea ? <textarea defaultValue={value} placeholder={placeholder}/> : <input defaultValue={value} placeholder={placeholder}/>)}</label>; }
-function SelectField({ label, value, options=[] }) { return <label className="adv-field"><span>{label}</span><select defaultValue={value}>{[value,...options.filter(x=>x!==value)].map(x=><option key={x}>{x}</option>)}</select></label>; }
+const FIELD_KEYS={"What kind of property is it?":"property_class","Property type":"property_type","Price / Rent Asking":"currency","Property Name / Listing Title *":"title","Price / Rent Amount":"price","Property Description *":"description","Province *":"province","City / Town *":"city","Suburb *":"suburb","Local Area / Stage / Estate":"local_area","Street":"street","Street Address":"address","Landmark":"landmark","Section Number *":"section","Lot Number *":"lot","Property Name / Building Name":"building_name","Latitude":"latitude","Longitude":"longitude","Bedrooms":"bedrooms","Bathrooms":"bathrooms","Parking":"parking","Land Size":"land_size","Building / Floor Area":"building_area","Furnished / Unfurnished":"furnished","Property Condition":"condition","Year Built or Age":"year_built","Add any special features":"special_features"};
+function Field({ label, name, value, placeholder, className="", children, textarea=false }) { const ctx=useDraft(); const key=name||FIELD_KEYS[label]; const current=key?(ctx?.draft?.[key] ?? value):value; const control=key?{value:current,onChange:(e)=>ctx.update(key,e.target.value)}:{defaultValue:value}; return <label className={`adv-field ${className}`}><span>{label}</span>{children || (textarea ? <textarea {...control} placeholder={placeholder}/> : <input {...control} placeholder={placeholder}/>)}</label>; }
+function SelectField({ label, name, value, options=[] }) { const ctx=useDraft(); const key=name||FIELD_KEYS[label]; const current=key?(ctx?.draft?.[key] ?? value):value; return <label className="adv-field"><span>{label}</span><select value={current} onChange={(e)=>key&&ctx.update(key,e.target.value)}>{[value,...options.filter(x=>x!==value)].map(x=><option key={x}>{x}</option>)}</select></label>; }
 
 function Dashboard() { return <>
   <PageHead title="Dashboard" />
@@ -80,7 +169,7 @@ function Dashboard() { return <>
 const steps=["Property Details","Location & Identification","Features","Photos & Documents","Review & Submit"];
 function Stepper({active}) { return <div className="adv-stepper">{steps.map((s,i)=><React.Fragment key={s}><div className={i<=active?"on":""}><i>{i<active?<Check size={12}/>:i+1}</i><span>{s}</span></div>{i<4&&<b/>}</React.Fragment>)}</div>; }
 function TipPanel({type="property"}) { const tips={property:["Use a clear and specific property name","Add an accurate property description","Choose the correct property type","Your draft is saved automatically"],location:["Be as specific as possible with the exact address and landmark","Place the marker on the exact location","Exact coordinates stay private"],features:["Select only features that apply","Keep factual details accurate","You can edit all features before submitting"],photos:["Use clear, high-quality photos","Your first photo becomes the cover image","Upload supporting documents as PDF"],review:["Review your listing carefully","Check location and property details","You can return to edit any section"]}; return <Card className="adv-tip-panel"><h3><Info size={17}/> {type[0].toUpperCase()+type.slice(1)} Tips</h3>{tips[type].map(x=><p key={x}><CheckCircle2 size={15}/>{x}</p>)}</Card>; }
-function FormFooter({back, next, label="Continue"}) { const n=useNavigate(); return <div className="adv-form-footer"><Button secondary onClick={()=>back&&n(back)}>‹ Back</Button><span/><Button secondary><FileText size={15}/> Save Draft</Button><Button onClick={()=>next&&n(next)}>{label} <ChevronRight size={15}/></Button></div>; }
+function FormFooter({back, next, label="Continue", step}) { const n=useNavigate(); const flow=useDraft(); const inferredStep=step||({"/advertiser/add-property/location":1,"/advertiser/add-property/features":2,"/advertiser/add-property/photos":3,"/advertiser/add-property/review":4}[next]||5); const isSubmit=label==="Submit Listing"; const proceed=async()=>{if(isSubmit){const result=await flow.submit();if(result)n("/advertiser/properties");return;}const ok=await flow.save(inferredStep,true);if(ok&&next)n(next);}; return <div className="adv-form-footer"><Button secondary onClick={()=>back&&n(back)}>‹ Back</Button><span/><Button secondary disabled={flow.saving} onClick={()=>flow.save(inferredStep)}><FileText size={15}/> Save Draft</Button><Button disabled={flow.saving} onClick={proceed}>{flow.saving?"Saving…":label} <ChevronRight size={15}/></Button></div>; }
 
 function PropertyDetails(){return <><PageHead title="Add Property" sub="Step 1 of 5 — Property Details"/><Stepper active={0}/><div className="adv-form-layout"><Card><h3>1. Listing Purpose</h3><div className="adv-choice-row"><button className="selected"><House/> Sell</button><button><Home/> Rent</button></div><h3>2. How would you like TREL to help?</h3><div className="adv-choice-row three"><button className="selected"><Sparkles/> TREL to sell/manage my property<small>We handle marketing, negotiation and coordination for you.</small></button><button><ShieldCheck/> Advertise only — I will handle it<small>List my property and manage enquiries directly.</small></button></div><h3>3. Relationship to the property</h3><div className="adv-choice-row three"><button className="selected"><UserRound/> Owner / Joint Owner</button><button><Users/> Authorised Real Estate Agent</button><button><FileCheck2/> Authorised to act for owner</button></div><h3>4. Property Category</h3><div className="adv-form-grid three"><SelectField label="What kind of property is it?" value="Residential" options={["Commercial","Industrial","Agricultural / Rural","Vacant Land","Other"]}/><SelectField label="Property type" value="House" options={["Apartment / Unit","Townhouse","Land"]}/><SelectField label="Price / Rent Asking" value="PGK" options={["Negotiable","Contact for price"]}/></div><div className="adv-form-grid two"><Field label="Property Name / Listing Title *" value="Executive Office Space — Waigani"/><Field label="Price / Rent Amount" value="8,500"/></div><Field label="Property Description *" textarea value="A well-positioned property with generous space, quality finishes and convenient access to services."/><FormFooter next="/advertiser/add-property/location" label="Continue to Location"/></Card><div><TipPanel/><Card className="adv-summary"><h3>Selections from P01</h3><p><b>Sale or Rent</b><Status>Sell</Status></p><p><b>TREL Help</b><Status>TREL to sell/manage</Status></p><p><b>Relationship</b><Status>Owner / Joint Owner</Status></p></Card></div></div></>}
 
@@ -105,4 +194,4 @@ function AccountSettings(){return <><PageHead title="Account Settings" sub="Mana
 
 function HelpPage(){return <><PageHead title="Help Centre" sub="Find answers, guides and support for your property advertising workspace."/><Card className="adv-help-hero"><CircleHelp/><h2>How can we help you?</h2><label><Search/><input placeholder="Search help articles and guides..."/></label></Card><div className="adv-help-grid">{[[Plus,"Adding a Property",["How to create a new listing","Required property information","Saving and continuing a draft"]],[Home,"Managing Listings",["Understanding listing statuses","Editing a published listing","Making a property unavailable"]],[MessageCircle,"Enquiries & Inspections",["Responding to enquiries","Managing inspection requests","Recording calls and messages"]],[FolderOpen,"Documents & Verification",["Accepted identity documents","Uploading property documents","Why verification is required"]],[Settings,"Account & Security",["Updating account details","Changing contact preferences","Password and account security"]],[Sparkles,"TREL Services",["TREL managed sale or rental","Advertising-only listings","How TREL review works"]]].map(([Icon,h,links])=><Card key={h}><Icon/><h3>{h}</h3>{links.map(x=><button key={x}>{x}<ChevronRight/></button>)}<Link to="#">View all articles <ChevronRight/></Link></Card>)}</div><Card className="adv-support-card"><div><MessageCircle/><span><h3>Still need help?</h3><p>Our support team is available Monday to Friday, 8:00 AM–5:00 PM.</p></span></div><Button><MessageCircle/> Chat with Support</Button><Button secondary><Mail/> Email Support</Button><Button secondary><Phone/> Call +675 325 7900</Button></Card><Card><h3>Frequently Asked Questions</h3>{["How long does TREL review take?","Can I edit my listing after it is published?","Who can see my exact property location?","How many property photos can I upload?","What documents do I need to provide?"].map(x=><details key={x}><summary>{x}<ChevronDown/></summary><p>Open the relevant workspace section to review or update this information. Contact TREL support if you need further assistance.</p></details>)}</Card></>}
 
-export default function AdvertiserWorkspace(){return <AppShell><Routes><Route index element={<Dashboard/>}/><Route path="add-property" element={<PropertyDetails/>}/><Route path="add-property/location" element={<LocationPage/>}/><Route path="add-property/features" element={<FeaturesPage/>}/><Route path="add-property/photos" element={<PhotosPage/>}/><Route path="add-property/review" element={<ReviewPage/>}/><Route path="properties" element={<PropertiesPage/>}/><Route path="enquiries" element={<EnquiriesPage/>}/><Route path="inspections" element={<InspectionsPage/>}/><Route path="documents" element={<DocumentsPage/>}/><Route path="account-settings" element={<AccountSettings/>}/><Route path="help" element={<HelpPage/>}/><Route path="*" element={<Navigate to="/advertiser" replace/>}/></Routes></AppShell>}
+export default function AdvertiserWorkspace(){return <DraftProvider><AppShell><Routes><Route index element={<Dashboard/>}/><Route path="add-property" element={<PropertyDetails/>}/><Route path="add-property/location" element={<LocationPage/>}/><Route path="add-property/features" element={<FeaturesPage/>}/><Route path="add-property/photos" element={<PhotosPage/>}/><Route path="add-property/review" element={<ReviewPage/>}/><Route path="properties" element={<PropertiesPage/>}/><Route path="enquiries" element={<EnquiriesPage/>}/><Route path="inspections" element={<InspectionsPage/>}/><Route path="documents" element={<DocumentsPage/>}/><Route path="account-settings" element={<AccountSettings/>}/><Route path="help" element={<HelpPage/>}/><Route path="*" element={<Navigate to="/advertiser" replace/>}/></Routes></AppShell></DraftProvider>}
