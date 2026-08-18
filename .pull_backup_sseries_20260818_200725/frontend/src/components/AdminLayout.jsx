@@ -5,7 +5,6 @@ import {
   ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut,
   Database, LineChart, GitMerge, Scale, Sliders, ScrollText, LayoutGrid,
   ClipboardCheck, Radio,
-  Megaphone, UserRoundCheck, SendToBack, MapPinned, History, FileCheck2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import AggregationHealthLed from "@/components/AggregationHealthLed";
@@ -27,17 +26,6 @@ const sections = [
       { to: "/admin/inspections", label: "Inspections", icon: Calendar },
       { to: "/admin/tasks", label: "Tasks", icon: ListChecks },
       { to: "/admin/pipeline", label: "Pipeline", icon: KanbanSquare },
-    ],
-  },
-  {
-    label: "Property Advertising",
-    items: [
-      { to: "/admin/property-advertising", label: "Overview", icon: Megaphone, end: true },
-      { to: "/admin/property-advertising/advertisers", label: "Advertisers", icon: UserRoundCheck },
-      { to: "/admin/property-advertising/submissions", label: "Properties & Submissions", icon: SendToBack },
-      { to: "/admin/property-advertising/publications", label: "Publication Control", icon: FileCheck2 },
-      { to: "/admin/property-advertising/exact-location", label: "Exact Location Requests", icon: MapPinned },
-      { to: "/admin/property-advertising/lifecycle", label: "Listing Lifecycle", icon: History },
     ],
   },
   {
