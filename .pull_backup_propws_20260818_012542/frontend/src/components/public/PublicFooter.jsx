@@ -17,13 +17,15 @@ export default function PublicFooter({ site }) {
           <ul className="space-y-1.5 text-sm">
             <li><Link to="/buy" className="hover:text-white/80">Buy</Link></li>
             <li><Link to="/rent" className="hover:text-white/80">Rent</Link></li>
-            <li><Link to="/add-property" className="hover:text-white/80">Add Property</Link></li>
+            <li><Link to="/sell" className="hover:text-white/80">Sell</Link></li>
             <li><Link to="/wanted" className="hover:text-white/80">Property Wanted</Link></li>
           </ul>
         </div>
         <div>
           <div className="text-xs uppercase tracking-[0.25em] text-white/70 mb-3">Services</div>
           <ul className="space-y-1.5 text-sm">
+            <li><Link to="/management" className="hover:text-white/80">Property Management</Link></li>
+            <li><Link to="/corporate" className="hover:text-white/80">Corporate Services</Link></li>
             <li><Link to="/about" className="hover:text-white/80">About</Link></li>
             <li><Link to="/contact" className="hover:text-white/80">Contact</Link></li>
           </ul>

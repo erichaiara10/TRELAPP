@@ -17,7 +17,6 @@ import About from "@/pages/public/About";
 import Contact from "@/pages/public/Contact";
 import Legal from "@/pages/public/Legal";
 import PriceCompare from "@/pages/public/PriceCompare";
-import AddProperty from "@/pages/public/AddProperty";
 
 import Login from "@/pages/admin/Login";
 import Dashboard from "@/pages/admin/Dashboard";
@@ -64,7 +63,6 @@ export default function App() {
             <Route path="/rent" element={<Search mode="rent" />} />
             <Route path="/property/:id" element={<PropertyDetail />} />
             <Route path="/sell" element={<Sell />} />
-            <Route path="/add-property" element={<AddProperty />} />
             <Route path="/wanted" element={<Wanted />} />
             <Route path="/management" element={<Management />} />
             <Route path="/corporate" element={<Corporate />} />

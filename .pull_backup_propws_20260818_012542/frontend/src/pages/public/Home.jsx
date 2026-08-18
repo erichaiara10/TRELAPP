@@ -176,8 +176,8 @@ export default function Home() {
                 <Link to="/contact" data-testid="home-cta-band-btn" className="px-6 py-3 rounded-full bg-terracotta-500 hover:bg-terracotta-600 text-white font-medium text-center">
                   {ctaBand.button_label || "Get in touch"}
                 </Link>
-                <Link to="/add-property" data-testid="cta-add-property" className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium text-center">
-                  Add Property
+                <Link to="/sell" data-testid="cta-sell" className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium text-center">
+                  Submit your property
                 </Link>
               </div>
             </div>
