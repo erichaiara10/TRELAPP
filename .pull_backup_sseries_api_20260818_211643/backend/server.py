@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 from core.db import client
 from routes import (
     ai, auth, content, csv_io, customers, files, inspections, leads, locations,
-    market, matching, properties, property_advertising, property_types, public, reports, requirements, tasks,
+    market, matching, properties, property_types, public, reports, requirements, tasks,
 )
 from seed import run_startup
 
@@ -32,7 +32,7 @@ api = APIRouter(prefix="/api")
 for module in (
     auth, properties, property_types, customers, requirements,
     leads, inspections, tasks, matching, locations,
-    ai, content, reports, public, files, csv_io, market, property_advertising,
+    ai, content, reports, public, files, csv_io, market,
 ):
     api.include_router(module.router)
 

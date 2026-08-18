@@ -1,0 +1,4 @@
+director@trel.com.pg:managing_director
+sales@trel.com.pg:sales_agent
+leasing@trel.com.pg:leasing_agent
+marketing@trel.com.pg:marketing_officer
