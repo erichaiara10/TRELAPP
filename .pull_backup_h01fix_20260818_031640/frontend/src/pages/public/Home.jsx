@@ -44,19 +44,10 @@ export default function Home() {
   const [type, setType] = useState("sale");
   const navigate = useNavigate();
 
-  useEffect(() => {
-    api.get("/properties", { params: { limit: 30 } })
-      .then((response) => setFeatured(response.data || []))
-      .catch(() => {});
-  }, []);
+  useEffect(() => { api.get("/properties", { params: { featured: true, limit: 6 } }).then((response) => setFeatured(response.data || [])).catch(() => {}); }, []);
   const visibleProperties = useMemo(() => {
-    const matching = featured
-      .filter((property) => property.listing_type === type)
-      .sort((first, second) => {
-        if (Boolean(first.featured) !== Boolean(second.featured)) return first.featured ? -1 : 1;
-        return new Date(second.published_at || second.created_at || 0) - new Date(first.published_at || first.created_at || 0);
-      });
-    return (matching.length > 0 ? matching : FALLBACK_PROPERTIES.filter((property) => property.listing_type === type)).slice(0, 3);
+    const matching = featured.filter((property) => property.listing_type === type);
+    return (matching.length ? matching : FALLBACK_PROPERTIES.filter((property) => property.listing_type === type)).slice(0, 3);
   }, [featured, type]);
 
   const submitSearch = (event) => { event.preventDefault(); navigate(`/${type === "sale" ? "buy" : "rent"}?q=${encodeURIComponent(q)}`); };
