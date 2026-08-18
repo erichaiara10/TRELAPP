@@ -3,12 +3,11 @@ import { Link, useLocation } from "react-router-dom";
 import { Menu, X, Plus } from "lucide-react";
 
 const NAV = [
-  { to: "/", label: "Home" },
   { to: "/buy", label: "Buy" },
   { to: "/rent", label: "Rent" },
   { to: "/wanted", label: "Property Wanted" },
-  { to: "/management", label: "Property Management" },
-  { to: "/corporate", label: "Corporate Services" },
+  { to: "/management", label: "Property Mgmt" },
+  { to: "/corporate", label: "Corporate" },
   { to: "/about", label: "About" },
   { to: "/contact", label: "Contact" },
 ];
@@ -49,9 +48,9 @@ export default function PublicHeader({ site }) {
     <header className="sticky top-0 z-40 glass border-b border-border" data-testid="public-header">
       <div className="container-tight flex items-center justify-between h-16 gap-4">
         <BrandLogo site={site} />
-        <nav className="hidden lg:flex items-center gap-4 text-sm">
+        <nav className="hidden lg:flex items-center gap-5 text-sm">
           {NAV.map((n) => (
-            <Link key={n.to} to={n.to} data-testid={`nav-${n.to.slice(1)}`} className={`border-b-2 py-5 text-xs text-ink-700 hover:text-sky-600 ${loc.pathname === n.to ? "border-[#0398FC]" : "border-transparent"}`}>
+            <Link key={n.to} to={n.to} data-testid={`nav-${n.to.slice(1)}`} className="text-ink-700 hover:text-pine-500">
               {n.label}
             </Link>
           ))}

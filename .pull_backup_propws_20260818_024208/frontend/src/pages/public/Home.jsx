@@ -54,7 +54,7 @@ export default function Home() {
             <div className="flex rounded-full bg-sand-100 p-1 shrink-0">
               {["sale","rent"].map((t) => (
                 <button type="button" key={t} onClick={() => setType(t)} data-testid={`hero-tab-${t}`}
-                  className={`px-4 py-2 rounded-full text-sm font-medium ${type===t?"bg-[#0398FC] text-black":"text-ink-700"}`}>
+                  className={`px-4 py-2 rounded-full text-sm font-medium ${type===t?"bg-pine-500 text-white":"text-ink-700"}`}>
                   {t==="sale"?"Buy":"Rent"}
                 </button>
               ))}
@@ -66,7 +66,7 @@ export default function Home() {
                 className="w-full py-2.5 outline-none text-ink-900 placeholder:text-muted-foreground bg-transparent" />
             </div>
             <button type="submit" data-testid="hero-search-btn"
-              className="px-6 py-3 rounded-full bg-[#0398FC] text-black font-medium flex items-center justify-center gap-2">
+              className="px-6 py-3 rounded-full bg-pine-500 hover:bg-pine-600 text-white font-medium flex items-center justify-center gap-2">
               Search <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -112,25 +112,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="container-tight pb-8" data-testid="home-how-trelpng-helps">
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-          <h2 className="text-center text-2xl font-bold text-slate-950">How TRELPNG Helps</h2>
-          <div className="mt-4 grid divide-y divide-slate-200 md:grid-cols-3 md:divide-x md:divide-y-0">
-            {[
-              { icon: Search, title: "Search Properties", text: "Find the right property for sale or rent across PNG with ease." },
-              { icon: HomeIcon, title: "Add Property", text: "List your property quickly and reach thousands of buyers or tenants." },
-              { icon: Users, title: "Connect with Buyers/Tenants", text: "Connect directly with interested buyers or tenants you can trust." },
-            ].map((item) => {
-              const HelpIcon = item.icon;
-              return <div key={item.title} className="flex items-center gap-4 px-5 py-4"><span className="grid h-16 w-16 shrink-0 place-items-center rounded-full border-[8px] border-sky-100 bg-[#0398FC]"><HelpIcon className="h-7 w-7 text-white" /></span><div><h3 className="font-bold text-slate-950">{item.title}</h3><p className="mt-1 text-sm leading-5 text-slate-600">{item.text}</p></div></div>;
-            })}
-          </div>
-        </div>
-      </section>
-
       {/* Why us */}
       {(whyUs.items?.length || 0) > 0 && (
-        <section className="hidden bg-pine-500 text-white py-16" data-testid="home-why-us">
+        <section className="bg-pine-500 text-white py-16" data-testid="home-why-us">
           <div className="container-tight">
             <div className="max-w-2xl">
               <h2 className="font-serif text-3xl sm:text-4xl mt-2">{whyUs.heading}</h2>
@@ -149,7 +133,7 @@ export default function Home() {
       )}
 
       {/* Property Wanted */}
-      <section className="hidden container-tight py-16">
+      <section className="container-tight py-16">
         <div className="flex items-end justify-between mb-8">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">{wantedT.kicker}</div>
@@ -183,7 +167,7 @@ export default function Home() {
 
       {/* CTA */}
       {(ctaBand.heading || ctaBand.sub) && (
-        <section className="hidden container-tight pb-20">
+        <section className="container-tight pb-20">
           <div className="rounded-3xl bg-ink-900 text-white p-10 md:p-14 relative overflow-hidden">
             <div className="max-w-2xl">
               <h2 className="font-serif text-3xl sm:text-4xl">{ctaBand.heading}</h2>
