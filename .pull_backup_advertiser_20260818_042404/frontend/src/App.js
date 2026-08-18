@@ -18,7 +18,6 @@ import Contact from "@/pages/public/Contact";
 import Legal from "@/pages/public/Legal";
 import PriceCompare from "@/pages/public/PriceCompare";
 import AddProperty from "@/pages/public/AddProperty";
-import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 
 import Login from "@/pages/admin/Login";
 import Dashboard from "@/pages/admin/Dashboard";
@@ -78,7 +77,6 @@ export default function App() {
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
-          <Route path="/advertiser/*" element={<AdvertiserWorkspace />} />
           <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="properties" element={<Properties />} />
