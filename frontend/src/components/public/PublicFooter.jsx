@@ -1,11 +1,18 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Facebook, Home, Linkedin, Youtube } from "lucide-react";
+import { Facebook, Linkedin, Youtube } from "lucide-react";
+
+function TrelFooterLogo() {
+  return <svg viewBox="0 0 150 64" className="h-14 w-32" role="img" aria-label="TREL">
+    <path d="M8 21h134M25 21 75 5l50 16M27 21v34h96V21M36 47h78" fill="none" stroke="#0398FC" strokeWidth="5" strokeLinejoin="round" />
+    <text x="34" y="45" fill="#0398FC" fontSize="28" fontWeight="800" fontFamily="Arial, sans-serif">TREL</text>
+  </svg>;
+}
 
 export default function PublicFooter({ site }) {
   return <footer className="mt-4 border-t border-slate-200 bg-white text-slate-700" data-testid="public-footer">
     <div className="container-tight flex flex-col items-center justify-between gap-6 py-7 md:flex-row">
-      <div className="flex items-center gap-2 text-[#0398FC]" aria-label={site.agency_name}><Home className="h-9 w-9" /><span className="text-2xl font-bold tracking-wide">TRELPNG</span></div>
+      <TrelFooterLogo />
       <nav className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm">
         <Link to="/about" className="hover:text-sky-600">About</Link><Link to="/contact" className="hover:text-sky-600">Contact</Link><Link to="/privacy" className="hover:text-sky-600">Privacy Policy</Link><Link to="/terms" className="hover:text-sky-600">Terms of Use</Link>
       </nav>
