@@ -9,10 +9,9 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from pymongo import ReturnDocument
 
 from core.db import db, new_id, now_iso
-from core.security import get_current_user, require_roles
+from core.security import require_roles
 
 router = APIRouter(prefix="/property-advertising", tags=["property-advertising"])
 staff_user = require_roles("managing_director", "sales_agent", "leasing_agent", "marketing_officer")
@@ -85,111 +84,6 @@ class WorkflowAction(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=1000)
 
 
-class AdvertiserDraftIn(BaseModel):
-    data: dict
-    current_step: int = Field(default=1, ge=1, le=5)
-
-
-def require_advertiser(user: dict):
-    if user.get("role") not in {"property_advertiser", "advertiser"}:
-        raise HTTPException(403, "A Property Advertiser account is required")
-
-
-async def next_reference(counter: str, prefix: str, start: int) -> str:
-    await db.pa_counters.update_one(
-        {"_id": counter}, {"$setOnInsert": {"value": start}}, upsert=True,
-    )
-    result = await db.pa_counters.find_one_and_update(
-        {"_id": counter}, {"$inc": {"value": 1}},
-        return_document=ReturnDocument.AFTER,
-    )
-    return f"{prefix}{result['value']:05d}"
-
-
-async def ensure_advertiser(user: dict) -> dict:
-    existing = await db.pa_advertisers.find_one({"owner_user_id": user["id"]}, {"_id": 0})
-    if existing:
-        return existing
-    reference = await next_reference("advertiser", "ADV-", 10000)
-    row = [reference, user.get("name") or user.get("email"), "Owner", "Verified", "Not started", "0", "Today", "Active", "Unassigned"]
-    doc = {"id": new_id(), "reference": reference, "owner_user_id": user["id"], "email": user.get("email"), "row": row, "created_at": now_iso(), "updated_at": now_iso()}
-    await db.pa_advertisers.insert_one(doc)
-    return {k: v for k, v in doc.items() if k != "_id"}
-
-
-def validate_submission(data: dict):
-    required = {
-        "listing_type": "Sale or Rent", "service": "TREL service", "relationship": "Relationship",
-        "property_class": "Property category", "property_type": "Property type",
-        "title": "Property title", "price": "Price", "description": "Description",
-        "province": "Province", "city": "City / Town", "suburb": "Suburb",
-        "section": "Section number", "lot": "Lot number",
-    }
-    missing = [label for key, label in required.items() if not str(data.get(key) or "").strip()]
-    if missing:
-        raise HTTPException(400, f"Complete these required fields: {', '.join(missing)}")
-    price = str(data.get("price", "")).replace("PGK", "").replace(",", "").strip()
-    try:
-        if float(price) <= 0:
-            raise ValueError
-    except ValueError:
-        raise HTTPException(400, "Price must be greater than zero")
-    if not data.get("authority_confirmed") or not data.get("terms_accepted"):
-        raise HTTPException(400, "Both declarations must be accepted before submission")
-
-
-@router.get("/advertiser/me")
-async def advertiser_me(user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    return await ensure_advertiser(user)
-
-
-@router.get("/advertiser/drafts/current")
-async def current_draft(user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    await ensure_advertiser(user)
-    return await db.pa_drafts.find_one({"owner_user_id": user["id"], "status": "draft"}, {"_id": 0})
-
-
-@router.put("/advertiser/drafts/current")
-async def save_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    advertiser = await ensure_advertiser(user)
-    now = now_iso()
-    existing = await db.pa_drafts.find_one({"owner_user_id": user["id"], "status": "draft"}, {"_id": 0})
-    if existing:
-        await db.pa_drafts.update_one({"id": existing["id"], "owner_user_id": user["id"]}, {"$set": {"data": payload.data, "current_step": payload.current_step, "updated_at": now}})
-        draft_id = existing["id"]
-    else:
-        draft_id = new_id()
-        await db.pa_drafts.insert_one({"id": draft_id, "owner_user_id": user["id"], "advertiser_reference": advertiser["reference"], "status": "draft", "data": payload.data, "current_step": payload.current_step, "created_at": now, "updated_at": now})
-    return await db.pa_drafts.find_one({"id": draft_id}, {"_id": 0})
-
-
-@router.post("/advertiser/drafts/current/submit")
-async def submit_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    validate_submission(payload.data)
-    advertiser = await ensure_advertiser(user)
-    saved = await save_draft(payload, user)
-    reference = await next_reference("submission", "TREL-", 11000)
-    now = now_iso()
-    d = payload.data
-    row = [reference, d["title"], user.get("name") or user.get("email"), d["relationship"], d["service"], "Today", "Within 3 days", "On time", "Pending check", "Unassigned", "Submitted"]
-    submission = {"id": new_id(), "reference": reference, "owner_user_id": user["id"], "advertiser_reference": advertiser["reference"], "draft_id": saved["id"], "data": d, "row": row, "status": "Submitted", "created_at": now, "updated_at": now}
-    await db.pa_submissions.insert_one(submission)
-    await db.pa_drafts.update_one({"id": saved["id"], "owner_user_id": user["id"]}, {"$set": {"status": "submitted", "submission_reference": reference, "updated_at": now}})
-    await db.pa_advertisers.update_one({"owner_user_id": user["id"]}, {"$inc": {"submission_count": 1}, "$set": {"updated_at": now}})
-    await db.pa_audit.insert_one({"id": new_id(), "record_type": "submission", "reference": reference, "action": "submit", "previous_status": "Draft", "new_status": "Submitted", "reason": "Advertiser submitted property", "performed_by_id": user["id"], "performed_by_name": user.get("name") or user.get("email"), "channel": "advertiser_workspace", "created_at": now})
-    return {k: v for k, v in submission.items() if k != "_id"}
-
-
-@router.get("/advertiser/submissions")
-async def advertiser_submissions(user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    return await db.pa_submissions.find({"owner_user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
-
-
 async def ensure_seeded():
     """Create representative dev records once; never overwrite real changes."""
     for key, rows in SEED.items():
@@ -249,7 +143,7 @@ async def apply_action(payload: WorkflowAction, user: dict = Depends(staff_user)
     timestamp = now_iso()
     result = await collection.update_one(
         {"reference": payload.reference, "updated_at": doc["updated_at"]},
-        {"$set": {"row": row, "status": new_status, "updated_at": timestamp}},
+        {"$set": {"row": row, "updated_at": timestamp}},
     )
     if result.modified_count != 1:
         raise HTTPException(409, "Record changed while you were reviewing it; refresh and retry")
@@ -266,8 +160,7 @@ async def apply_action(payload: WorkflowAction, user: dict = Depends(staff_user)
             "id": new_id(), "record_type": payload.record_type,
             "reference": payload.reference, "action": payload.action,
             "status": "queued", "channels": ["inbox", "email"],
-            "requested_by_id": user["id"], "recipient_user_id": doc.get("owner_user_id"),
-            "created_at": timestamp,
+            "requested_by_id": user["id"], "created_at": timestamp,
         })
     return {"ok": True, "record": {**doc, "row": row, "updated_at": timestamp}, "audit": {k: v for k, v in audit.items() if k != "_id"}}
 
