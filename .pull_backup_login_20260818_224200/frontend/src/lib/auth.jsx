@@ -18,9 +18,8 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem("png_token", data.token);
-      const authenticatedUser = { id: data.id, email: data.email, name: data.name, role: data.role };
-      setUser(authenticatedUser);
-      return { ok: true, user: authenticatedUser };
+      setUser({ id: data.id, email: data.email, name: data.name, role: data.role });
+      return { ok: true };
     } catch (e) { return { ok: false, error: formatError(e) }; }
   }, []);
 
