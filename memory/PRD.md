@@ -15,6 +15,56 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 
 ## What's Been Implemented (Feb 2026)
 
+### Iter-P1 — Must-Change-Password on First Login (Feb 19, 2026)
+
+Branch: `feature/must-change-password-first-login` · commit `a4b46c3`
+
+**Backend**
+- `POST /api/auth/login` on a user with `must_change_password=true` no longer
+  issues an access token. Returns `{ password_change_required: true, purpose,
+  change_token, expires_in_seconds: 600 }` instead.
+- New `POST /api/auth/change-password-first-login` accepts the single-purpose
+  token + `new_password` + `confirm_password`. Validates JWT signature,
+  purpose, expiry (10 min) and single-use `jti` (tracked in
+  `used_password_change_tokens` with a 15 min TTL index). Rejects
+  mismatched-confirm, weak passwords (12+ chars, lower/upper/digit/special),
+  and reuse of the temporary password. Atomically hashes with bcrypt, clears
+  the flag, bumps `password_version`, invalidates the change token and drops
+  any local cookie.
+- `get_current_user` now rejects any JWT whose `type != "access"` — the
+  password-change token can never unlock ordinary APIs.
+- In-memory sliding-window rate limiter (8 login attempts / 15 min per IP+email;
+  10 change attempts / 15 min per IP). Generic 401 message: "Invalid email
+  or password".
+- Every login challenge and successful change writes a `pa_audit` event.
+  Metadata is restricted to `{jti, ip}` — passwords and tokens are never
+  persisted.
+
+**Frontend**
+- New `/auth/change-password` screen (`pages/auth/PasswordChangeFirstLogin.jsx`)
+  with new/confirm inputs, show/hide toggles per field, live requirement
+  checklist, mismatch warning, expired-token fallback that returns to the
+  login gate, and a success screen that requires re-login.
+- `AuthProvider.login` surfaces `{passwordChangeRequired, changeToken}`
+  without persisting any auth state; both `/admin/login` and the public
+  `AccountAccessDialog` route into the forced screen when signalled.
+- `Protected` route now blocks any `property_advertiser` from `/admin/*`
+  and redirects them to `/advertiser`. Staff login also routes advertisers
+  to `/advertiser` after successful login.
+- Temp password and change token are never logged or displayed in the UI.
+
+**Docs / Ops**
+- `/app/memory/test_credentials.md` — plaintext temporary password removed
+  after out-of-band delivery. Only a bcrypt hash remains in MongoDB.
+
+**Tests**: 9/9 pytest pass (`backend/tests/test_first_login_password_change.py`) —
+wrong-pw rejection, challenge shape, change-token cannot access ordinary
+APIs, weak / mismatched / temp-reuse rejection, successful change +
+single-use replay guard + relogin, audit-event redaction, admin-login
+regression. Full Playwright browser flow verified end-to-end.
+
+
+
 ### Iter-42 — Scraper Diagnostics Overhaul: Accounting Invariant + MarketMeri Fix + Sources Admin RunRow UI (Feb 28, 2026)
 
 **Backend — Scraper engine overhaul completed & verified (13/13 pytest green):**
