@@ -70,15 +70,18 @@ function DraftProvider({ children }) {
   const [draft, setDraft] = useState(DEFAULT_DRAFT);
   const [submissions, setSubmissions] = useState([]);
   const [files, setFiles] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
   const [saving, setSaving] = useState(false);
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
   const load = async () => {
     try {
-      const [{ data: saved }, { data: submitted }, { data: uploaded }] = await Promise.all([
+      const [{ data: saved }, { data: submitted }, { data: uploaded }, { data: dashboardData }] = await Promise.all([
         api.get("/property-advertising/advertiser/drafts/current"),
         api.get("/property-advertising/advertiser/submissions"),
         api.get("/property-advertising/advertiser/files"),
+        api.get("/property-advertising/advertiser/dashboard"),
       ]);
+      setDashboard(dashboardData);
       const currentFiles = (Array.isArray(uploaded) ? uploaded : []).filter((item) => !item.submission_reference);
       const hydratedFiles = await Promise.all(currentFiles.map(async (item) => {
         if (item.category !== "photo") return item;
@@ -100,6 +103,12 @@ function DraftProvider({ children }) {
       }
       setSubmissions(Array.isArray(submitted) ? submitted : []);
       syncSubmissionProperties(submitted);
+    } catch (err) { toast.error(formatError(err)); }
+  };
+  const refreshDashboard = async () => {
+    try {
+      const { data } = await api.get("/property-advertising/advertiser/dashboard");
+      setDashboard(data);
     } catch (err) { toast.error(formatError(err)); }
   };
   useEffect(() => { load(); }, []);
@@ -183,7 +192,7 @@ function DraftProvider({ children }) {
     } catch (err) { toast.error(formatError(err)); return null; }
     finally { setSaving(false); }
   };
-  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, files, openFile, uploadFile, removeFile, saving }}>{children}</DraftContext.Provider>;
+  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, files, dashboard, refreshDashboard, openFile, uploadFile, removeFile, saving }}>{children}</DraftContext.Provider>;
 }
 const useDraft = () => useContext(DraftContext);
 
@@ -237,15 +246,45 @@ const FIELD_KEYS={"What kind of property is it?":"property_class","Property type
 function Field({ label, name, value, placeholder, className="", children, textarea=false }) { const ctx=useDraft(); const key=name||FIELD_KEYS[label]; const current=key?(ctx?.draft?.[key] ?? value):value; const control=key?{value:current,onChange:(e)=>ctx.update(key,e.target.value)}:{defaultValue:value}; return <label className={`adv-field ${className}`}><span>{label}</span>{children || (textarea ? <textarea {...control} placeholder={placeholder}/> : <input {...control} placeholder={placeholder}/>)}</label>; }
 function SelectField({ label, name, value, options=[] }) { const ctx=useDraft(); const key=name||FIELD_KEYS[label]; const current=key?(ctx?.draft?.[key] ?? value):value; return <label className="adv-field"><span>{label}</span><select value={current} onChange={(e)=>key&&ctx.update(key,e.target.value)}>{[value,...options.filter(x=>x!==value)].map(x=><option key={x}>{x}</option>)}</select></label>; }
 
-function Dashboard() { return <>
-  <PageHead title="Dashboard" />
-  <Card className="adv-welcome"><div className="adv-welcome-icon"><Building2/></div><div><h2>Welcome back, Kumul Agencies!</h2><p>Here's what's happening with your properties today.</p><small><MapPin size={14}/> Port Moresby, National Capital District</small></div><img src={photos[0]} alt="Modern property"/></Card>
-  <div className="adv-dashboard-grid"><div className="adv-dashboard-main">
-    <div className="adv-stat-grid">{[[House,"18","Active Listings","View all"],[FileText,"6","Draft Listings","View drafts"],[Clock3,"5","Awaiting Review","View pending"],[MessageCircle,"42","Total Enquiries","View enquiries"]].map(([Icon,n,t,l],i)=><Card className="adv-stat" key={t}><Icon className={`stat-${i}`}/><div><b>{n}</b><span>{t}</span><Link to={i===3?"/advertiser/enquiries":"/advertiser/properties"}>{l} <ChevronRight size={14}/></Link></div></Card>)}</div>
-    <div className="adv-two-col"><div><Card><h3>Quick Actions</h3>{[[Plus,"Add New Property","Create a new listing","/advertiser/add-property"],[FileText,"Continue Draft","Resume editing a draft","/advertiser/add-property"],[Home,"View My Properties","Manage your listings","/advertiser/properties"]].map(([Icon,a,b,to])=><Link className="adv-action-row" to={to} key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><ChevronRight/></Link>)}</Card><Card className="adv-activity"><h3>Recent Activity <Link to="/advertiser/enquiries">View all</Link></h3>{["New enquiry received","Listing submitted for review","Photos updated","Draft saved","Listing approved and live"].map((x,i)=><div key={x}><i className={`dot d${i}`}/><span><b>{x}</b><small>{properties[i%4][0]}</small></span><time>{["1h ago","3h ago","1d ago","2d ago","3d ago"][i]}</time></div>)}</Card></div>
-      <Card><h3>My Listings Snapshot <Link to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></h3>{properties.map((p,i)=><div className="adv-listing-row" key={p[0]}><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>{p[1]}</small><strong>{p[2]}</strong></div><div><Status tone={p[4]==="Live"?"green":p[4]==="Draft"?"gray":"orange"}>{p[4]}</Status><small>{p[5] && `Enquiries ${p[5]}`}</small></div><MoreVertical/></div>)}<Link className="adv-card-link" to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></Card></div>
-  </div><aside className="adv-dashboard-side"><Card><h3><Bell size={17}/> Reminders</h3>{[[ShieldCheck,"Verify listing details","2 listings have incomplete or unverified details.","Review"],[Camera,"Update property photos","5 listings could perform better with more photos.","Update"],[FileText,"Pending documents","2 listings require additional documents.","View"]].map(([Icon,a,b,c])=><div className="adv-reminder" key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><Button secondary>{c}</Button></div>)}</Card><Card><h3><CalendarDays size={17}/> Inspection Requests <Status tone="red">2</Status></h3>{properties.slice(0,2).reverse().map((p,i)=><div className="adv-inspection-mini" key={p[0]}><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>Requested by {i?"Maria Kua":"John Tau"}</small><small><CalendarDays size={13}/> {i?"26 May 2025, 2:00 PM":"24 May 2025, 10:00 AM"}</small></div><Status>Pending</Status></div>)}<Link className="adv-card-link" to="/advertiser/inspections">Manage inspections <ChevronRight size={15}/></Link></Card></aside></div>
-  </> }
+function Dashboard() {
+  const flow=useDraft();
+  const dashboard=flow.dashboard;
+  useEffect(()=>{flow.refreshDashboard();},[]);
+  if(!dashboard)return <><PageHead title="Dashboard"/><Card><p className="adv-muted">Loading your property information…</p></Card></>;
+
+  const advertiser=dashboard.advertiser||{};
+  const metrics=dashboard.metrics||{};
+  const listingRows=dashboard.listings||[];
+  const activity=dashboard.recent_activity||[];
+  const reminders=dashboard.reminders||[];
+  const inspections=dashboard.inspections||[];
+  const statusTone=(status)=>/published|active|available/i.test(status||"")?"green":/draft|inactive|removed|archived/i.test(status||"")?"gray":"orange";
+  const readableAction=(value)=>String(value||"Activity").replaceAll("_"," ").replace(/\b\w/g,(letter)=>letter.toUpperCase());
+  const relativeDate=(value)=>{if(!value)return "";const date=new Date(value);if(Number.isNaN(date.getTime()))return "";return date.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"});};
+  const priceLabel=(item)=>{if(!item.price)return "Price not entered";const raw=String(item.price).replace(/^PGK\s*/i,"");return `PGK ${raw}${String(item.listing_type||"").toLowerCase()==="rent"?" / month":""}`;};
+  const reminderIcon={identity:ShieldCheck,changes:FileText,photos:Camera};
+
+  return <>
+    <PageHead title="Dashboard"/>
+    <Card className="adv-welcome" data-testid="advertiser-welcome"><div className="adv-welcome-icon"><Building2/></div><div><h2>Welcome back, {advertiser.name||"Property Advertiser"}!</h2><p>Here's what's happening with your properties today.</p><small><MapPin size={14}/> {advertiser.location||"Your TRELPNG Property Advertiser Account"}</small></div><img src={photos[0]} alt="Property advertising"/></Card>
+    <div className="adv-dashboard-grid"><div className="adv-dashboard-main">
+      <div className="adv-stat-grid">{[
+        [House,metrics.active_listings||0,"Active Listings","View all","/advertiser/properties"],
+        [FileText,metrics.draft_listings||0,"Draft Listings","View drafts","/advertiser/add-property"],
+        [Clock3,metrics.awaiting_review||0,"Awaiting Review","View pending","/advertiser/properties"],
+        [MessageCircle,metrics.total_enquiries||0,"Total Enquiries","View enquiries","/advertiser/enquiries"],
+      ].map(([Icon,n,t,l,to],i)=><Card className="adv-stat" key={t}><Icon className={`stat-${i}`}/><div><b>{n}</b><span>{t}</span><Link to={to}>{l} <ChevronRight size={14}/></Link></div></Card>)}</div>
+      <div className="adv-two-col"><div><Card><h3>Quick Actions</h3>{[
+        [Plus,"Add New Property","Create a new listing","/advertiser/add-property"],
+        [FileText,"Continue Draft","Resume editing a draft","/advertiser/add-property"],
+        [Home,"View My Properties","Manage your listings","/advertiser/properties"],
+      ].map(([Icon,a,b,to])=><Link className="adv-action-row" to={to} key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><ChevronRight/></Link>)}</Card>
+      <Card className="adv-activity"><h3>Recent Activity <Link to="/advertiser/properties">View all</Link></h3>{activity.length?activity.slice(0,5).map((item,i)=><div key={item.id||`${item.reference}-${i}`}><i className={`dot d${i}`}/><span><b>{readableAction(item.action)}</b><small>{item.title||item.reference}</small></span><time>{relativeDate(item.created_at)}</time></div>):<p className="adv-muted">No property activity yet.</p>}</Card></div>
+      <Card><h3>My Listings Snapshot <Link to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></h3>{listingRows.length?listingRows.slice(0,5).map((item)=><div className="adv-listing-row" key={item.reference}><img src={photos[0]} alt="Property"/><div><b>{item.title}</b><small>{item.location||"Location not entered"}</small><strong>{priceLabel(item)}</strong></div><div><Status tone={statusTone(item.status)}>{item.status}</Status><small>{item.reference}</small></div><MoreVertical/></div>):<div className="adv-empty-state"><Home/><b>No properties yet</b><p>Create your first property draft to see it here.</p><Link className="adv-button" to="/advertiser/add-property">Add Property</Link></div>}<Link className="adv-card-link" to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></Card></div>
+    </div><aside className="adv-dashboard-side"><Card><h3><Bell size={17}/> Reminders</h3>{reminders.length?reminders.map((item)=>{const Icon=reminderIcon[item.kind]||Info;return <div className="adv-reminder" key={`${item.kind}-${item.title}`}><Icon/><span><b>{item.title}</b><small>{item.detail}</small></span><Link className="adv-button secondary" to={item.target}>Review</Link></div>}):<p className="adv-muted">No outstanding reminders.</p>}</Card>
+    <Card><h3><CalendarDays size={17}/> Inspection Requests <Status tone="red">{inspections.length}</Status></h3>{inspections.length?inspections.slice(0,2).map((item)=><div className="adv-inspection-mini" key={item.reference||item.id}><img src={photos[0]} alt="Property"/><div><b>{item.property_title||item.reference||"Property inspection"}</b><small>{item.purpose||"Inspection request"}</small><small><CalendarDays size={13}/> {relativeDate(item.created_at)}</small></div><Status>{item.status||"Pending"}</Status></div>):<p className="adv-muted">No inspection requests.</p>}<Link className="adv-card-link" to="/advertiser/inspections">Manage inspections <ChevronRight size={15}/></Link></Card></aside></div>
+  </>;
+}
 
 const steps=["Property Details","Location & Identification","Features","Photos & Documents","Review & Submit"];
 function Stepper({active}) { return <div className="adv-stepper">{steps.map((s,i)=><React.Fragment key={s}><div className={i<=active?"on":""}><i>{i<active?<Check size={12}/>:i+1}</i><span>{s}</span></div>{i<4&&<b/>}</React.Fragment>)}</div>; }
