@@ -1027,11 +1027,24 @@ async def authority_read(reference: str, user: dict = Depends(staff_user)):
     doc = await db.pa_submissions.find_one({"reference": reference}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Submission not found")
+    document_ids = doc.get("data", {}).get("document_file_ids") or []
+    documents = await db.files.find(
+        {
+            "id": {"$in": document_ids},
+            "scope": "property_advertising",
+            "category": "document",
+            "is_deleted": False,
+        },
+        {"_id": 0, "storage_path": 0, "sha256": 0, "owner_user_id": 0},
+    ).sort("created_at", 1).to_list(20) if document_ids else []
+    for document in documents:
+        document["url"] = f"/api/property-advertising/files/{document['id']}"
     return {
         "reference": reference,
         "relationship": doc.get("data", {}).get("relationship"),
         "authority_evidence": doc.get("data", {}).get("authority_evidence"),
         "authority_confirmed": doc.get("data", {}).get("authority_confirmed"),
+        "documents": documents,
         "status": doc.get("status"),
         "audit": await db.pa_audit.find(
             {"record_type": "submission", "reference": reference,
