@@ -2,3 +2,53 @@
 @media(max-width:1200px){.adv-sidebar{width:205px}.adv-body{margin-left:205px}.adv-dashboard-grid{grid-template-columns:1fr}.adv-dashboard-side{display:grid;grid-template-columns:1fr 1fr}.adv-form-grid.six{grid-template-columns:repeat(3,1fr)}.adv-document-grid{grid-template-columns:repeat(3,1fr)}.adv-photo-grid{grid-template-columns:repeat(4,1fr)}.adv-help-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.adv-sidebar{position:static;width:auto;height:auto;padding:8px}.adv-logo{display:none}.adv-sidebar nav{flex-direction:row;overflow:auto}.adv-nav-link{min-width:max-content;padding:9px}.adv-nav-link:nth-last-child(2){margin:0;border:0;padding:9px}.adv-nav-link span{font-size:11px}.adv-help-card{display:none}.adv-body{margin:0}.adv-header{position:static;height:66px}.adv-mobile-brand{display:block}.adv-mobile-brand img{width:120px}.adv-user div{display:none}.adv-main{padding:18px}.adv-dashboard-grid,.adv-form-layout,.adv-enquiry-layout,.adv-settings-layout{grid-template-columns:1fr}.adv-dashboard-side{grid-template-columns:1fr}.adv-stat-grid,.adv-stat-grid.five{grid-template-columns:repeat(2,1fr)}.adv-two-col,.adv-split{grid-template-columns:1fr}.adv-form-layout>div{display:grid;grid-template-columns:1fr 1fr}.adv-review-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.adv-header{padding:8px}.adv-global-search{display:none}.adv-user{margin-left:auto}.adv-page-head{align-items:flex-start;gap:10px}.adv-page-head h1{font-size:21px}.adv-stat-grid,.adv-stat-grid.three,.adv-stat-grid.five{grid-template-columns:1fr 1fr}.adv-two-col,.adv-form-grid.two,.adv-form-grid.three,.adv-form-grid.six,.adv-choice-row,.adv-choice-row.three,.adv-help-grid,.adv-form-layout>div,.adv-review-grid{grid-template-columns:1fr}.adv-document-grid,.adv-check-grid{grid-template-columns:repeat(2,1fr)}.adv-stepper>div span{display:none}.adv-welcome img{display:none}.adv-listing-row{grid-template-columns:70px 1fr 80px}.adv-listing-row img{width:70px}.adv-listing-row>svg{display:none}.adv-inspection-list>div{grid-template-columns:85px 1fr}.adv-inspection-list img{display:none}.adv-inspection-list>div>div:last-child{grid-column:2}.adv-support-card{align-items:stretch;flex-direction:column}.adv-review-hero{grid-template-columns:90px 1fr}.adv-review-hero img{width:90px}.adv-review-hero>.adv-status{grid-column:2}.adv-table-tools{flex-wrap:wrap}.adv-table-tools label{min-width:100%}}
+
+
+/* D3 real A06 uploads */
+.adv-upload-zone {
+  cursor: pointer;
+}
+.adv-upload-zone > input,
+.adv-document-grid label.adv-button > input {
+  display: none;
+}
+.adv-document-grid label.adv-button {
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+}
+.adv-document-grid p {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  min-width: 0;
+}
+.adv-file-link {
+  background: none;
+  border: 0;
+  color: #0879d1;
+  cursor: pointer;
+  font: inherit;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adv-document-grid p > button:last-child,
+.adv-photo-grid span > button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+}
+.adv-document-grid p > button:last-child:disabled,
+.adv-photo-grid span > button:disabled {
+  cursor: wait;
+  opacity: .45;
+}
