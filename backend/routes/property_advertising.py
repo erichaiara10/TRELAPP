@@ -507,6 +507,162 @@ async def advertiser_me(user: dict = Depends(get_current_user)):
     return await ensure_advertiser(user)
 
 
+@router.get("/advertiser/dashboard")
+async def advertiser_dashboard(user: dict = Depends(get_current_user)):
+    """Account-scoped A01 dashboard. Never returns another advertiser's data."""
+    require_advertiser(user)
+    advertiser = await ensure_advertiser(user)
+    owner_user_id = user["id"]
+
+    submissions = await db.pa_submissions.find(
+        {"owner_user_id": owner_user_id}, {"_id": 0},
+    ).sort("updated_at", -1).to_list(500)
+    drafts = await db.pa_drafts.find(
+        {"owner_user_id": owner_user_id, "status": "draft"}, {"_id": 0},
+    ).sort("updated_at", -1).to_list(50)
+    references = [item["reference"] for item in submissions if item.get("reference")]
+
+    active_statuses = {"Published", "Active", "Available"}
+    review_statuses = {
+        "Submitted", "Under Review", "Conflict Review", "Ready",
+        "Pending review", "Authority Review",
+    }
+    returned_statuses = {
+        "Changes Required", "Information Required",
+        "Resubmission Required", "Documents Requested",
+    }
+
+    listing_items = []
+    for item in submissions:
+        data = item.get("data") or {}
+        listing_items.append({
+            "reference": item.get("reference"),
+            "title": data.get("title") or item.get("reference"),
+            "location": ", ".join(filter(None, [
+                data.get("suburb") or data.get("city"),
+                data.get("province"),
+            ])),
+            "price": data.get("price"),
+            "listing_type": data.get("listing_type"),
+            "status": item.get("status") or (item.get("row") or [None] * 11)[10],
+            "updated_at": item.get("updated_at"),
+            "cover_file_id": (data.get("photo_file_ids") or [None])[0],
+        })
+    for item in drafts:
+        data = item.get("data") or {}
+        listing_items.append({
+            "reference": item.get("id"),
+            "title": data.get("title") or "Untitled draft",
+            "location": ", ".join(filter(None, [
+                data.get("suburb") or data.get("city"),
+                data.get("province"),
+            ])),
+            "price": data.get("price"),
+            "listing_type": data.get("listing_type"),
+            "status": "Draft",
+            "updated_at": item.get("updated_at"),
+            "cover_file_id": (data.get("photo_file_ids") or [None])[0],
+        })
+    listing_items.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
+
+    audit_query = {
+        "$or": [
+            {"performed_by_id": owner_user_id},
+            {"reference": {"$in": references}},
+        ],
+    } if references else {"performed_by_id": owner_user_id}
+    audit_events = await db.pa_audit.find(
+        audit_query,
+        {
+            "_id": 0, "performed_by_id": 0, "requested_by_id": 0,
+        },
+    ).sort("created_at", -1).to_list(10)
+    title_by_reference = {
+        item.get("reference"): (item.get("data") or {}).get("title")
+        for item in submissions
+    }
+    activity = [{
+        "id": event.get("id"),
+        "reference": event.get("reference"),
+        "title": title_by_reference.get(event.get("reference")) or event.get("reference"),
+        "action": event.get("action"),
+        "status": event.get("new_status"),
+        "created_at": event.get("created_at"),
+    } for event in audit_events]
+
+    reminders = []
+    if advertiser.get("identity_status") not in {"Verified", "Active"}:
+        reminders.append({
+            "kind": "identity",
+            "title": "Verify your identity",
+            "detail": "One valid government-issued ID is required.",
+            "target": "/advertiser/account-settings",
+        })
+    returned = [item for item in submissions if item.get("status") in returned_statuses]
+    if returned:
+        reminders.append({
+            "kind": "changes",
+            "title": "Property information required",
+            "detail": f"{len(returned)} submission(s) require your response.",
+            "target": "/advertiser/properties",
+        })
+    draft_without_files = [
+        item for item in drafts
+        if not ((item.get("data") or {}).get("photo_file_ids") or [])
+    ]
+    if draft_without_files:
+        reminders.append({
+            "kind": "photos",
+            "title": "Add property photos",
+            "detail": f"{len(draft_without_files)} draft(s) have no property photos.",
+            "target": "/advertiser/add-property/photos",
+        })
+
+    enquiries_count = await db.pa_enquiries.count_documents(
+        {"owner_user_id": owner_user_id},
+    )
+    inspections = await db.pa_location_requests.find(
+        {"owner_user_id": owner_user_id}, {"_id": 0, "requested_by_id": 0},
+    ).sort("created_at", -1).to_list(5)
+
+    location_data = {}
+    if submissions:
+        location_data = submissions[0].get("data") or {}
+    elif drafts:
+        location_data = drafts[0].get("data") or {}
+
+    return {
+        "advertiser": {
+            "reference": advertiser.get("reference"),
+            "name": user.get("name") or (advertiser.get("row") or [None, user.get("email")])[1],
+            "email": user.get("email"),
+            "identity_status": advertiser.get("identity_status", "Not started"),
+            "location": ", ".join(filter(None, [
+                location_data.get("city") or location_data.get("suburb"),
+                location_data.get("province"),
+            ])),
+        },
+        "metrics": {
+            "active_listings": sum(
+                1 for item in submissions if item.get("status") in active_statuses
+            ),
+            "draft_listings": len(drafts),
+            "awaiting_review": sum(
+                1 for item in submissions if item.get("status") in review_statuses
+            ),
+            "total_enquiries": enquiries_count,
+        },
+        "listings": listing_items[:10],
+        "recent_activity": activity,
+        "reminders": reminders,
+        "inspections": inspections,
+        "capabilities": {
+            "enquiries": enquiries_count > 0,
+            "inspections": bool(inspections),
+        },
+    }
+
+
 @router.get("/advertiser/drafts/current")
 async def current_draft(user: dict = Depends(get_current_user)):
     require_advertiser(user)
