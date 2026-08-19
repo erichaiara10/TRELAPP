@@ -65,6 +65,68 @@ const DEFAULT_DRAFT = {
   authority_confirmed: true, terms_accepted: true,
 };
 
+const LISTING_TYPE_TO_API = { Sale: "sale", Rent: "rent", "Sale and Rent": "sale_and_rent" };
+const LISTING_TYPE_FROM_API = { sale: "Sale", rent: "Rent", sale_and_rent: "Sale and Rent" };
+const PROPERTY_CLASS_TO_API = {
+  Residential: "urban_residential",
+  Commercial: "urban_commercial",
+  Industrial: "urban_commercial",
+  "Agricultural / Rural": "customary_vacant_land",
+  "Vacant Land": "urban_vacant_land",
+  Other: "urban_residential",
+};
+const PROPERTY_CLASS_FROM_API = {
+  urban_residential: "Residential",
+  urban_commercial: "Commercial",
+  urban_vacant_land: "Vacant Land",
+  customary_vacant_land: "Agricultural / Rural",
+  apartment_unit: "Residential",
+};
+const CONDITION_TO_API = {
+  New: "new_renovated",
+  Renovated: "new_renovated",
+  Good: "good",
+  Average: "average",
+  Poor: "poor_renovation_required",
+  "Renovation required": "poor_renovation_required",
+};
+const CONDITION_FROM_API = {
+  new_renovated: "Renovated",
+  good: "Good",
+  average: "Average",
+  poor_renovation_required: "Renovation required",
+};
+const numberOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const toApiDraft = (draft) => ({
+  ...draft,
+  listing_type: LISTING_TYPE_TO_API[draft.listing_type] || draft.listing_type,
+  property_class: /apartment|unit/i.test(draft.property_type || "")
+    ? "apartment_unit"
+    : (PROPERTY_CLASS_TO_API[draft.property_class] || draft.property_class),
+  condition: CONDITION_TO_API[draft.condition] || draft.condition,
+  bedrooms: numberOrNull(draft.bedrooms),
+  bathrooms: numberOrNull(draft.bathrooms),
+  parking: numberOrNull(draft.parking),
+  area_sqm: numberOrNull(draft.land_size),
+  building_area_sqm: numberOrNull(draft.building_area),
+  map_coords: draft.map_coords || [draft.latitude, draft.longitude].filter(Boolean).join(","),
+});
+const fromApiDraft = (saved) => ({
+  ...saved,
+  listing_type: LISTING_TYPE_FROM_API[saved.listing_type] || saved.listing_type,
+  property_class: PROPERTY_CLASS_FROM_API[saved.property_class] || saved.property_class,
+  condition: CONDITION_FROM_API[saved.condition] || saved.condition,
+  bedrooms: saved.bedrooms == null ? "" : String(saved.bedrooms),
+  bathrooms: saved.bathrooms == null ? "" : String(saved.bathrooms),
+  parking: saved.parking == null ? "" : String(saved.parking),
+  land_size: saved.land_size || (saved.area_sqm == null ? "" : String(saved.area_sqm)),
+  building_area: saved.building_area || (saved.building_area_sqm == null ? "" : String(saved.building_area_sqm)),
+});
+
 const DraftContext = createContext(null);
 function DraftProvider({ children }) {
   const [draft, setDraft] = useState(DEFAULT_DRAFT);
@@ -94,7 +156,7 @@ function DraftProvider({ children }) {
       if (saved?.data) {
         setDraft({
           ...DEFAULT_DRAFT,
-          ...saved.data,
+          ...fromApiDraft(saved.data),
           photo_file_ids: saved.data.photo_file_ids || hydratedFiles.filter((item) => item.category === "photo").map((item) => item.id),
           document_file_ids: saved.data.document_file_ids || hydratedFiles.filter((item) => item.category === "document").map((item) => item.id),
           photos: hydratedFiles.filter((item) => item.category === "photo").length,
@@ -115,7 +177,7 @@ function DraftProvider({ children }) {
   const save = async (step = 1, quiet = false) => {
     setSaving(true);
     try {
-      await api.put("/property-advertising/advertiser/drafts/current", { data: draft, current_step: step });
+      await api.put("/property-advertising/advertiser/drafts/current", { data: toApiDraft(draft), current_step: step });
       if (!quiet) toast.success("Draft saved");
       return true;
     } catch (err) { toast.error(formatError(err)); return false; }
@@ -184,7 +246,7 @@ function DraftProvider({ children }) {
   const submit = async () => {
     setSaving(true);
     try {
-      const { data } = await api.post("/property-advertising/advertiser/drafts/current/submit", { data: draft, current_step: 5 });
+      const { data } = await api.post("/property-advertising/advertiser/drafts/current/submit", { data: toApiDraft(draft), current_step: 5 });
       toast.success(`Property submitted as ${data.reference}`);
       setSubmissions((current) => [data, ...current]);
       syncSubmissionProperties([data]);
