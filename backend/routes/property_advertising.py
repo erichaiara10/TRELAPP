@@ -207,9 +207,12 @@ class DraftDataV1(BaseModel):
         Literal["new_renovated", "good", "average", "poor_renovation_required"]
     ] = None
     description: Optional[str] = Field(default=None, max_length=5000)
-    # Stage 5 — Photos + documents (count-only until real upload lands)
-    photos: Optional[int] = Field(default=None, ge=0, le=50)
-    documents: Optional[int] = Field(default=None, ge=0, le=20)
+    # Stage 5 — Photos + documents. Counts remain for backward compatibility;
+    # server-validated file IDs are the source of truth.
+    photos: Optional[int] = Field(default=None, ge=0, le=20)
+    documents: Optional[int] = Field(default=None, ge=0, le=10)
+    photo_file_ids: Optional[List[str]] = Field(default_factory=list, max_length=20)
+    document_file_ids: Optional[List[str]] = Field(default_factory=list, max_length=10)
     # Stage 6 — Declarations
     authority_confirmed: Optional[bool] = None
     terms_accepted: Optional[bool] = None
@@ -542,6 +545,45 @@ async def save_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_curren
 
 
 @router.post("/advertiser/drafts/current/submit")
+async def validate_attachment_ids(
+    data: DraftDataV1, owner_user_id: str, submission_reference: Optional[str] = None,
+) -> List[str]:
+    """Verify every attachment belongs to this advertiser and has the right category."""
+    photo_ids = list(dict.fromkeys(data.photo_file_ids or []))
+    document_ids = list(dict.fromkeys(data.document_file_ids or []))
+    all_ids = photo_ids + document_ids
+    if not all_ids:
+        data.photos = 0
+        data.documents = 0
+        return []
+
+    records = await db.files.find({
+        "id": {"$in": all_ids},
+        "owner_user_id": owner_user_id,
+        "scope": "property_advertising",
+        "is_deleted": False,
+    }, {"_id": 0, "id": 1, "category": 1, "submission_reference": 1}).to_list(50)
+    by_id = {record["id"]: record for record in records}
+    if set(by_id) != set(all_ids):
+        raise HTTPException(400, "One or more attached files are missing or not owned by this advertiser")
+    for file_id in photo_ids:
+        if by_id[file_id].get("category") != "photo":
+            raise HTTPException(400, "A document cannot be attached as a property photo")
+    for file_id in document_ids:
+        if by_id[file_id].get("category") != "document":
+            raise HTTPException(400, "A property photo cannot be attached as a document")
+    for record in records:
+        bound_reference = record.get("submission_reference")
+        if bound_reference and bound_reference != submission_reference:
+            raise HTTPException(400, "An attached file already belongs to another submission")
+
+    data.photo_file_ids = photo_ids
+    data.document_file_ids = document_ids
+    data.photos = len(photo_ids)
+    data.documents = len(document_ids)
+    return all_ids
+
+
 async def submit_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_current_user)):
     require_advertiser(user)
     validate_submission(payload.data)
@@ -550,6 +592,7 @@ async def submit_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_curr
     reference = await next_reference("submission", "TREL-", 11000)
     now = now_iso()
     data = payload.data
+    attachment_ids = await validate_attachment_ids(data, user["id"])
     matches = await find_potential_matches(data, user["id"])
     status = "Conflict Review" if matches else "Submitted"
 
@@ -566,6 +609,20 @@ async def submit_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_curr
         "created_at": now, "updated_at": now,
     }
     await db.pa_submissions.insert_one(submission)
+    if attachment_ids:
+        await db.files.update_many(
+            {
+                "id": {"$in": attachment_ids},
+                "owner_user_id": user["id"],
+                "scope": "property_advertising",
+                "is_deleted": False,
+            },
+            {"$set": {
+                "submission_reference": reference,
+                "draft_id": saved["id"],
+                "updated_at": now,
+            }},
+        )
     await db.pa_drafts.update_one(
         {"id": saved["id"], "owner_user_id": user["id"]},
         {"$set": {"status": "submitted", "submission_reference": reference, "updated_at": now}},
@@ -655,6 +712,7 @@ async def resubmit_corrected(reference: str, payload: ResubmitIn,
             400, f"Submission is in status '{doc['status']}' — no correction expected",
         )
     validate_submission(payload.data)
+    attachment_ids = await validate_attachment_ids(payload.data, user["id"], reference)
     now = now_iso()
     matches = await find_potential_matches(payload.data, user["id"])
     new_status = "Conflict Review" if matches else "Submitted"
@@ -672,6 +730,20 @@ async def resubmit_corrected(reference: str, payload: ResubmitIn,
     )
     if result.modified_count != 1:
         raise HTTPException(409, "Submission changed while you were correcting it")
+    if attachment_ids:
+        await db.files.update_many(
+            {
+                "id": {"$in": attachment_ids},
+                "owner_user_id": user["id"],
+                "scope": "property_advertising",
+                "is_deleted": False,
+            },
+            {"$set": {
+                "submission_reference": reference,
+                "draft_id": doc.get("draft_id"),
+                "updated_at": now,
+            }},
+        )
     await db.pa_audit.insert_one({
         "id": new_id(), "record_type": "submission", "reference": reference,
         "action": "resubmit_corrected", "previous_status": doc["status"],
