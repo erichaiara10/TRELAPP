@@ -227,8 +227,10 @@ def test_d4_customary_duplicate_uses_portion_district_province(advertiser_client
     db.master_properties.insert_one({
         "id": master_id, "property_class": "vacant_land",
         "property_subtype": "Large Land – Portion / Customary",
-        "portion_number": portion, "local_area": "Sohe", "province": "Oro",
-        "canonical_fields": {"provenance": "e2e_test_seed"},
+        "portion_number": portion, "city": "Sohe",
+        "local_area": "Sohe", "province": "Oro",
+        "canonical_fields": {"provenance": "e2e_test_seed",
+                              "owner_name": f"{PREFIX} evidence-only owner"},
         "created_at": "2026-08-19T00:00:00+00:00",
         "updated_at": "2026-08-19T00:00:00+00:00",
     })
@@ -239,7 +241,39 @@ def test_d4_customary_duplicate_uses_portion_district_province(advertiser_client
                 json={"data": d, "current_step": 6})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "Conflict Review"
-    assert any(m["master_property_id"] == master_id for m in r.json()["potential_matches"])
+    match = next(m for m in r.json()["potential_matches"]
+                  if m["master_property_id"] == master_id)
+
+def test_d4_urban_match_ignores_case_whitespace_and_province(advertiser_client):
+    """Confirmed rule: urban match is lot + section + suburb ONLY.
+    Owner / street / province NOT required.  Comparisons normalise
+    capitalisation and whitespace before matching."""
+    c, uid, _, _ = advertiser_client
+    lot = f"E2E{uuid.uuid4().hex[:6]}"
+    section = f"S{uuid.uuid4().hex[:4]}"
+    master_id = uuid.uuid4().hex
+    # Seed master with UPPER + trailing spaces + a different province, no street.
+    db.master_properties.insert_one({
+        "id": master_id, "property_class": "residential",
+        "property_subtype": "House", "allotment_number": lot.upper(),
+        "section_number": section.upper(),
+        "suburb": "  BOROKO  ", "province": "Morobe",  # deliberately mismatched
+        # No street field.
+        "canonical_fields": {"provenance": "e2e_test_seed"},
+        "created_at": "2026-08-19T00:00:00+00:00",
+        "updated_at": "2026-08-19T00:00:00+00:00",
+    })
+    # Submit with lowercase suburb + a *different* province and no street.
+    d = _draft_urban(f"P01 case+ws {uuid.uuid4().hex[:6]}",
+                     lot=lot.lower(), section=section.lower(),
+                     suburb="boroko", province="NCD")
+    d["street"] = ""
+    r = c.post(f"{API}/property-advertising/advertiser/drafts/current/submit",
+                json={"data": d, "current_step": 6})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "Conflict Review"
+    assert any(m["master_property_id"] == master_id for m in body["potential_matches"])
     db.master_properties.delete_one({"id": master_id})
 
 

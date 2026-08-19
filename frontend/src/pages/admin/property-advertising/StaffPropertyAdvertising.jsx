@@ -197,7 +197,135 @@ function PriceFeatures({data:d={}}){return <div className="spa-grid two"><Card t
 function PhotosDocuments({data:d={}}){const count=Number(d.photos||0);return <><Card title="Listing photographs"><div className="spa-photo-grid">{Array.from({length:count},(_,i)=>i+1).map(n=><div key={n}><div className="spa-photo-placeholder">Photo {n}</div><Badge>Review</Badge></div>)}</div></Card><Card title="Supporting documents"><Table headers={["Document","Status","Uploaded","Action"]} rows={[["Documents submitted",String(d.documents||0),"With submission","Review"],["Government-issued ID","Account record","-","Open S02B"],["Title / State Lease","Under review","-","Open S03C"]]}/></Card></>}
 function PublicContent({data:d={}}){const {submissionRef="TREL-10428"}=useParams();return <><div className="spa-grid two"><Card title="Approved public copy"><KV items={[["Public title",d.title||"-"],["Description",d.description||"-"],["Price",`PGK ${d.price||"-"}`],["Location display",`${d.suburb||"-"}, ${d.city||"-"}`],["Contact routing",d.service||"Advertiser - monitored by TREL"]]}/></Card><Card title="Disclosure and readiness"><KV items={[["Exact location","Hidden"],["Photos",`${d.photos||0} selected`],["Title disclosure","Under review"],["Content version","Submitted version"],["Publication readiness","Ready after authority review"]]}/></Card></div><div className="spa-actions end"><Action onClick={()=>runWorkflowAction("submission",submissionRef,"return_for_changes","Returned for correction")}>Return for changes</Action><Link className="spa-button primary" to={`${B}/publications/LIST-10428`}>Open publication review</Link></div></>}
 
-function ConflictResolution(){const {submissionRef="TREL-10461"}=useParams(); return <Page id="S03B" title="Property Identifier Conflict Resolution" subtitle={`${submissionRef} - Possible master-property match`} actions={<Link className="spa-button" to={`${B}/submissions/${submissionRef}`}><ArrowLeft size={15}/> Submission</Link>}><Notice tone="bad"><AlertTriangle size={17}/> Section, Lot and Suburb/Town all match an existing master property. Resolution is required.</Notice><Card title="Identifier comparison"><Table headers={["Identifier","New submission","Existing master property","Result"]} rows={[["Section","32","32","Match"],["Lot","18","18","Match"],["Suburb / Town","Waigani","Waigani","Match"],["Owner","Mary Kila","M. Kila","Supporting review"],["Street","Hohola Road","Hohola Rd","Supporting review"]]}/></Card><div className="spa-grid two"><Card title="New submission"><KV items={[["Submission",submissionRef],["Advertiser","Mary Kila"],["Relationship","Owner"],["Property","Family House - Waigani"]]}/></Card><Card title="Existing master property"><KV items={[["Master reference","PROP-00984"],["Registered owner","Mary Kila"],["Active listings","1"],["Last verified","12 July 2026"]]}/></Card></div><div className="spa-actions end"><Action onClick={()=>runWorkflowAction("submission",submissionRef,"request_clarification","Clarification requested")}>Request clarification</Action><Action onClick={()=>runWorkflowAction("submission",submissionRef,"confirm_new_property","New property confirmed")}>Confirm new property</Action><Action tone="primary" onClick={()=>runWorkflowAction("submission",submissionRef,"link_master_property","Submission linked to master property")}>Link to master property</Action></div></Page>}
+function useConflictData(submissionRef) {
+  // Fetch real conflict + submission data from S03B service.  If the record
+  // does not exist (e.g. the static TREL-10461 demo), we render seed values.
+  const [state, setState] = useState({ loading: true, conflict: null, error: null });
+  useEffect(() => {
+    let active = true;
+    setState({ loading: true, conflict: null, error: null });
+    api.get(`/property-advertising/conflicts/${submissionRef}`)
+      .then(({ data }) => { if (active) setState({ loading: false, conflict: data, error: null }); })
+      .catch((err) => {
+        if (!active) return;
+        setState({ loading: false, conflict: null,
+          error: err?.response?.status === 404 ? "no-conflict" : formatError(err) });
+      });
+    return () => { active = false; };
+  }, [submissionRef]);
+  return state;
+}
+
+async function resolveConflict(submissionRef, resolution, opts = {}) {
+  try {
+    await api.post(`/property-advertising/conflicts/${submissionRef}/resolve`, {
+      resolution, master_property_id: opts.masterId, reason: opts.reason,
+    });
+    toast.success(opts.successMessage || "Conflict resolved");
+    return true;
+  } catch (err) { toast.error(formatError(err)); return false; }
+}
+
+function ConflictResolution() {
+  const { submissionRef = "TREL-10461" } = useParams();
+  const { loading, conflict, error } = useConflictData(submissionRef);
+  const submission = conflict?.submission || null;
+  const submissionData = submission?.data || {};
+  const candidates = useMemo(() => conflict?.candidates || [], [conflict]);
+  const [selectedMasterId, setSelectedMasterId] = useState("");
+  useEffect(() => {
+    if (candidates.length && !selectedMasterId) setSelectedMasterId(candidates[0].master_property_id);
+  }, [candidates, selectedMasterId]);
+
+  const activeCandidate = candidates.find((c) => c.master_property_id === selectedMasterId);
+  // Comparison rows — preserve the approved five-row structure (Section, Lot,
+  // Suburb, Owner-supporting, Street-supporting).  When we have real data
+  // we show it, otherwise the approved seed values remain.
+  const compareRows = conflict
+    ? [
+        ["Section", submissionData.section || "-", "Match on identifier", "Match"],
+        ["Lot", submissionData.lot || "-", "Match on identifier", "Match"],
+        ["Suburb / Town", submissionData.suburb || "-", "Match on identifier", "Match"],
+        ["Owner", submissionData.owner_name || (submission?.row?.[2] ?? "-"),
+          activeCandidate?.owner_evidence || "-", "Supporting review"],
+        ["Street", submissionData.street || "-", "-", "Supporting review"],
+      ]
+    : [
+        ["Section", "32", "32", "Match"], ["Lot", "18", "18", "Match"],
+        ["Suburb / Town", "Waigani", "Waigani", "Match"],
+        ["Owner", "Mary Kila", "M. Kila", "Supporting review"],
+        ["Street", "Hohola Road", "Hohola Rd", "Supporting review"],
+      ];
+
+  const bannerMessage = conflict
+    ? (activeCandidate?.reason || "Section, Lot and Suburb/Town all match an existing master property. Resolution is required.")
+    : "Section, Lot and Suburb/Town all match an existing master property. Resolution is required.";
+
+  return <Page id="S03B" title="Property Identifier Conflict Resolution" subtitle={`${submissionRef} - Possible master-property match`} actions={<Link className="spa-button" to={`${B}/submissions/${submissionRef}`}><ArrowLeft size={15}/> Submission</Link>}>
+    <Notice tone="bad"><AlertTriangle size={17}/> {bannerMessage}</Notice>
+    {loading && <Notice>Loading conflict…</Notice>}
+    {error === "no-conflict" && !loading && <Notice tone="warn">No active conflict on record for {submissionRef}. Actions below still work for staff overrides.</Notice>}
+    <Card title="Identifier comparison"><Table headers={["Identifier","New submission","Existing master property","Result"]} rows={compareRows}/></Card>
+    <div className="spa-grid two">
+      <Card title="New submission" data-testid="s03b-new-submission">
+        <KV items={[
+          ["Submission", submissionRef],
+          ["Advertiser", submission?.row?.[2] || "Mary Kila"],
+          ["Relationship", submissionData.relationship || submission?.row?.[3] || "Owner"],
+          ["Property", submissionData.title || submission?.row?.[1] || "Family House - Waigani"],
+          ["Status", submission?.status || "Conflict Review"],
+        ]}/>
+      </Card>
+      <Card title="Existing master property" data-testid="s03b-candidates">
+        {candidates.length > 0 ? <>
+          {candidates.length > 1 && (
+            <label className="spa-eyebrow" style={{ display: "block", marginBottom: 8 }}>
+              Candidate ({candidates.length})
+              <select data-testid="s03b-candidate-select" value={selectedMasterId}
+                onChange={(e) => setSelectedMasterId(e.target.value)}
+                style={{ display: "block", marginTop: 4 }}>
+                {candidates.map((c) => (
+                  <option key={c.master_property_id} value={c.master_property_id}>
+                    {c.master_property_id.slice(0, 8)} — {c.reason}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <KV items={[
+            ["Master reference", activeCandidate?.master_property_id?.slice(0, 12) || "-"],
+            ["Reason", activeCandidate?.reason || "-"],
+            ["Matched fields", (activeCandidate?.matched_fields || []).join(", ") || "-"],
+            ["Registered owner (evidence)", activeCandidate?.owner_evidence || "Not on record"],
+          ]}/>
+        </> : <KV items={[
+          ["Master reference","PROP-00984"],["Registered owner","Mary Kila"],
+          ["Active listings","1"],["Last verified","12 July 2026"],
+        ]}/>}
+      </Card>
+    </div>
+    <div className="spa-actions end">
+      <Action data-testid="s03b-request-clarification"
+        onClick={() => runWorkflowAction("submission", submissionRef, "request_clarification", "Clarification requested")}>
+        Request clarification
+      </Action>
+      <Action data-testid="s03b-confirm-new"
+        onClick={() => resolveConflict(submissionRef, "confirm_new", { successMessage: "New property confirmed" })}>
+        Confirm new property
+      </Action>
+      <Action tone="primary" data-testid="s03b-link-master"
+        onClick={() => {
+          if (!selectedMasterId) { toast.error("Select a candidate master property first"); return; }
+          resolveConflict(submissionRef, "link_to_master", {
+            masterId: selectedMasterId,
+            successMessage: "Submission linked to master property",
+          });
+        }}>
+        Link to master property
+      </Action>
+    </div>
+  </Page>;
+}
 
 function AuthorityReview(){const {submissionRef="TREL-10428"}=useParams(); return <Page id="S03C" title="Title and Property Authority Review" subtitle={`${submissionRef} - John Tano - Owner`} actions={<Link className="spa-button" to={`${B}/submissions/${submissionRef}`}><ArrowLeft size={15}/> Submission</Link>}><div className="spa-grid two"><Card title="Title / lease evidence"><KV items={[["Document","State Lease"],["Title reference","Volume 24 / Folio 118"],["Registered owner","John Tano"],["Verification status","Under review"],["Secure document","DOC-2042"]]}/><Action icon={Eye} onClick={()=>toast.info("Secure title opened")}>Open secure document</Action></Card><Card title="Advertiser authority"><KV items={[["Relationship","Owner"],["Identity","Verified"],["Registered owner","John Tano"],["Name comparison","Same"],["Owner confirmation","Received 17 Aug"],["Additional authority","Not required"]]}/></Card></div><Card title="Authority checks"><Table headers={["Check","Evidence","Result"]} rows={[["Advertiser identity","PNG NID","Verified"],["Owner name","Title vs account","Exact match"],["Property identifiers","Section 54 / Lot 12","Match"],["Right to advertise","Owner declaration","Accepted"]]}/></Card><div className="spa-actions end"><Action onClick={()=>runWorkflowAction("submission",submissionRef,"request_evidence","Evidence requested")}>Request evidence</Action><Action tone="bad" onClick={()=>runWorkflowAction("submission",submissionRef,"hold_authority","Authority held")}>Hold authority</Action><Action tone="primary" onClick={()=>runWorkflowAction("submission",submissionRef,"accept_authority","Authority accepted")}>Accept authority</Action></div></Page>}
 

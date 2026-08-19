@@ -357,66 +357,107 @@ async def find_potential_matches(
 ) -> List[dict]:
     """Return possible master_property candidates for the submission.
 
-    NEVER auto-merges.  Returns a list of {master_property_id, reason,
-    matched_fields} that the S03B UI presents to staff for a decision.
+    TRELPNG confirmed rules:
+      * Urban/town property: match when Lot + Section + suburb/location are
+        the same.  Owner, street and province are NOT required for the
+        match (owner may be shown as supporting evidence only).
+      * Large / customary vacant land: match when Portion + location +
+        district + province are the same.  Owner is supporting evidence
+        only and is not required for the match.
+      * Vacant land is compared ONLY with other vacant land.
+      * Apartments / units + commercial premises: same-parcel candidates
+        are surfaced for staff review — never silently merged with the
+        parent building.
+      * Values are normalised (case-fold + whitespace-collapse) before
+        comparison so 'Boroko ' vs 'boroko' vs 'BOROKO' all match.
+
+    NEVER auto-merges — returns candidates for the S03B UI.
     """
     if data.property_class is None:
         return []
+    n = _norm
 
-    # ---- Customary vacant land ----
+    # ---- Customary vacant land: portion + location + district + province ----
     if data.property_class == "customary_vacant_land":
-        if not (data.portion and data.province):
+        if not (data.portion and data.district and data.province):
             return []
-        query = {
-            "portion_number": {"$regex": f"^{re.escape(data.portion.strip())}$", "$options": "i"},
-            "province": {"$regex": f"^{re.escape(data.province.strip())}$", "$options": "i"},
-        }
-        candidates = await db.master_properties.find(query, {"_id": 0}).to_list(20)
+        # Broad query on portion; normalise the remaining fields in Python
+        # so 'Sohe ' vs 'sohe' match.
+        candidates = await db.master_properties.find(
+            {"portion_number": {"$regex": f"^{re.escape(data.portion.strip())}$",
+                                 "$options": "i"}},
+            {"_id": 0},
+        ).to_list(50)
         results = []
+        subject_location = n(data.city or data.district)
         for c in candidates:
-            if _class_of_master(c) not in {"vacant_customary", "vacant_urban", "urban"}:
-                # customary vacant compared with vacant only — allow both vacant flavours
+            # Vacant with vacant only.
+            if _class_of_master(c) not in {"vacant_customary", "vacant_urban"}:
                 continue
-            district_ok = not data.district or _norm(c.get("local_area")) == _norm(data.district) or _norm(c.get("city")) == _norm(data.district)
+            # location: master.city OR master.suburb OR master.local_area.
+            location_ok = subject_location in {
+                n(c.get("city")), n(c.get("suburb")), n(c.get("local_area")),
+            }
+            if not location_ok:
+                continue
+            # district: master.local_area OR master.city.
+            district_ok = n(data.district) in {
+                n(c.get("local_area")), n(c.get("city")),
+            }
             if not district_ok:
                 continue
+            if n(c.get("province")) != n(data.province):
+                continue
+            owner_hint = (c.get("canonical_fields") or {}).get("owner_name") or ""
             results.append({
                 "master_property_id": c["id"],
-                "reason": "Same portion, district and province",
-                "matched_fields": ["portion", "district", "province"],
+                "reason": "Same portion, location, district and province",
+                "matched_fields": ["portion", "location", "district", "province"],
+                "owner_evidence": owner_hint,   # supporting evidence only
             })
         return results
 
-    # ---- Urban / apartment (freehold parcel identifiers) ----
+    # ---- Urban / apartment / urban vacant land: lot + section + suburb ONLY ----
     if data.property_class in {"urban_residential", "urban_commercial",
                                "urban_vacant_land", "apartment_unit"}:
-        if not (data.lot and data.section and data.suburb and data.province):
+        if not (data.lot and data.section and data.suburb):
             return []
-        query = {
-            "allotment_number": {"$regex": f"^{re.escape(data.lot.strip())}$", "$options": "i"},
-            "section_number": {"$regex": f"^{re.escape(data.section.strip())}$", "$options": "i"},
-            "suburb": {"$regex": f"^{re.escape(data.suburb.strip())}$", "$options": "i"},
-            "province": {"$regex": f"^{re.escape(data.province.strip())}$", "$options": "i"},
-        }
-        candidates = await db.master_properties.find(query, {"_id": 0}).to_list(20)
+        # Case-insensitive query on lot + section; post-filter suburb in
+        # Python so we honour the full normalisation contract.
+        candidates = await db.master_properties.find(
+            {"allotment_number": {"$regex": f"^{re.escape(data.lot.strip())}$",
+                                    "$options": "i"},
+             "section_number": {"$regex": f"^{re.escape(data.section.strip())}$",
+                                 "$options": "i"}},
+            {"_id": 0},
+        ).to_list(50)
         results = []
+        subject_suburb = n(data.suburb)
         for c in candidates:
             cclass = _class_of_master(c)
             # Vacant land compared with vacant land only.
-            if data.property_class == "urban_vacant_land" and cclass not in {"vacant_urban", "vacant_customary"}:
+            if data.property_class == "urban_vacant_land" and cclass not in {
+                "vacant_urban", "vacant_customary",
+            }:
                 continue
-            if data.property_class != "urban_vacant_land" and cclass in {"vacant_urban", "vacant_customary"}:
+            if data.property_class != "urban_vacant_land" and cclass in {
+                "vacant_urban", "vacant_customary",
+            }:
                 continue
-            # Apartments/commercial premises: same-parcel candidates are flagged for
-            # staff review, never merged automatically.
-            reason = "Same lot, section, suburb and province"
+            if n(c.get("suburb")) != subject_suburb:
+                continue
+            # Apartments / commercial: surface for staff review, never merge.
             if data.property_class == "apartment_unit":
                 reason = ("Same parcel — unit-level identity requires staff to link "
-                          "to the correct parent building or confirm a new unit")
+                           "to the correct parent building or confirm a new unit")
+            else:
+                reason = "Same lot, section and suburb"
+            owner_hint = (c.get("canonical_fields") or {}).get("owner_name") or ""
             results.append({
                 "master_property_id": c["id"],
                 "reason": reason,
-                "matched_fields": ["lot", "section", "suburb", "province"],
+                "matched_fields": ["lot", "section", "suburb"],
+                "owner_evidence": owner_hint,   # supporting evidence only
             })
         return results
 
