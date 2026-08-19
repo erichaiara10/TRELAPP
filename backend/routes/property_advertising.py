@@ -1114,4 +1114,23 @@ async def get_record(record_type: str, reference: str, user: dict = Depends(staf
     doc["audit"] = await db.pa_audit.find(
         {"record_type": record_type, "reference": reference}, {"_id": 0},
     ).sort("created_at", -1).to_list(500)
+    if record_type == "submission":
+        attachment_ids = list(dict.fromkeys(
+            (doc.get("data", {}).get("photo_file_ids") or [])
+            + (doc.get("data", {}).get("document_file_ids") or [])
+        ))
+        attachments = await db.files.find(
+            {
+                "id": {"$in": attachment_ids},
+                "scope": "property_advertising",
+                "is_deleted": False,
+            },
+            {
+                "_id": 0, "storage_path": 0, "sha256": 0,
+                "owner_user_id": 0,
+            },
+        ).sort("created_at", 1).to_list(50) if attachment_ids else []
+        for attachment in attachments:
+            attachment["url"] = f"/api/property-advertising/files/{attachment['id']}"
+        doc["attachments"] = attachments
     return doc
