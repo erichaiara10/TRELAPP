@@ -106,7 +106,7 @@ def _get_object(path: str):
 
 def _valid_signature(content_type: str, data: bytes) -> bool:
     if content_type == "image/jpeg":
-        return data.startswith(b"\xff\xd8\xff") and data.rstrip().endswith(b"\xff\xd9")
+        return data.startswith(b"\xff\xd8\xff") and b"\xff\xd9" in data[-256:]
     if content_type == "image/png":
         return data.startswith(b"\x89PNG\r\n\x1a\n")
     if content_type == "image/webp":
