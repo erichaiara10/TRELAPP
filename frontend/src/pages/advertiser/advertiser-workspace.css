@@ -52,3 +52,33 @@
   cursor: wait;
   opacity: .45;
 }
+
+
+/* D1 account-scoped dashboard empty states */
+.adv-empty-state {
+  align-items: center;
+  color: #627084;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 220px;
+  padding: 28px;
+  text-align: center;
+}
+.adv-empty-state > svg {
+  color: #a8b5c5;
+  height: 34px;
+  width: 34px;
+}
+.adv-empty-state > b {
+  color: #1e2b3b;
+  font-size: 15px;
+}
+.adv-empty-state > p {
+  margin: 0 0 6px;
+}
+.adv-reminder .adv-button {
+  flex: 0 0 auto;
+  text-decoration: none;
+}
