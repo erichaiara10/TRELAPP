@@ -540,11 +540,11 @@ async def _persist_draft(payload: AdvertiserDraftIn, user: dict, advertiser: dic
 @router.put("/advertiser/drafts/current")
 async def save_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_current_user)):
     require_advertiser(user)
+    await validate_attachment_ids(payload.data, user["id"])
     advertiser = await ensure_advertiser(user)
     return await _persist_draft(payload, user, advertiser)
 
 
-@router.post("/advertiser/drafts/current/submit")
 async def validate_attachment_ids(
     data: DraftDataV1, owner_user_id: str, submission_reference: Optional[str] = None,
 ) -> List[str]:
@@ -584,6 +584,7 @@ async def validate_attachment_ids(
     return all_ids
 
 
+@router.post("/advertiser/drafts/current/submit")
 async def submit_draft(payload: AdvertiserDraftIn, user: dict = Depends(get_current_user)):
     require_advertiser(user)
     validate_submission(payload.data)
