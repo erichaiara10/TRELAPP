@@ -249,6 +249,29 @@ async def upload_property_advertising_file(
         "updated_at": timestamp,
     }
     await db.files.insert_one(record)
+    if category == "document" and record.get("document_type") == "identity":
+        advertiser = await db.pa_advertisers.find_one(
+            {"owner_user_id": user["id"]}, {"_id": 0},
+        )
+        if advertiser:
+            identity_entry = {
+                "id": new_id(),
+                "file_id": file_id,
+                "url": f"/api/property-advertising/files/{file_id}",
+                "kind": "government_id",
+                "filename": record["original_filename"],
+                "uploaded_at": timestamp,
+            }
+            await db.pa_advertisers.update_one(
+                {"reference": advertiser["reference"], "owner_user_id": user["id"]},
+                {
+                    "$push": {"identity_documents": identity_entry},
+                    "$set": {
+                        "identity_status": "Pending review",
+                        "updated_at": timestamp,
+                    },
+                },
+            )
     if current_draft:
         await db.pa_drafts.update_one(
             {"id": current_draft["id"], "owner_user_id": user["id"]},
