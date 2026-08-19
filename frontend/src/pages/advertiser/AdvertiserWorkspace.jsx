@@ -61,22 +61,43 @@ const DEFAULT_DRAFT = {
   land_size: "1,200 m²", building_area: "450 m²", furnished: "Unfurnished", condition: "Good",
   year_built: "2018", special_features: "A recently renovated premium office, with parking, street-front visibility and secure access.",
   features: ["Air Conditioning", "Security / Fencing", "Balcony", "Water Tank", "Backup Generator", "Solar", "Swimming Pool"],
-  photos: 7, documents: 3, authority_confirmed: true, terms_accepted: true,
+  photos: 0, documents: 0, photo_file_ids: [], document_file_ids: [],
+  authority_confirmed: true, terms_accepted: true,
 };
 
 const DraftContext = createContext(null);
 function DraftProvider({ children }) {
   const [draft, setDraft] = useState(DEFAULT_DRAFT);
   const [submissions, setSubmissions] = useState([]);
+  const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
   const load = async () => {
     try {
-      const [{ data: saved }, { data: submitted }] = await Promise.all([
+      const [{ data: saved }, { data: submitted }, { data: uploaded }] = await Promise.all([
         api.get("/property-advertising/advertiser/drafts/current"),
         api.get("/property-advertising/advertiser/submissions"),
+        api.get("/property-advertising/advertiser/files"),
       ]);
-      if (saved?.data) setDraft({ ...DEFAULT_DRAFT, ...saved.data });
+      const currentFiles = (Array.isArray(uploaded) ? uploaded : []).filter((item) => !item.submission_reference);
+      const hydratedFiles = await Promise.all(currentFiles.map(async (item) => {
+        if (item.category !== "photo") return item;
+        try {
+          const response = await api.get(item.url, { responseType: "blob" });
+          return { ...item, preview_url: URL.createObjectURL(response.data) };
+        } catch { return item; }
+      }));
+      setFiles(hydratedFiles);
+      if (saved?.data) {
+        setDraft({
+          ...DEFAULT_DRAFT,
+          ...saved.data,
+          photo_file_ids: saved.data.photo_file_ids || hydratedFiles.filter((item) => item.category === "photo").map((item) => item.id),
+          document_file_ids: saved.data.document_file_ids || hydratedFiles.filter((item) => item.category === "document").map((item) => item.id),
+          photos: hydratedFiles.filter((item) => item.category === "photo").length,
+          documents: hydratedFiles.filter((item) => item.category === "document").length,
+        });
+      }
       setSubmissions(Array.isArray(submitted) ? submitted : []);
       syncSubmissionProperties(submitted);
     } catch (err) { toast.error(formatError(err)); }
@@ -91,6 +112,66 @@ function DraftProvider({ children }) {
     } catch (err) { toast.error(formatError(err)); return false; }
     finally { setSaving(false); }
   };
+  const openFile = async (item) => {
+    try {
+      const response = await api.get(item.url, { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) { toast.error(formatError(err)); }
+  };
+  const uploadFile = async (file, category, documentType = "") => {
+    const form = new FormData();
+    form.append("category", category);
+    if (documentType) form.append("document_type", documentType);
+    form.append("file", file);
+    setSaving(true);
+    try {
+      const { data } = await api.post("/property-advertising/advertiser/files", form);
+      let uploaded = data;
+      if (category === "photo") {
+        try {
+          const response = await api.get(data.url, { responseType: "blob" });
+          uploaded = { ...data, preview_url: URL.createObjectURL(response.data) };
+        } catch {}
+      }
+      setFiles((current) => {
+        const next = [...current, uploaded];
+        setDraft((value) => ({
+          ...value,
+          photo_file_ids: next.filter((item) => item.category === "photo").map((item) => item.id),
+          document_file_ids: next.filter((item) => item.category === "document").map((item) => item.id),
+          photos: next.filter((item) => item.category === "photo").length,
+          documents: next.filter((item) => item.category === "document").length,
+        }));
+        return next;
+      });
+      toast.success(category === "photo" ? "Photo uploaded" : "Document uploaded");
+      return true;
+    } catch (err) {
+      toast.error(formatError(err));
+      return false;
+    } finally { setSaving(false); }
+  };
+  const removeFile = async (fileId) => {
+    setSaving(true);
+    try {
+      await api.delete(`/property-advertising/advertiser/files/${fileId}`);
+      setFiles((current) => {
+        const next = current.filter((item) => item.id !== fileId);
+        setDraft((value) => ({
+          ...value,
+          photo_file_ids: next.filter((item) => item.category === "photo").map((item) => item.id),
+          document_file_ids: next.filter((item) => item.category === "document").map((item) => item.id),
+          photos: next.filter((item) => item.category === "photo").length,
+          documents: next.filter((item) => item.category === "document").length,
+        }));
+        return next;
+      });
+      toast.success("File removed");
+    } catch (err) { toast.error(formatError(err)); }
+    finally { setSaving(false); }
+  };
   const submit = async () => {
     setSaving(true);
     try {
@@ -102,7 +183,7 @@ function DraftProvider({ children }) {
     } catch (err) { toast.error(formatError(err)); return null; }
     finally { setSaving(false); }
   };
-  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, saving }}>{children}</DraftContext.Provider>;
+  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, files, openFile, uploadFile, removeFile, saving }}>{children}</DraftContext.Provider>;
 }
 const useDraft = () => useContext(DraftContext);
 
@@ -177,9 +258,31 @@ function LocationPage(){return <><PageHead title="Add Property" sub="Step 2 of 5
 
 function FeaturesPage(){const features=["Air Conditioning","Security / Fencing","Balcony","Water Tank","Backup Generator","Solar","Swimming Pool","Office Fitout","Storage","Disabled Access","Waterfront / View","Close to Shops / Public Transport"];return <><PageHead title="Add Property" sub="Step 3 of 5 — Features"/><Stepper active={2}/><div className="adv-form-layout"><Card><h3>Key Facts</h3><div className="adv-form-grid six"><Field label="Asking Price" value="PGK 850,000"/><Field label="Bedrooms" value="3"/><Field label="Bathrooms" value="2"/><Field label="Parking" value="2"/><Field label="Land Size" value="1,200 m²"/><Field label="Building / Floor Area" value="450 m²"/></div><h3>Living & Condition</h3><div className="adv-form-grid three"><SelectField label="Furnished / Unfurnished" value="Unfurnished"/><SelectField label="Property Condition" value="Good"/><Field label="Year Built or Age" value="2018"/></div><h3>Amenities & Features</h3><div className="adv-check-grid">{features.map((f,i)=><label key={f} className={i<7?"checked":""}><input type="checkbox" defaultChecked={i<7}/><Check size={13}/>{f}</label>)}</div><h3>Other / Special Features</h3><Field label="Add any special features" textarea value="A recently renovated premium office, with parking, street-front visibility and secure access."/><div className="adv-note"><Info/> Optional details improve price comparison accuracy and search quality.</div><FormFooter back="/advertiser/add-property/location" next="/advertiser/add-property/photos" label="Continue to Photos & Documents"/></Card><div><TipPanel type="features"/><Card className="adv-summary"><h3>Selected property summary</h3>{[["Property Type","Executive Office Space"],["Purpose","Sale"],["Bedrooms","3"],["Bathrooms","2"],["Parking","2 spaces"],["Available now","Yes"]].map(x=><p key={x[0]}><b>{x[0]}</b>{x[1]}</p>)}</Card></div></div></>}
 
-function PhotosPage(){return <><PageHead title="Add Property" sub="Step 4 of 5 — Photos & Documents"/><Stepper active={3}/><div className="adv-form-layout"><Card><h3>1. Property Photos <Status tone="gray">1 of 7 photos</Status></h3><div className="adv-upload-zone"><Upload/><b>Drag and drop photos here, or click to browse</b><small>JPG or PNG • Max 5 MB each</small></div><div className="adv-photo-grid">{[...photos,...photos.slice(0,2)].map((p,i)=><div key={i}><img src={p} alt={`Property ${i+1}`}/>{i===0&&<Status>Cover photo</Status>}<span><Pencil size={13}/><X size={13}/></span></div>)}</div><h3>2. Documents</h3><div className="adv-note"><ShieldCheck/> Documents help us verify and review your listing faster. Clear and valid documents may speed up approval.</div><div className="adv-document-grid">{["Title / Ownership Document","Authority Letter / Approval","National ID / Passport","Valuation Report","Other Supporting Documents"].map((x,i)=><div key={x}><FileText/><b>{x}</b><small>{i<3?"Required when applicable":"Optional"}</small><Button secondary><Upload size={14}/> Upload file</Button></div>)}</div><p className="adv-privacy"><ShieldCheck size={14}/> Documents are private, encrypted and visible only to authorised TREL staff.</p><FormFooter back="/advertiser/add-property/features" next="/advertiser/add-property/review" label="Continue to Review"/></Card><div><TipPanel type="photos"/><Card><h3>Current listing completeness</h3><div className="adv-progress-ring">78%</div>{["Property Details","Location & Identification","Features","Photos & Documents","Review & Submit"].map((x,i)=><p className="adv-complete" key={x}>{i<3?<CheckCircle2/>:<Clock3/>}{x}</p>)}</Card></div></div></>}
+function PhotosPage(){
+  const flow=useDraft();
+  const photoFiles=flow.files.filter((item)=>item.category==="photo");
+  const documentFiles=flow.files.filter((item)=>item.category==="document");
+  const uploadPhotos=async(event)=>{for(const file of Array.from(event.target.files||[])){await flow.uploadFile(file,"photo");}event.target.value="";};
+  const documentTypes=[
+    ["ownership","Title / Ownership Document","Required when applicable"],
+    ["authority","Authority Letter / Approval","Required when applicable"],
+    ["identity","National ID / Passport","Required when applicable"],
+    ["valuation","Valuation Report","Optional"],
+    ["other","Other Supporting Documents","Optional"],
+  ];
+  return <><PageHead title="Add Property" sub="Step 4 of 5 — Photos & Documents"/><Stepper active={3}/><div className="adv-form-layout"><Card>
+    <h3>1. Property Photos <Status tone="gray">{photoFiles.length} of 20 photos</Status></h3>
+    <label className="adv-upload-zone"><Upload/><b>Drag and drop photos here, or click to browse</b><small>JPG, PNG or WebP • Max 10 MB each</small><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={uploadPhotos} disabled={flow.saving}/></label>
+    {photoFiles.length?<div className="adv-photo-grid">{photoFiles.map((file,i)=><div key={file.id}>{file.preview_url?<img src={file.preview_url} alt={file.original_filename}/>:<Image aria-label={file.original_filename}/>} {i===0&&<Status>Cover photo</Status>}<span><Pencil size={13}/><button type="button" aria-label={`Remove ${file.original_filename}`} onClick={()=>flow.removeFile(file.id)} disabled={flow.saving}><X size={13}/></button></span></div>)}</div>:<p className="adv-muted">No property photos uploaded yet.</p>}
+    <h3>2. Documents <Status tone="gray">{documentFiles.length} of 10 documents</Status></h3>
+    <div className="adv-note"><ShieldCheck/> Documents help us verify and review your listing faster. Clear and valid documents may speed up approval.</div>
+    <div className="adv-document-grid">{documentTypes.map(([kind,label,requirement])=>{const uploaded=documentFiles.filter((item)=>item.document_type===kind);return <div key={kind}><FileText/><b>{label}</b><small>{requirement}</small>{uploaded.map((file)=><p key={file.id}><button type="button" className="adv-file-link" onClick={()=>flow.openFile(file)}>{file.original_filename}</button><button type="button" aria-label={`Remove ${file.original_filename}`} onClick={()=>flow.removeFile(file.id)} disabled={flow.saving}><X size={13}/></button></p>)}<label className="adv-button secondary"><Upload size={14}/> Upload file<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={async(event)=>{const file=event.target.files?.[0];if(file)await flow.uploadFile(file,"document",kind);event.target.value="";}} disabled={flow.saving}/></label></div>})}</div>
+    <p className="adv-privacy"><ShieldCheck size={14}/> Documents are private and visible only to you and authorised TREL staff.</p>
+    <FormFooter back="/advertiser/add-property/features" next="/advertiser/add-property/review" label="Continue to Review"/>
+  </Card><div><TipPanel type="photos"/><Card><h3>Current listing completeness</h3><div className="adv-progress-ring">{photoFiles.length||documentFiles.length?"88%":"68%"}</div>{["Property Details","Location & Identification","Features","Photos & Documents","Review & Submit"].map((x,i)=><p className="adv-complete" key={x}>{i<3||(i===3&&(photoFiles.length||documentFiles.length))?<CheckCircle2/>:<Clock3/>}{x}</p>)}</Card></div></div></>
+}
 
-function ReviewPage(){return <><PageHead title="Add Property" sub="Step 5 of 5 — Review & Submit"/><Stepper active={4}/><div className="adv-form-layout"><Card><div className="adv-review-hero"><img src={photos[0]} alt="Listing"/><div><h2>Executive Office Space — Waigani</h2><b>PGK 8,500 / month</b><p><MapPin size={14}/> Waigani, NCD</p></div><Status tone="green">Ready to submit</Status></div><div className="adv-review-grid">{[["1. Listing Purpose & TREL Help",["Purpose: Rent","Service: TREL to sell/manage","Relationship: Owner / Joint Owner"]],["2. Property Details",["Executive Office Space","Commercial / Office Space","PGK 8,500 / month"]],["3. Location & Identification",["Waigani, NCD","Section 23, Lot 48","Map location saved"]],["4. Features",["3 Rooms • 2 Bathrooms","2 Parking spaces","Air conditioning • Security"]],["5. Photos & Documents",["7 property photos","3 supporting documents"]],["6. TREL Help & Contact",["TREL manages the listing","Email and WhatsApp notifications"]]].map(([h,items])=><Card key={h}><h3>{h}<button><Pencil/> Edit</button></h3>{items.map(x=><p key={x}>{x}</p>)}</Card>)}</div><div className="adv-declaration"><label><input type="checkbox" defaultChecked/> I confirm the information is accurate and I am authorised to submit this property.</label><label><input type="checkbox" defaultChecked/> I accept TRELPNG's Terms of Use and Privacy Policy.</label></div><FormFooter back="/advertiser/add-property/photos" label="Submit Listing"/></Card><div><TipPanel type="review"/><Card className="adv-ready"><CheckCircle2/><h3>Ready to submit</h3><p>Your listing is complete and ready for TREL review.</p></Card></div></div></>}
+function ReviewPage(){const flow=useDraft();const cover=flow.files.find((item)=>item.category==="photo"&&item.preview_url);return <><PageHead title="Add Property" sub="Step 5 of 5 — Review & Submit"/><Stepper active={4}/><div className="adv-form-layout"><Card><div className="adv-review-hero"><img src={cover?.preview_url||photos[0]} alt="Listing"/><div><h2>Executive Office Space — Waigani</h2><b>PGK 8,500 / month</b><p><MapPin size={14}/> Waigani, NCD</p></div><Status tone="green">Ready to submit</Status></div><div className="adv-review-grid">{[["1. Listing Purpose & TREL Help",["Purpose: Rent","Service: TREL to sell/manage","Relationship: Owner / Joint Owner"]],["2. Property Details",["Executive Office Space","Commercial / Office Space","PGK 8,500 / month"]],["3. Location & Identification",["Waigani, NCD","Section 23, Lot 48","Map location saved"]],["4. Features",["3 Rooms • 2 Bathrooms","2 Parking spaces","Air conditioning • Security"]],["5. Photos & Documents",[`${flow.draft.photos||0} property photos`,`${flow.draft.documents||0} supporting documents`]],["6. TREL Help & Contact",["TREL manages the listing","Email and WhatsApp notifications"]]].map(([h,items])=><Card key={h}><h3>{h}<button><Pencil/> Edit</button></h3>{items.map(x=><p key={x}>{x}</p>)}</Card>)}</div><div className="adv-declaration"><label><input type="checkbox" defaultChecked/> I confirm the information is accurate and I am authorised to submit this property.</label><label><input type="checkbox" defaultChecked/> I accept TRELPNG's Terms of Use and Privacy Policy.</label></div><FormFooter back="/advertiser/add-property/photos" label="Submit Listing"/></Card><div><TipPanel type="review"/><Card className="adv-ready"><CheckCircle2/><h3>Ready to submit</h3><p>Your listing is complete and ready for TREL review.</p></Card></div></div></>}
 
 
 function PropertiesPage(){return <><PageHead title="My Properties" sub="Manage your listings and track their status" action={<Button><Plus/> Add New Property</Button>}/><div className="adv-stat-grid five">{[["18","All Listings","blue"],["8","Live","green"],["2","Under Review","orange"],["5","Drafts","purple"],["3","Inactive","gray"]].map(x=><Card className="adv-mini-stat" key={x[1]}><b className={x[2]}>{x[0]}</b><span>{x[1]}</span><Link to="#">View {x[1].toLowerCase()} <ChevronRight/></Link></Card>)}</div><Card><div className="adv-table-tools"><label><Search/><input placeholder="Search by property name, location..."/></label>{["All Locations","Property Categories","All Listing Types"].map(x=><select key={x}><option>{x}</option></select>)}<Button secondary><SlidersHorizontal/> More filters</Button></div><div className="adv-tabs"><button className="active">All</button><button>For Sale</button><button>For Rent</button><button>Live</button><button>Under Review</button><button>Draft</button><button>Archived</button></div><div className="adv-table-wrap"><table><thead><tr><th>No.</th><th>Description</th><th>Rent/Sell</th><th>Location</th><th>Price</th><th>First Registered</th><th>Last Updated</th><th>Status</th><th>Action</th></tr></thead><tbody>{[...properties,...properties,...properties.slice(0,2)].map((p,i)=><tr key={i}><td>{i+1}</td><td><div className="adv-property-cell"><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>Property #{1024+i}</small></div></div></td><td><Status>{i%3===0?"For Rent":"For Sale"}</Status></td><td>{p[1]}</td><td><b>{p[2]}</b></td><td>{`${18+i} May 2025`}</td><td>{i%2?"21 May 2025":"1 day ago"}</td><td><Status tone={p[4]==="Live"?"green":p[4]==="Draft"?"gray":"orange"}>{p[4]}</Status></td><td><button><MoreVertical/></button></td></tr>)}</tbody></table></div><div className="adv-pagination"><span>Showing 1 to 10 of 18 listings</span><button>‹</button><button className="active">1</button><button>2</button><button>›</button></div></Card></>}
