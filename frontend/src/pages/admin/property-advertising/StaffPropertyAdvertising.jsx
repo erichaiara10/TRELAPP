@@ -71,6 +71,15 @@ async function runWorkflowAction(recordType, reference, action, successMessage) 
   }
 }
 
+async function openProtectedFile(item) {
+  try {
+    const response = await api.get(item.url, { responseType: "blob" });
+    const url = URL.createObjectURL(response.data);
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) { toast.error(formatError(err)); }
+}
+
 function useWorkspaceRecord(recordType, reference) {
   const [record, setRecord] = useState(null);
   useEffect(() => {
@@ -186,7 +195,7 @@ function SubmissionShell({ tab="overview" }) {
     {tab==="overview"&&<SubmissionOverview refNo={submissionRef} record={record}/>}
     {tab==="property-location"&&<PropertyLocation data={d}/>}
     {tab==="price-features"&&<PriceFeatures data={d}/>}
-    {tab==="photos-documents"&&<PhotosDocuments data={d}/>}
+    {tab==="photos-documents"&&<PhotosDocuments record={record}/>} 
     {tab==="public-content"&&<PublicContent data={d}/>}
   </Page>;
 }
@@ -194,7 +203,29 @@ function SubmissionShell({ tab="overview" }) {
 function SubmissionOverview({refNo,record}) { const audit=record?.audit||[]; const recent=audit.length?audit.slice(0,5).map((e)=>[new Date(e.created_at).toLocaleString(),e.action,e.performed_by_name,e.new_status]):[["18 Aug 13:21","Submission opened","Eric Haiara","Under review"],["18 Aug 10:02","Property submitted","John Tano","Received"]]; return <><Notice><CheckCircle2 size={17}/> The submission is connected to the advertiser account and staff workflow.</Notice><div className="spa-grid two"><Card title="Submission readiness"><KV items={[["Property details","Complete"],["Location identifiers","Complete"],["Price and features","Complete"],["Photos",`${record?.data?.photos||0} uploaded`],["Documents",`${record?.data?.documents||0} uploaded`],["Public content","Ready for review"]]}/></Card><Card title="Review progress"><KV items={[["Duplicate check",record?.row?.[8]||"Pending check"],["Advertiser identity","Pending review"],["Title / authority","Under review"],["Exact location","Protected"],["Current status",record?.status||"Submitted"]]}/><div className="spa-actions"><Link className="spa-button" to={`${B}/advertisers/${record?.advertiser_reference||"ADV-00931"}/identity`}>Identity</Link><Link className="spa-button" to={`${B}/authority/${refNo}`}>Authority</Link></div></Card></div><Card title="Recent actions"><Table headers={["Date","Action","By","Result"]} rows={recent}/></Card></>; }
 function PropertyLocation({data:d={}}){return <div className="spa-grid two"><Card title="Property details"><KV items={[["Property name",d.title||"John's Family Home"],["Property class",d.property_class||"Residential"],["Property type",d.property_type||"House"],["Purpose",d.listing_type||"Sale"],["Description",d.description||"-"]]}/></Card><Card title="Location and identifiers"><KV items={[["Section",d.section||"-"],["Lot",d.lot||"-"],["Street",d.street||"-"],["Suburb / town",`${d.suburb||"-"} / ${d.city||"-"}`],["Province",d.province||"-"],["Exact location","Protected"],["Duplicate rule","Section + Lot + Suburb/Town"]]}/><Link className="spa-button" to={`${B}/conflicts/TREL-10428`}>Review identifier match</Link></Card></div>}
 function PriceFeatures({data:d={}}){return <div className="spa-grid two"><Card title="Price and availability"><KV items={[["Asking price",`PGK ${d.price||"-"}`],["Display","Show price"],["Availability","Available"],["Service",d.service||"-"],["Relationship",d.relationship||"-"]]}/></Card><Card title="Features"><KV items={[["Bedrooms",d.bedrooms||"-"],["Bathrooms",d.bathrooms||"-"],["Parking",d.parking||"-"],["Land area",d.land_size||"-"],["Building area",d.building_area||"-"],["Condition",d.condition||"-"]]}/></Card></div>}
-function PhotosDocuments({data:d={}}){const count=Number(d.photos||0);return <><Card title="Listing photographs"><div className="spa-photo-grid">{Array.from({length:count},(_,i)=>i+1).map(n=><div key={n}><div className="spa-photo-placeholder">Photo {n}</div><Badge>Review</Badge></div>)}</div></Card><Card title="Supporting documents"><Table headers={["Document","Status","Uploaded","Action"]} rows={[["Documents submitted",String(d.documents||0),"With submission","Review"],["Government-issued ID","Account record","-","Open S02B"],["Title / State Lease","Under review","-","Open S03C"]]}/></Card></>}
+function PhotosDocuments({record}) {
+  const attachments=record?.attachments||[];
+  const photoFiles=attachments.filter((item)=>item.category==="photo");
+  const documentFiles=attachments.filter((item)=>item.category==="document");
+  const [photoUrls,setPhotoUrls]=useState({});
+  useEffect(()=>{
+    let active=true;
+    Promise.all(photoFiles.map(async(item)=>{
+      try {
+        const response=await api.get(item.url,{responseType:"blob"});
+        return [item.id,URL.createObjectURL(response.data)];
+      } catch { return [item.id,null]; }
+    })).then((entries)=>{if(active)setPhotoUrls(Object.fromEntries(entries));});
+    return ()=>{active=false;Object.values(photoUrls).forEach((url)=>url&&URL.revokeObjectURL(url));};
+  },[record?.reference]);
+  const rows=documentFiles.length?documentFiles.map((item)=>[
+    item.original_filename,
+    <Badge key={`${item.id}-status`}>Private</Badge>,
+    item.document_type||"Supporting document",
+    <button key={`${item.id}-open`} className="spa-button" onClick={()=>openProtectedFile(item)}>Open securely</button>,
+  ]):[["No supporting documents","—","—","—"]];
+  return <><Card title="Listing photographs">{photoFiles.length?<div className="spa-photo-grid">{photoFiles.map((item,i)=><div key={item.id}>{photoUrls[item.id]?<img src={photoUrls[item.id]} alt={item.original_filename}/>:<div className="spa-photo-placeholder">Loading photo</div>}<Badge>{i===0?"Cover":"Review"}</Badge></div>)}</div>:<Notice>No property photographs were attached to this submission.</Notice>}</Card><Card title="Supporting documents"><Table headers={["Document","Privacy","Type","Action"]} rows={rows}/></Card></>;
+}
 function PublicContent({data:d={}}){const {submissionRef="TREL-10428"}=useParams();return <><div className="spa-grid two"><Card title="Approved public copy"><KV items={[["Public title",d.title||"-"],["Description",d.description||"-"],["Price",`PGK ${d.price||"-"}`],["Location display",`${d.suburb||"-"}, ${d.city||"-"}`],["Contact routing",d.service||"Advertiser - monitored by TREL"]]}/></Card><Card title="Disclosure and readiness"><KV items={[["Exact location","Hidden"],["Photos",`${d.photos||0} selected`],["Title disclosure","Under review"],["Content version","Submitted version"],["Publication readiness","Ready after authority review"]]}/></Card></div><div className="spa-actions end"><Action onClick={()=>runWorkflowAction("submission",submissionRef,"return_for_changes","Returned for correction")}>Return for changes</Action><Link className="spa-button primary" to={`${B}/publications/LIST-10428`}>Open publication review</Link></div></>}
 
 function useConflictData(submissionRef) {
