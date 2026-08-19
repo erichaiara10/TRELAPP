@@ -38,6 +38,14 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       setError(result.error || "Login failed");
       return;
     }
+    if (result.passwordChangeRequired) {
+      onClose();
+      navigate("/auth/change-password", {
+        replace: true,
+        state: { changeToken: result.changeToken, email: result.email, purpose: result.purpose },
+      });
+      return;
+    }
     onClose();
     // Existing API roles are staff roles. Advertiser roles use their own workspace.
     const staffRoles = ["system_admin", "managing_director", "sales_agent", "leasing_agent", "marketing_officer"];

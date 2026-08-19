@@ -372,6 +372,12 @@ async def run_startup():
     # ---- Indexes (idempotent) ----
     await db.users.create_index("email", unique=True)
     await db.page_content.create_index("page", unique=True)
+    # Single-use password-change tokens: unique + auto-expire 15 min after insert
+    # (a bit longer than the 10-min token TTL to avoid races on the edge).
+    await db.used_password_change_tokens.create_index("jti", unique=True)
+    await db.used_password_change_tokens.create_index(
+        "created_at", expireAfterSeconds=900
+    )
     await db.provinces.create_index("name", unique=True)
     await db.cities.create_index([("name", 1), ("province_id", 1)], unique=True)
     await db.suburbs.create_index([("name", 1), ("city_id", 1)], unique=True)

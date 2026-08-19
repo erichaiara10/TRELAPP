@@ -17,6 +17,17 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     try {
       const { data } = await api.post("/auth/login", { email, password });
+      // Server signals that the caller must change their password before we
+      // can issue a real session. Do NOT set any auth state or persist a token.
+      if (data?.password_change_required) {
+        return {
+          ok: true,
+          passwordChangeRequired: true,
+          changeToken: data.change_token,
+          email: data.email,
+          purpose: data.purpose,
+        };
+      }
       localStorage.setItem("png_token", data.token);
       const authenticatedUser = { id: data.id, email: data.email, name: data.name, role: data.role };
       setUser(authenticatedUser);

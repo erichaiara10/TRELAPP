@@ -21,6 +21,7 @@ import AddProperty from "@/pages/public/AddProperty";
 import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 
 import Login from "@/pages/admin/Login";
+import PasswordChangeFirstLogin from "@/pages/auth/PasswordChangeFirstLogin";
 import Dashboard from "@/pages/admin/Dashboard";
 import Properties from "@/pages/admin/Properties";
 import Customers from "@/pages/admin/Customers";
@@ -71,6 +72,11 @@ function Protected({ children }) {
   const { user } = useAuth();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/admin/login" replace />;
+  // Property advertisers use their own dedicated workspace — they must not
+  // access any /admin/* route.
+  if (["property_advertiser", "advertiser"].includes(user.role)) {
+    return <Navigate to="/advertiser" replace />;
+  }
   return children;
 }
 
@@ -106,6 +112,7 @@ export default function App() {
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
+          <Route path="/auth/change-password" element={<PasswordChangeFirstLogin />} />
           <Route path="/advertiser/*" element={<AdvertiserProtected><AdvertiserWorkspace /></AdvertiserProtected>} />
           <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />

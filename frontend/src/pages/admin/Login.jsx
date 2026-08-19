@@ -16,7 +16,19 @@ function LoginForm() {
     setLoading(true);
     const r = await login(email, pwd);
     setLoading(false);
-    if (r.ok) { toast.success("Signed in"); nav("/admin"); }
+    if (r.ok && r.passwordChangeRequired) {
+      nav("/auth/change-password", {
+        replace: true,
+        state: { changeToken: r.changeToken, email: r.email, purpose: r.purpose },
+      });
+      return;
+    }
+    if (r.ok) {
+      toast.success("Signed in");
+      // Route property advertisers to their dedicated workspace.
+      const isAdvertiser = ["property_advertiser", "advertiser"].includes(r.user?.role);
+      nav(isAdvertiser ? "/advertiser" : "/admin");
+    }
     else toast.error(r.error || "Login failed");
   };
 
