@@ -55,6 +55,37 @@ class IntegratedPropertyService:
             raise ValueError(f"Unknown {collection} reference")
         return result
 
+    async def _resolve_or_create_optional(
+        self,
+        collection: str,
+        supplied_id: Optional[str],
+        name: Optional[str],
+        parent: Dict[str, Any],
+        session=None,
+    ) -> Optional[Dict[str, Any]]:
+        if not supplied_id and not str(name or "").strip():
+            return None
+        if supplied_id:
+            existing = await self.db[collection].find_one(
+                {"id": supplied_id}, {"_id": 0}, session=session
+            )
+            if not existing:
+                raise ValueError(f"Unknown {collection} reference")
+            return existing
+        query = {"name": {"$regex": f"^{re.escape(str(name).strip())}$", "$options": "i"}, **parent}
+        existing = await self.db[collection].find_one(query, {"_id": 0}, session=session)
+        if existing:
+            return existing
+        document = {
+            "id": new_id(),
+            "name": str(name).strip(),
+            **parent,
+            "source": "property_form",
+            "created_at": now_iso(),
+        }
+        await self.db[collection].insert_one(document, session=session)
+        return document
+
     async def resolve_context(self, payload: Dict[str, Any], session=None) -> Dict[str, Any]:
         province = await self._resolve_reference(
             "provinces", payload.get("province_id"), payload.get("province"), session
@@ -73,15 +104,15 @@ class IntegratedPropertyService:
         )
         district = None
         if payload.get("district_id") or payload.get("district"):
-            district = await self._resolve_reference(
-                "districts", payload.get("district_id"), payload.get("district"), session,
-                {"province_id": province["id"]},
+            district = await self._resolve_or_create_optional(
+                "districts", payload.get("district_id"), payload.get("district"),
+                {"province_id": province["id"]}, session,
             )
         local_area = None
         if payload.get("local_area_id") or payload.get("local_area"):
-            local_area = await self._resolve_reference(
-                "local_areas", payload.get("local_area_id"), payload.get("local_area"), session,
-                {"suburb_id": suburb["id"]},
+            local_area = await self._resolve_or_create_optional(
+                "local_areas", payload.get("local_area_id"), payload.get("local_area"),
+                {"suburb_id": suburb["id"]}, session,
             )
         return {
             "province": province,
@@ -226,7 +257,12 @@ class IntegratedPropertyService:
             "city_id": context["city"]["id"],
             "suburb_id": context["suburb"]["id"],
             "district_id": context["district"]["id"] if context.get("district") else None,
+            "district_name": context["district"]["name"] if context.get("district") else None,
             "local_area_id": context["local_area"]["id"] if context.get("local_area") else None,
+            "local_area_name": context["local_area"]["name"] if context.get("local_area") else None,
+            "province_name": context["province"]["name"],
+            "city_name": context["city"]["name"],
+            "suburb_name": context["suburb"]["name"],
             "street_id": payload.get("street_id"),
             "street_name": payload.get("street_name"),
             "street_address": payload.get("address"),
@@ -554,7 +590,9 @@ class IntegratedPropertyService:
             "street_name": address.get("street_name"),
             "nearby_landmark": address.get("nearby_landmark"),
             "district_id": address.get("district_id"),
+            "district": address.get("district_name"),
             "local_area_id": address.get("local_area_id"),
+            "local_area": address.get("local_area_name"),
             "tenure_type": parcel.get("tenure_type"),
             "title_reference": parcel.get("title_reference"),
             "owner_name": (owner or {}).get("display_name"),
