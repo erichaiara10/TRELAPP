@@ -39,6 +39,7 @@ jobs:
         run: |
           python -m py_compile \
             migrations/p3_integrated_property.py \
+            core/db.py \
             core/integrated_property_service.py \
             core/property_repository.py \
             routes/properties.py \
