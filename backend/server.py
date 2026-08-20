@@ -68,7 +68,9 @@ app.add_middleware(
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
 
 if os.path.exists(frontend_path):
-    app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "static")), name="static")
+    _static_dir = os.path.join(frontend_path, "static")
+    if os.path.isdir(_static_dir):
+        app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
