@@ -42,11 +42,11 @@ jobs:
       - name: P3 schema dry-run
         run: python migrations/p3_integrated_property.py --mode dry-run
 
-      - name: Apply P3 schema extension
+      - name: Recreate verified-empty collections with P3 validators
         run: >-
           python migrations/p3_integrated_property.py
-          --mode apply
-          --confirmation APPLY_TREL_DB_P3
+          --mode recreate-empty
+          --confirmation RECREATE_EMPTY_TREL_DB_P3
 
       - name: Verify P3 schema extension
         run: python migrations/p3_integrated_property.py --mode verify
