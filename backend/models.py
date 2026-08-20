@@ -88,6 +88,10 @@ class Property(BaseModel):
     total_area_ha: Optional[float] = None
     street_name: Optional[str] = None
     nearby_landmark: Optional[str] = None
+    district: Optional[str] = None
+    local_area: Optional[str] = None
+    tenure_type: Optional[str] = None
+    title_reference: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -121,6 +125,10 @@ class PropertyCreate(BaseModel):
     total_area_ha: Optional[float] = None
     street_name: Optional[str] = None
     nearby_landmark: Optional[str] = None
+    district: Optional[str] = None
+    local_area: Optional[str] = None
+    tenure_type: Optional[str] = None
+    title_reference: Optional[str] = None
 
 
 class PropertyFilters(BaseModel):

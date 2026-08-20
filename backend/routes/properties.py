@@ -1,11 +1,13 @@
 """Properties CRUD + dynamic legal-scheme enforcement."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.db import db, now_iso, strip_id
+from core.db import db, now_iso
+from core.property_repository import PropertyRepository
 from core.security import get_current_user
 from models import Property, PropertyCreate, PropertyFilters
 
 router = APIRouter()
+repository = PropertyRepository(db)
 
 
 # ---- Query builders ----
@@ -31,8 +33,8 @@ def _q_price(min_price, max_price):
 def _q_search(q):
     if not q:
         return {}
-    return {"$or": [{f: {"$regex": q, "$options": "i"}}
-                    for f in ("title", "description", "suburb", "location")]}
+    return {"$or": [{field: {"$regex": q, "$options": "i"}}
+                    for field in ("title", "description", "suburb", "location")]}
 
 
 def _q_bool(field, value):
@@ -56,11 +58,8 @@ def build_property_query(filters: dict) -> dict:
 
 
 async def enforce_scheme(payload: dict) -> dict:
-    """Validate a property payload against the global field rules AND the
-    dynamic legal-scheme rules. Also wipes fields that don't apply so the DB
-    stays consistent."""
-    # ---- Always-required fields ----
-    for k, label in [
+    """Validate global and dynamic legal-scheme rules."""
+    for key, label in [
         ("title", "Title"),
         ("listing_type", "Listing Type"),
         ("property_type", "Property Type"),
@@ -68,18 +67,19 @@ async def enforce_scheme(payload: dict) -> dict:
         ("location", "City"),
         ("suburb", "Suburb"),
     ]:
-        if not str(payload.get(k) or "").strip():
+        if not str(payload.get(key) or "").strip():
             raise HTTPException(400, f"{label} is required")
     if payload["listing_type"] not in ("sale", "rent"):
         raise HTTPException(400, "Listing Type must be 'sale' or 'rent'")
     if not (float(payload.get("price") or 0) > 0):
         raise HTTPException(400, "Price must be greater than zero")
 
-    # ---- Legal scheme rules ----
-    ptype = payload["property_type"].strip()
-    t = await db.property_types.find_one({"name": ptype, "is_active": True},
-                                         {"_id": 0, "legal_scheme": 1})
-    scheme = (t or {}).get("legal_scheme")
+    property_type = payload["property_type"].strip()
+    type_record = await db.property_types.find_one(
+        {"name": property_type, "is_active": True},
+        {"_id": 0, "legal_scheme": 1},
+    )
+    scheme = (type_record or {}).get("legal_scheme")
     if scheme == "portion":
         if not str(payload.get("full_portion_number") or "").strip():
             raise HTTPException(400, "Portion Number is required for this property type")
@@ -87,10 +87,12 @@ async def enforce_scheme(payload: dict) -> dict:
         payload["section_number"] = None
         payload["street_name"] = None
     elif scheme == "lot_section_street":
-        for k, label in [("allotment_number", "Lot Number"),
-                         ("section_number", "Section Number"),
-                         ("street_name", "Street Name")]:
-            if not str(payload.get(k) or "").strip():
+        for key, label in [
+            ("allotment_number", "Lot Number"),
+            ("section_number", "Section Number"),
+            ("street_name", "Street Name"),
+        ]:
+            if not str(payload.get(key) or "").strip():
                 raise HTTPException(400, f"{label} is required for this property type")
         payload["full_portion_number"] = None
     if payload.get("listing_type") == "sale" and not (payload.get("total_area_ha") or 0) > 0:
@@ -101,43 +103,42 @@ async def enforce_scheme(payload: dict) -> dict:
 @router.get("/properties")
 async def list_properties(filters: PropertyFilters = Depends()):
     query = build_property_query(filters.model_dump(exclude={"limit"}))
-    return await db.properties.find(query, {"_id": 0}).sort("created_at", -1).to_list(filters.limit)
+    return await repository.list(query, filters.limit)
 
 
 @router.get("/properties/{pid}")
 async def get_property(pid: str):
-    doc = await db.properties.find_one({"id": pid}, {"_id": 0})
-    if not doc:
+    document = await repository.get(pid)
+    if not document:
         raise HTTPException(404, "Property not found")
-    return doc
+    return document
 
 
 @router.post("/properties")
 async def create_property(payload: PropertyCreate, user: dict = Depends(get_current_user)):
     data = await enforce_scheme(payload.model_dump())
-    p = Property(**data).model_dump()
-    await db.properties.insert_one(p)
-    return strip_id(p)
+    document = Property(**data).model_dump()
+    return await repository.create(document)
 
 
 @router.put("/properties/{pid}")
 async def update_property(pid: str, payload: dict, user: dict = Depends(get_current_user)):
     payload["updated_at"] = now_iso()
-    payload.pop("id", None); payload.pop("_id", None)
-    payload.pop("land_category", None)  # legacy field — no longer stored
+    payload.pop("id", None)
+    payload.pop("_id", None)
+    payload.pop("land_category", None)
     existing = await db.properties.find_one({"id": pid}, {"_id": 0}) or {}
     merged = {**existing, **payload}
     await enforce_scheme(merged)
-    # persist the cleaned merged view so wiped fields are actually cleared
-    payload["allotment_number"] = merged.get("allotment_number")
-    payload["section_number"] = merged.get("section_number")
-    payload["street_name"] = merged.get("street_name")
-    payload["full_portion_number"] = merged.get("full_portion_number")
-    await db.properties.update_one({"id": pid}, {"$set": payload})
-    return await db.properties.find_one({"id": pid}, {"_id": 0})
+    for field in ("allotment_number", "section_number", "street_name", "full_portion_number"):
+        payload[field] = merged.get(field)
+    result = await repository.update(pid, payload)
+    if not result:
+        raise HTTPException(404, "Property not found")
+    return result
 
 
 @router.delete("/properties/{pid}")
 async def delete_property(pid: str, user: dict = Depends(get_current_user)):
-    await db.properties.delete_one({"id": pid})
+    await repository.delete(pid)
     return {"ok": True}
