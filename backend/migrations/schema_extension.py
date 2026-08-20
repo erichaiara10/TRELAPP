@@ -120,7 +120,7 @@ INDEXES: Sequence[IndexSpec] = (
     ("audit_events", "ix_audit_actor", (("actor_id", ASCENDING), ("created_at", DESCENDING)), {}),
     ("master_properties", "ux_master_property_id", (("id", ASCENDING),), {"unique": True}),
     ("master_properties", "ix_property_parent", (("parent_property_id", ASCENDING),), {"sparse": True}),
-    ("property_addresses", "ux_canonical_address", (("property_id", ASCENDING), ("is_canonical", ASCENDING)), {"unique": True, "partialFilterExpression": {"is_canonical": True, "valid_to": {"$exists": False}}}),
+    ("property_addresses", "ux_canonical_address", (("property_id", ASCENDING), ("is_canonical", ASCENDING)), {"unique": True, "partialFilterExpression": {"is_canonical": True, "valid_to": None}}),
     ("property_addresses", "ix_micro_location", (("suburb_id", ASCENDING), ("local_area_id", ASCENDING), ("street_id", ASCENDING)), {}),
     ("property_parcels", "ix_urban_identity", (("province_id", ASCENDING), ("suburb_id", ASCENDING), ("street_norm", ASCENDING), ("section_norm", ASCENDING), ("lot_norm", ASCENDING)), {"partialFilterExpression": {"identifier_scheme": "URBAN_LOT_SECTION"}}),
     ("property_parcels", "ix_portion_identity", (("province_id", ASCENDING), ("district_id", ASCENDING), ("location_norm", ASCENDING), ("portion_norm", ASCENDING)), {"partialFilterExpression": {"identifier_scheme": {"$in": ["PORTION", "CUSTOMARY"]}}}),
@@ -174,6 +174,10 @@ def _equivalent_index(existing: Iterable[Dict[str, Any]], keys: Sequence[Tuple[s
             continue
         if item.get("expireAfterSeconds") != options.get("expireAfterSeconds"):
             continue
+        if bool(item.get("sparse")) != bool(options.get("sparse")):
+            continue
+        if item.get("partialFilterExpression") != options.get("partialFilterExpression"):
+            continue
         return True
     return False
 
@@ -218,9 +222,18 @@ def apply(db) -> Dict[str, Any]:
         db.create_collection(name, validator=validator, validationLevel="strict", validationAction="error")
         created_collections.append(name)
 
+    attempt_started_at = datetime.now(timezone.utc)
     db.schema_migrations.update_one(
         {"version": MIGRATION_VERSION},
-        {"$setOnInsert": {"checksum": checksum, "status": "RUNNING", "started_at": datetime.now(timezone.utc)}},
+        {
+            "$set": {
+                "checksum": checksum,
+                "status": "RUNNING",
+                "last_attempt_at": attempt_started_at,
+            },
+            "$setOnInsert": {"started_at": attempt_started_at},
+            "$unset": {"failed_at": "", "failure_code": ""},
+        },
         upsert=True,
     )
 
@@ -243,9 +256,68 @@ def apply(db) -> Dict[str, Any]:
     return {"status": "APPLIED", "version": MIGRATION_VERSION, "checksum": checksum, **result}
 
 
+def verify(db) -> Dict[str, Any]:
+    """Read-only verification of the applied physical schema and legacy baseline."""
+    plan = build_plan(db)
+    actual_names = set(db.list_collection_names())
+    expected_names = set(PHYSICAL_COLLECTIONS)
+    validation_issues: List[Dict[str, str]] = []
+
+    for name in sorted(expected_names - LEGACY_COLLECTIONS):
+        info = db.command({"listCollections": 1, "filter": {"name": name}})
+        batch = info.get("cursor", {}).get("firstBatch", [])
+        if not batch:
+            validation_issues.append({"collection": name, "issue": "collection metadata missing"})
+            continue
+        options = batch[0].get("options", {})
+        if options.get("validationLevel") != "strict":
+            validation_issues.append({"collection": name, "issue": "validationLevel is not strict"})
+        if options.get("validationAction") != "error":
+            validation_issues.append({"collection": name, "issue": "validationAction is not error"})
+        if not options.get("validator"):
+            validation_issues.append({"collection": name, "issue": "validator is missing"})
+
+    ledger = db.schema_migrations.find_one(
+        {"version": MIGRATION_VERSION},
+        {"_id": 0, "version": 1, "checksum": 1, "status": 1},
+    )
+    legacy_counts = {
+        name: db[name].count_documents({})
+        for name in sorted(LEGACY_COLLECTIONS)
+    }
+    legacy_total = sum(legacy_counts.values())
+    total_indexes = sum(len(list(db[name].list_indexes())) for name in expected_names)
+
+    checks = {
+        "all_expected_collections_present": not plan["create_collections"],
+        "all_index_specs_equivalent": not plan["create_indexes"] and len(plan["skip_equivalent_indexes"]) == len(INDEXES),
+        "all_new_collection_validators_strict": not validation_issues,
+        "ledger_status_applied": bool(ledger and ledger.get("status") == "APPLIED"),
+        "ledger_checksum_matches": bool(ledger and ledger.get("checksum") == schema_checksum()),
+        "legacy_document_total_matches_baseline": legacy_total == 178,
+    }
+    return {
+        "verification_passed": all(checks.values()),
+        "checks": checks,
+        "migration_version": MIGRATION_VERSION,
+        "checksum": schema_checksum(),
+        "expected_collection_count": len(expected_names),
+        "actual_expected_collection_count": len(expected_names & actual_names),
+        "unexpected_collections": sorted(actual_names - expected_names),
+        "equivalent_index_spec_count": len(plan["skip_equivalent_indexes"]),
+        "total_indexes_in_integrated_schema": total_indexes,
+        "missing_collections": plan["create_collections"],
+        "missing_or_mismatched_indexes": plan["create_indexes"],
+        "validation_issues": validation_issues,
+        "ledger": ledger,
+        "legacy_document_counts": legacy_counts,
+        "legacy_document_total": legacy_total,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
+    parser.add_argument("--mode", choices=("dry-run", "apply", "verify"), default="dry-run")
     parser.add_argument("--uri", default=os.environ.get("MONGO_URL"))
     parser.add_argument("--username", default=os.environ.get("MONGO_USERNAME"))
     parser.add_argument("--auth-database", default=os.environ.get("MONGO_AUTH_DATABASE", "admin"))
@@ -267,9 +339,14 @@ def main() -> int:
     try:
         db = client[args.database]
         db.command("ping")
-        output = build_plan(db) if args.mode == "dry-run" else apply(db)
+        if args.mode == "dry-run":
+            output = build_plan(db)
+        elif args.mode == "apply":
+            output = apply(db)
+        else:
+            output = verify(db)
         print(json.dumps(output, indent=2, default=str, sort_keys=True))
-        return 0
+        return 0 if args.mode != "verify" or output["verification_passed"] else 1
     finally:
         client.close()
 

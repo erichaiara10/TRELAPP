@@ -26,3 +26,11 @@ def test_control_collections_have_specific_validators():
         "migration_id_map",
         "migration_exceptions",
     }
+
+
+def test_canonical_address_partial_index_is_atlas_compatible():
+    spec = next(item for item in INDEXES if item[1] == "ux_canonical_address")
+    assert spec[3]["partialFilterExpression"] == {
+        "is_canonical": True,
+        "valid_to": None,
+    }

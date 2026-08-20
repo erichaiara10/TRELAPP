@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - dry-run
+          - verify
           - apply
       confirmation:
         description: For apply only, enter MIGRATE_TREL_DB_P1
