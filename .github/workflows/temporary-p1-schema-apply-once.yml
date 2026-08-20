@@ -52,11 +52,25 @@ jobs:
             --auth-database "$MONGO_AUTH_DATABASE" \
             --database "$DB_NAME" | tee schema-extension-result.json
 
-      - name: Upload non-sensitive execution report
+      - name: Verify integrated physical schema
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m migrations.schema_extension \
+            --mode verify \
+            --uri "mongodb+srv://cluster0.hwzmeqs.mongodb.net/trel_db" \
+            --username "$MONGO_USERNAME" \
+            --auth-database "$MONGO_AUTH_DATABASE" \
+            --database "$DB_NAME" | tee schema-verification-result.json
+
+      - name: Upload non-sensitive execution reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trelpng-p1-schema-extension-approved-apply
-          path: backend/schema-extension-result.json
-          if-no-files-found: warn
+          path: |
+            backend/schema-extension-result.json
+            backend/schema-verification-result.json
+          if-no-files-found: error
           retention-days: 7
