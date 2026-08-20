@@ -64,8 +64,19 @@ Verify:
 python migrations/p3_integrated_property.py --mode verify
 ```
 
-The migration changes validators, indexes, and the schema ledger only. It does not
-modify or delete business documents.
+The normal apply path uses `collMod`. If the migration role cannot use
+`collMod`, the controlled fallback below is permitted only while every target
+collection is empty:
+
+```bash
+python migrations/p3_integrated_property.py \
+  --mode recreate-empty --confirmation RECREATE_EMPTY_TREL_DB_P3
+```
+
+The fallback checks all target counts before making changes, refuses to run if any
+target contains a document, recreates only the empty target collections, restores
+their existing indexes, and adds the P3 indexes. Neither path modifies or deletes
+business documents.
 
 ## Non-production relationship smoke test
 
