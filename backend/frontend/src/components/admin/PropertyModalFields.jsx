@@ -143,6 +143,23 @@ export default function PropertyModalFields({ modal, setModal }) {
             />
           </div>
 
+          <TextField label="District (optional)" testId="property-district" value={modal.district} onChange={set("district")} placeholder="e.g. National Capital District" />
+          <TextField label="Local area (optional)" testId="property-local-area" value={modal.local_area} onChange={set("local_area")} placeholder="e.g. Waigani" />
+          <TextField label="Title reference (optional)" testId="property-title-reference" value={modal.title_reference} onChange={set("title_reference")} placeholder="e.g. Volume/Folio or title number" />
+          <SelectField
+            label="Tenure type"
+            testId="property-tenure-type"
+            value={modal.tenure_type || ""}
+            onChange={set("tenure_type")}
+            options={[
+              { value: "", label: "Not specified" },
+              { value: "STATE_LEASE", label: "State lease" },
+              { value: "FREEHOLD", label: "Freehold" },
+              { value: "CUSTOMARY", label: "Customary" },
+              { value: "OTHER", label: "Other" },
+            ]}
+          />
+
           {!modal.property_type && (
             <div className="md:col-span-2 text-xs text-muted-foreground italic">
               Select a Property Type above to see the relevant legal fields.
