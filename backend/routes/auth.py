@@ -1,8 +1,9 @@
 """Auth (login/logout/me) + Users CRUD."""
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from core.account_policy import account_category, require_staff, workspace_path
 from core.db import db, new_id, now_iso
+from core.login_guard import is_locked, record_failure, reset as reset_login_failures
 from core.security import (
     create_access_token, get_current_user, hash_password,
     require_roles, verify_password,
@@ -35,13 +36,20 @@ def _validate_advertiser_relationship(category: str, relationship: str | None) -
 
 
 @router.post("/auth/login")
-async def login(payload: LoginIn, response: Response):
+async def login(payload: LoginIn, request: Request, response: Response):
     email = payload.email.lower().strip()
+    ip = request.client.host if request.client else None
+    if await is_locked(email, ip):
+        raise HTTPException(429, "Too many login attempts. Try again later.")
     user = await db.users.find_one({"email": email})
+    # Uniform error for both "no user" and "bad password" so we don't reveal
+    # whether the email account exists.
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
+        await record_failure(email, ip)
         raise HTTPException(401, "Invalid email or password")
     if user.get("status", "ACTIVE") != "ACTIVE":
         raise HTTPException(403, "Account is not active")
+    await reset_login_failures(email, ip)
     token = create_access_token(user["id"], user["email"], user["role"])
     response.set_cookie("access_token", token, httponly=True, secure=False,
                         samesite="lax", max_age=43200, path="/")

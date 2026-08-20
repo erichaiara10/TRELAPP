@@ -1,6 +1,7 @@
 """Transactional integrated Property graph service."""
 from __future__ import annotations
 
+import logging
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -8,13 +9,29 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pymongo.errors import OperationFailure
 
-from core.db import new_id, now_iso
+from core.db import detect_topology, new_id, now_iso, strict_transactions_required
+
+logger = logging.getLogger("trel")
 
 
 class DuplicatePropertyError(Exception):
     def __init__(self, candidates: List[Dict[str, Any]]):
         super().__init__("Possible duplicate property")
         self.candidates = candidates
+
+
+class PartialWriteError(Exception):
+    """Raised when a non-transactional multi-collection write fails partway.
+
+    Contains the original cause and the audit-log id created for the failure so
+    callers can surface a clear message and operators can trace the orphan
+    documents that were compensated (or, if compensation itself failed, are
+    still present)."""
+
+    def __init__(self, cause: Exception, failure_id: str):
+        super().__init__(f"Partial write failure recorded as {failure_id}")
+        self.cause = cause
+        self.failure_id = failure_id
 
 
 def norm(value: Any) -> Optional[str]:
@@ -32,30 +49,110 @@ def identifier_scheme(payload: Dict[str, Any]) -> str:
     return "URBAN_LOT_SECTION"
 
 
+class _NoopTracker:
+    """No-op tracker used when Mongo handles rollback for us."""
+
+    async def track_insert(self, collection: str, document: Dict[str, Any]) -> None:
+        return None
+
+    async def compensate_and_record(self, exc: Exception) -> str:
+        return ""
+
+
+class _InsertTracker:
+    """Records every insert issued during a non-transactional write.
+
+    On failure, delete-many by id in reverse order and write a
+    `partial_write_failures` audit document. If compensation itself fails we
+    include that in the audit record so operators can trace orphans."""
+
+    def __init__(self, db):
+        self.db = db
+        self.inserts: List[Tuple[str, str]] = []
+
+    async def track_insert(self, collection: str, document: Dict[str, Any]) -> None:
+        doc_id = document.get("id")
+        if doc_id:
+            self.inserts.append((collection, doc_id))
+
+    async def compensate_and_record(self, exc: Exception) -> str:
+        failure_id = new_id()
+        rollback_status: List[Dict[str, Any]] = []
+        for collection, doc_id in reversed(self.inserts):
+            try:
+                await self.db[collection].delete_one({"id": doc_id})
+                rollback_status.append({"collection": collection, "id": doc_id, "status": "compensated"})
+            except Exception as inner:
+                rollback_status.append({
+                    "collection": collection, "id": doc_id,
+                    "status": "orphan", "error": str(inner)[:200],
+                })
+        await self.db.partial_write_failures.insert_one({
+            "id": failure_id,
+            "occurred_at": now_iso(),
+            "error_message": str(exc)[:500],
+            "error_type": type(exc).__name__,
+            "attempted_inserts": [
+                {"collection": c, "id": d} for c, d in self.inserts
+            ],
+            "rollback": rollback_status,
+        })
+        logger.error(
+            "Non-transactional write failed (failure_id=%s): %s. Rollback: %s",
+            failure_id, exc, rollback_status,
+        )
+        return failure_id
+
+
 class IntegratedPropertyService:
     def __init__(self, database, client):
         self.db = database
         self.client = client
-        self._supports_transactions: Optional[bool] = None
+        self._topology: Optional[Dict[str, Any]] = None
 
-    async def _detect_transaction_support(self) -> bool:
-        if self._supports_transactions is not None:
-            return self._supports_transactions
-        try:
-            info = await self.client.admin.command("hello")
-            self._supports_transactions = bool(info.get("setName") or info.get("msg") == "isdbgrid")
-        except Exception:
-            self._supports_transactions = False
-        return self._supports_transactions
+    async def _detect_topology(self) -> Dict[str, Any]:
+        if self._topology is None:
+            self._topology = await detect_topology()
+            logger.info(
+                "IntegratedPropertyService topology=%s supports_transactions=%s strict=%s",
+                self._topology.get("kind"),
+                self._topology.get("supports_transactions"),
+                strict_transactions_required(),
+            )
+            if not self._topology["supports_transactions"] and strict_transactions_required():
+                # Fail loudly instead of silently degrading in production/Atlas.
+                raise RuntimeError(
+                    f"TREL_MONGO_STRICT_TRANSACTIONS is set (or Atlas URL detected) "
+                    f"but MongoDB topology is {self._topology.get('kind')} which "
+                    f"does not support multi-document transactions."
+                )
+        return self._topology
 
     @asynccontextmanager
     async def _txn(self):
-        if await self._detect_transaction_support():
+        """Yield a session/tracker pair.
+
+        - Replica-set/sharded → real transaction; on error, Mongo rolls back;
+          `tracker.compensate()` is a no-op.
+        - Standalone (dev/preview only, blocked by strict mode) → session is None
+          and we track every insert; on error, delete them in reverse order.
+        """
+        topology = await self._detect_topology()
+        if topology["supports_transactions"]:
             async with await self.client.start_session() as session:
                 async with session.start_transaction():
-                    yield session
+                    yield session, _NoopTracker()
         else:
-            yield None
+            tracker = _InsertTracker(self.db)
+            try:
+                yield None, tracker
+            except (DuplicatePropertyError, ValueError):
+                # Expected business errors — no partial write to compensate,
+                # bubble up so routes/properties.py can map them cleanly.
+                raise
+            except Exception as exc:
+                failure_id = await tracker.compensate_and_record(exc)
+                raise PartialWriteError(exc, failure_id) from exc
 
     async def _resolve_reference(
         self,
@@ -219,7 +316,7 @@ class IntegratedPropertyService:
             })
         return output
 
-    async def _party(self, payload: Dict[str, Any], session) -> Dict[str, Any]:
+    async def _party(self, payload: Dict[str, Any], session, tracker=None) -> Dict[str, Any]:
         owner_name = str(payload.get("owner_name") or "").strip()
         if not owner_name:
             raise ValueError("Owner name is required")
@@ -248,6 +345,8 @@ class IntegratedPropertyService:
             "updated_at": now_iso(),
         }
         await self.db.parties.insert_one(party, session=session)
+        if tracker is not None:
+            await tracker.track_insert("parties", party)
         return party
 
     def build_graph(
@@ -384,17 +483,18 @@ class IntegratedPropertyService:
         }
 
     async def create(self, payload: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
-        async with self._txn() as session:
+        async with self._txn() as (session, tracker):
             context = await self.resolve_context(payload, session)
             candidates = await self.duplicate_check(payload, session=session)
             if candidates and not payload.get("duplicate_override"):
                 raise DuplicatePropertyError(candidates)
-            party = await self._party(payload, session)
+            party = await self._party(payload, session, tracker)
             graph = self.build_graph(payload, user, context, party)
             for collection, document in graph.items():
                 await self.db[collection].insert_one(document, session=session)
+                await tracker.track_insert(collection, document)
             await self._replace_media_features_documents(
-                graph["master_properties"]["id"], graph["listings"]["id"], payload, session
+                graph["master_properties"]["id"], graph["listings"]["id"], payload, session, tracker
             )
             authority = {
                 "id": new_id(),
@@ -406,16 +506,19 @@ class IntegratedPropertyService:
                 "created_at": now_iso(),
             }
             await self.db.advertiser_authorities.insert_one(authority, session=session)
-            await self.db.audit_events.insert_one({
+            await tracker.track_insert("advertiser_authorities", authority)
+            audit = {
                 "id": new_id(), "action": "PROPERTY_CREATED",
                 "subject_type": "master_property",
                 "subject_id": graph["master_properties"]["id"],
                 "actor_id": user["id"], "created_at": now_iso(),
-            }, session=session)
+            }
+            await self.db.audit_events.insert_one(audit, session=session)
+            await tracker.track_insert("audit_events", audit)
             return await self._project(graph["listings"], session)
 
     async def update(self, property_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        async with self._txn() as session:
+        async with self._txn() as (session, tracker):
             master = await self.db.master_properties.find_one(
                 {"id": property_id}, {"_id": 0}, session=session
             )
@@ -431,7 +534,7 @@ class IntegratedPropertyService:
             candidates = await self.duplicate_check(payload, property_id, session)
             if candidates and not payload.get("duplicate_override"):
                 raise DuplicatePropertyError(candidates)
-            party = await self._party(payload, session)
+            party = await self._party(payload, session, tracker)
             graph = self.build_graph(
                 payload, user, context, party, property_id,
                 listing["id"] if listing else None,
@@ -450,12 +553,14 @@ class IntegratedPropertyService:
             current_price = listing.get("price_current") if listing else None
             if current_price != float(payload["price"]):
                 await self.db.listing_prices.insert_one(graph["listing_prices"], session=session)
+                await tracker.track_insert("listing_prices", graph["listing_prices"])
             if not listing or listing.get("publication_status") != graph["listings"]["publication_status"]:
                 await self.db.listing_status_history.insert_one(
                     graph["listing_status_history"], session=session
                 )
+                await tracker.track_insert("listing_status_history", graph["listing_status_history"])
             await self._replace_media_features_documents(
-                property_id, graph["listings"]["id"], payload, session
+                property_id, graph["listings"]["id"], payload, session, tracker
             )
             await self.db.advertiser_authorities.update_one(
                 {"property_id": property_id},
@@ -476,7 +581,7 @@ class IntegratedPropertyService:
             }, session=session)
             return await self._project(graph["listings"], session)
 
-    async def _replace_media_features_documents(self, property_id, listing_id, payload, session) -> None:
+    async def _replace_media_features_documents(self, property_id, listing_id, payload, session, tracker=None) -> None:
         await self.db.listing_media.delete_many({"listing_id": listing_id}, session=session)
         media = [{
             "id": new_id(), "listing_id": listing_id, "url": url,
@@ -484,6 +589,9 @@ class IntegratedPropertyService:
         } for index, url in enumerate(payload.get("images") or []) if url]
         if media:
             await self.db.listing_media.insert_many(media, session=session)
+            if tracker is not None:
+                for m in media:
+                    await tracker.track_insert("listing_media", m)
 
         await self.db.listing_features.delete_many({"listing_id": listing_id}, session=session)
         links = []
@@ -495,21 +603,30 @@ class IntegratedPropertyService:
             if not feature:
                 feature = {"id": new_id(), "code": code, "name": str(name).strip(), "created_at": now_iso()}
                 await self.db.features.insert_one(feature, session=session)
+                if tracker is not None:
+                    await tracker.track_insert("features", feature)
             links.append({
                 "id": new_id(), "listing_id": listing_id,
                 "feature_id": feature["id"], "created_at": now_iso(),
             })
         if links:
             await self.db.listing_features.insert_many(links, session=session)
+            if tracker is not None:
+                for l in links:
+                    await tracker.track_insert("listing_features", l)
 
         documents = payload.get("documents") or []
         await self.db.property_documents.delete_many({"property_id": property_id}, session=session)
         if documents:
-            await self.db.property_documents.insert_many([{
+            doc_rows = [{
                 "id": new_id(), "property_id": property_id,
                 "document_type": item["document_type"], "url": item["url"],
                 "status": item.get("status") or "UPLOADED", "created_at": now_iso(),
-            } for item in documents], session=session)
+            } for item in documents]
+            await self.db.property_documents.insert_many(doc_rows, session=session)
+            if tracker is not None:
+                for d in doc_rows:
+                    await tracker.track_insert("property_documents", d)
 
     async def list(self, query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
         listing_query: Dict[str, Any] = {}

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.account_policy import require_property_writer
 from core.db import db, now_iso
-from core.integrated_property_service import DuplicatePropertyError
+from core.integrated_property_service import DuplicatePropertyError, PartialWriteError
 from core.property_repository import PropertyRepository
 from core.security import get_current_user
 from models import Property, PropertyCreate, PropertyFilters
@@ -185,6 +185,12 @@ async def create_property(
         return await repository.create(document, user)
     except DuplicatePropertyError as exc:
         _raise_duplicate(exc)
+    except PartialWriteError as exc:
+        raise HTTPException(500, {
+            "code": "PARTIAL_WRITE_FAILURE",
+            "message": "Property save failed partway. The change was rolled back — please retry.",
+            "failure_id": exc.failure_id,
+        })
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -207,6 +213,12 @@ async def update_property(
         result = await repository.update(pid, merged, user)
     except DuplicatePropertyError as exc:
         _raise_duplicate(exc)
+    except PartialWriteError as exc:
+        raise HTTPException(500, {
+            "code": "PARTIAL_WRITE_FAILURE",
+            "message": "Property update failed partway. The change was rolled back — please retry.",
+            "failure_id": exc.failure_id,
+        })
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     if not result:

@@ -91,3 +91,4 @@ credentials.json
 *.key
 .credentials
 backend/frontend/node_modules/.cache/default-development/0.pack
+backend/frontend/node_modules/.cache/default-development/1.pack

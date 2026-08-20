@@ -20,13 +20,17 @@ export default function Home() {
   const ctaBand = sections.cta_band || {};
 
   const [featured, setFeatured] = useState([]);
+  const [featuredStatus, setFeaturedStatus] = useState("loading"); // loading | ready | error
   const [wanted, setWanted] = useState([]);
   const [q, setQ] = useState("");
   const [type, setType] = useState("sale");
   const nav = useNavigate();
 
   useEffect(() => {
-    api.get("/properties", { params: { featured: true, limit: 6 } }).then((r) => setFeatured(r.data)).catch(() => {});
+    setFeaturedStatus("loading");
+    api.get("/properties", { params: { featured: true, limit: 6 } })
+      .then((r) => { setFeatured(r.data); setFeaturedStatus("ready"); })
+      .catch(() => setFeaturedStatus("error"));
     api.get("/requirements/public").then((r) => setWanted(r.data)).catch(() => {});
   }, []);
 
@@ -104,7 +108,22 @@ export default function Home() {
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {featured.map((p) => <PropertyCard key={p.id} p={p} />)}
-          {featured.length === 0 && <div className="text-sm text-muted-foreground">Loading properties…</div>}
+          {featuredStatus === "loading" && featured.length === 0 && (
+            <div className="text-sm text-muted-foreground" data-testid="featured-loading">Loading properties…</div>
+          )}
+          {featuredStatus === "ready" && featured.length === 0 && (
+            <div className="sm:col-span-2 lg:col-span-3 text-center py-10 border border-dashed border-sand-200 rounded-lg" data-testid="featured-empty">
+              <p className="text-sm text-ink-700 font-medium">No featured listings just yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Browse our full inventory in <Link to="/buy" className="text-pine-500 hover:underline">Buy</Link> or <Link to="/rent" className="text-pine-500 hover:underline">Rent</Link>.
+              </p>
+            </div>
+          )}
+          {featuredStatus === "error" && (
+            <div className="sm:col-span-2 lg:col-span-3 text-center py-10 border border-dashed border-terra-200 rounded-lg" data-testid="featured-error">
+              <p className="text-sm text-terra-600">We couldn't load featured properties right now. Please refresh.</p>
+            </div>
+          )}
         </div>
       </section>
 
