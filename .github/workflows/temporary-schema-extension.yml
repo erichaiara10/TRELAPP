@@ -1,0 +1,70 @@
+name: Temporary TRELPNG P1 Schema Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Execution mode
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: For apply only, enter MIGRATE_TREL_DB_P1
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  schema-extension:
+    name: P1 schema extension (${{ inputs.mode }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      MONGO_PASSWORD: ${{ secrets.MONGODB_MIGRATION_PASSWORD }}
+      MONGO_USERNAME: trel_schema_migration_20260820
+      MONGO_AUTH_DATABASE: admin
+      DB_NAME: trel_db
+
+    steps:
+      - name: Check out approved source
+        uses: actions/checkout@v4
+
+      - name: Guard execution inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MONGO_PASSWORD" || { echo "MONGODB_MIGRATION_PASSWORD is not configured"; exit 1; }
+          if [ "${{ inputs.mode }}" = "apply" ] && [ "${{ inputs.confirmation }}" != "MIGRATE_TREL_DB_P1" ]; then
+            echo "Apply blocked: confirmation text does not match"
+            exit 1
+          fi
+
+      - name: Install migration dependency
+        shell: bash
+        run: python -m pip install --disable-pip-version-check --quiet pymongo==4.6.3
+
+      - name: Run schema extension
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m migrations.schema_extension \
+            --mode "${{ inputs.mode }}" \
+            --uri "mongodb+srv://cluster0.hwzmeqs.mongodb.net/trel_db" \
+            --username "$MONGO_USERNAME" \
+            --auth-database "$MONGO_AUTH_DATABASE" \
+            --database "$DB_NAME" | tee schema-extension-result.json
+
+      - name: Upload non-sensitive execution report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trelpng-p1-schema-extension-${{ inputs.mode }}
+          path: backend/schema-extension-result.json
+          if-no-files-found: error
+          retention-days: 7
+
