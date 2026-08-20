@@ -1,7 +1,8 @@
-"""Properties CRUD + dynamic legal-scheme enforcement."""
+"""Properties CRUD backed by the controlled integrated Property gateway."""
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.db import db, now_iso
+from core.integrated_property_service import DuplicatePropertyError
 from core.property_repository import PropertyRepository
 from core.security import get_current_user
 from models import Property, PropertyCreate, PropertyFilters
@@ -10,7 +11,6 @@ router = APIRouter()
 repository = PropertyRepository(db)
 
 
-# ---- Query builders ----
 def _q_match(field, value):
     return {field: value} if value else {}
 
@@ -22,19 +22,21 @@ def _q_gte(field, value):
 def _q_price(min_price, max_price):
     if min_price is None and max_price is None:
         return {}
-    pr = {}
+    price = {}
     if min_price is not None:
-        pr["$gte"] = min_price
+        price["$gte"] = min_price
     if max_price is not None:
-        pr["$lte"] = max_price
-    return {"price": pr}
+        price["$lte"] = max_price
+    return {"price": price}
 
 
-def _q_search(q):
-    if not q:
+def _q_search(value):
+    if not value:
         return {}
-    return {"$or": [{field: {"$regex": q, "$options": "i"}}
-                    for field in ("title", "description", "suburb", "location")]}
+    return {"$or": [
+        {field: {"$regex": value, "$options": "i"}}
+        for field in ("title", "description", "suburb", "location")
+    ]}
 
 
 def _q_bool(field, value):
@@ -58,7 +60,6 @@ def build_property_query(filters: dict) -> dict:
 
 
 async def enforce_scheme(payload: dict) -> dict:
-    """Validate global and dynamic legal-scheme rules."""
     for key, label in [
         ("title", "Title"),
         ("listing_type", "Listing Type"),
@@ -71,21 +72,30 @@ async def enforce_scheme(payload: dict) -> dict:
             raise HTTPException(400, f"{label} is required")
     if payload["listing_type"] not in ("sale", "rent"):
         raise HTTPException(400, "Listing Type must be 'sale' or 'rent'")
-    if not (float(payload.get("price") or 0) > 0):
+    if float(payload.get("price") or 0) <= 0:
         raise HTTPException(400, "Price must be greater than zero")
 
-    property_type = payload["property_type"].strip()
-    type_record = await db.property_types.find_one(
-        {"name": property_type, "is_active": True},
-        {"_id": 0, "legal_scheme": 1},
+    type_query = {"id": payload["property_type_id"]} if payload.get("property_type_id") else {
+        "name": payload["property_type"].strip()
+    }
+    type_query["is_active"] = True
+    property_type = await db.property_types.find_one(
+        type_query, {"_id": 0, "id": 1, "name": 1, "legal_scheme": 1}
     )
-    scheme = (type_record or {}).get("legal_scheme")
+    if not property_type:
+        raise HTTPException(400, "Select an active Property Type")
+    payload["property_type_id"] = property_type["id"]
+    payload["property_type"] = property_type["name"]
+
+    scheme = property_type.get("legal_scheme")
     if scheme == "portion":
         if not str(payload.get("full_portion_number") or "").strip():
             raise HTTPException(400, "Portion Number is required for this property type")
         payload["allotment_number"] = None
         payload["section_number"] = None
         payload["street_name"] = None
+        if not str(payload.get("district") or payload.get("district_id") or "").strip():
+            raise HTTPException(400, "District is required for portion/customary property")
     elif scheme == "lot_section_street":
         for key, label in [
             ("allotment_number", "Lot Number"),
@@ -95,15 +105,39 @@ async def enforce_scheme(payload: dict) -> dict:
             if not str(payload.get(key) or "").strip():
                 raise HTTPException(400, f"{label} is required for this property type")
         payload["full_portion_number"] = None
-    if payload.get("listing_type") == "sale" and not (payload.get("total_area_ha") or 0) > 0:
+
+    if payload.get("listing_type") == "sale" and float(payload.get("total_area_ha") or 0) <= 0:
         raise HTTPException(400, "Total Area (hectares) is required for sale listings")
+    if repository.storage_mode == "integrated" and not str(payload.get("owner_name") or "").strip():
+        raise HTTPException(400, "Owner name is required")
     return payload
+
+
+def _raise_duplicate(exc: DuplicatePropertyError):
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "POSSIBLE_DUPLICATE_PROPERTY",
+            "message": "A possible matching property already exists",
+            "candidates": exc.candidates,
+        },
+    )
 
 
 @router.get("/properties")
 async def list_properties(filters: PropertyFilters = Depends()):
     query = build_property_query(filters.model_dump(exclude={"limit"}))
     return await repository.list(query, filters.limit)
+
+
+@router.post("/properties/duplicate-check")
+async def check_property_duplicates(
+    payload: PropertyCreate,
+    user: dict = Depends(get_current_user),
+):
+    data = await enforce_scheme(payload.model_dump())
+    candidates = await repository.duplicate_check(data)
+    return {"has_possible_duplicates": bool(candidates), "candidates": candidates}
 
 
 @router.get("/properties/{pid}")
@@ -115,30 +149,50 @@ async def get_property(pid: str):
 
 
 @router.post("/properties")
-async def create_property(payload: PropertyCreate, user: dict = Depends(get_current_user)):
+async def create_property(
+    payload: PropertyCreate,
+    user: dict = Depends(get_current_user),
+):
     data = await enforce_scheme(payload.model_dump())
     document = Property(**data).model_dump()
-    return await repository.create(document)
+    try:
+        return await repository.create(document, user)
+    except DuplicatePropertyError as exc:
+        _raise_duplicate(exc)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.put("/properties/{pid}")
-async def update_property(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+async def update_property(
+    pid: str,
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
     payload["updated_at"] = now_iso()
     payload.pop("id", None)
     payload.pop("_id", None)
     payload.pop("land_category", None)
-    existing = await db.properties.find_one({"id": pid}, {"_id": 0}) or {}
-    merged = {**existing, **payload}
-    await enforce_scheme(merged)
-    for field in ("allotment_number", "section_number", "street_name", "full_portion_number"):
-        payload[field] = merged.get(field)
-    result = await repository.update(pid, payload)
+    existing = await repository.get(pid) or {}
+    if not existing:
+        raise HTTPException(404, "Property not found")
+    merged = await enforce_scheme({**existing, **payload})
+    try:
+        result = await repository.update(pid, merged, user)
+    except DuplicatePropertyError as exc:
+        _raise_duplicate(exc)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if not result:
         raise HTTPException(404, "Property not found")
     return result
 
 
 @router.delete("/properties/{pid}")
-async def delete_property(pid: str, user: dict = Depends(get_current_user)):
-    await repository.delete(pid)
+async def delete_property(
+    pid: str,
+    user: dict = Depends(get_current_user),
+):
+    if not await repository.delete(pid, user):
+        raise HTTPException(404, "Property not found")
     return {"ok": True}
