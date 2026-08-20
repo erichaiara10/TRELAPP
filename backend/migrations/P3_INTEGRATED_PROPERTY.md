@@ -14,8 +14,8 @@ untouched and available as a rollback path.
    soft-delete across the integrated graph in a MongoDB transaction.
 3. **Add Property screen integration** — stable location/type IDs, owner and
    authority capture, supporting-document upload, and duplicate confirmation.
-4. **Controlled activation** — `TREL_PROPERTY_STORAGE_MODE=integrated` activates
-   the new repository path. The safe default remains `legacy`; integrated-mode
+4. **Controlled activation** — `TREL_PROPERTY_STORAGE_MODE=integrated` selects
+   the final repository path and is now the default; integrated-mode
    startup skips legacy Property migration and demo-property seeding.
 5. **Verification and rollback** — unit tests, frontend production build, Atlas
    schema dry-run/apply/verify, and a non-production relationship smoke test.
@@ -32,16 +32,36 @@ untouched and available as a rollback path.
   `listing_status_history` retain price, media, features, and lifecycle history.
 - `advertiser_authorities` and `audit_events` record authority and actions.
 
+## Property Data Aggregation link
+
+External market evidence is not stored as another advertised Listing. The
+canonical relationship is:
+
+`source_sites → source_listings → source_listing_observations → master_properties`
+
+`source_listings.master_property_id` links a confidently identified source ad
+to the same `master_properties.id` used by `listings.property_id`. Ambiguous
+matches enter `property_match_reviews`; unmatched ads remain independent market
+evidence and never create a TREL advertisement automatically. Observations from
+TREL-owned domains are retained for audit/history but are marked ineligible as
+independent comparables.
+
+Apply the additive link validator/index migration after P1 and P3:
+
+```bash
+python migrations/p3_market_property_link.py \
+  --mode apply --confirmation APPLY_TREL_DB_P3_MARKET_LINK
+```
+
 ## Activation
 
-Set this only in an approved environment:
+The final integrated path is the application default. Set this explicitly in deployment configuration for clarity:
 
 ```text
 TREL_PROPERTY_STORAGE_MODE=integrated
 ```
 
-Do not change the production value until the P3 schema verification and smoke test
-pass and a deployment cutover is separately approved.
+Use `legacy` only as the documented rollback switch.
 
 ## Database migration
 

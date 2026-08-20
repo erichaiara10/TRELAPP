@@ -1,0 +1,71 @@
+"""TRELPNG Version 1 account-category and workspace policy."""
+from __future__ import annotations
+
+from fastapi import Depends, HTTPException
+
+from core.db import db
+from core.security import get_current_user
+
+STAFF = "STAFF"
+PROPERTY_ADVERTISER = "PROPERTY_ADVERTISER"
+REFERRAL_PARTNER = "REFERRAL_PARTNER"
+
+ACCOUNT_CATEGORIES = {STAFF, PROPERTY_ADVERTISER, REFERRAL_PARTNER}
+ACTIVE_ACCOUNT_STATUSES = {"ACTIVE"}
+PROPERTY_RELATIONSHIPS = {
+    "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE",
+}
+GOVERNMENT_ID_TYPES = {"PASSPORT", "DRIVER_LICENCE", "NID_CARD"}
+
+
+def account_category(user: dict) -> str:
+    """Keep existing staff accounts compatible while categories are adopted."""
+    category = str(user.get("account_category") or "").strip().upper()
+    return category if category in ACCOUNT_CATEGORIES else STAFF
+
+
+def workspace_path(user: dict) -> str:
+    return {
+        STAFF: "/admin",
+        PROPERTY_ADVERTISER: "/advertiser",
+        REFERRAL_PARTNER: "/referral-partner",
+    }[account_category(user)]
+
+
+async def require_staff(user: dict = Depends(get_current_user)) -> dict:
+    if account_category(user) != STAFF or user.get("status", "ACTIVE") not in ACTIVE_ACCOUNT_STATUSES:
+        raise HTTPException(403, "An active Staff Account is required")
+    return user
+
+
+async def require_property_writer(user: dict = Depends(get_current_user)) -> dict:
+    """Allow staff, or a fully verified Property Advertiser, to write Property data."""
+    category = account_category(user)
+    if user.get("status", "ACTIVE") not in ACTIVE_ACCOUNT_STATUSES:
+        raise HTTPException(403, "Active account required")
+    if category == STAFF:
+        return user
+    if category != PROPERTY_ADVERTISER:
+        raise HTTPException(403, "Referral Partner Accounts cannot create or edit Property listings")
+
+    profile = await db.advertiser_profiles.find_one({
+        "user_id": user["id"],
+        "status": "VERIFIED",
+        "relationship_type": {"$in": sorted(PROPERTY_RELATIONSHIPS)},
+    }, {"_id": 0, "id": 1})
+    government_id = await db.identity_documents.find_one({
+        "user_id": user["id"],
+        "document_type": {"$in": sorted(GOVERNMENT_ID_TYPES)},
+        "status": "VERIFIED",
+    }, {"_id": 0, "id": 1})
+    if not profile:
+        raise HTTPException(403, "Verified Property Advertiser profile required")
+    if not government_id:
+        raise HTTPException(403, "One verified government-issued ID is required")
+    return user
+
+
+async def require_referral_partner(user: dict = Depends(get_current_user)) -> dict:
+    if account_category(user) != REFERRAL_PARTNER or user.get("status", "ACTIVE") not in ACTIVE_ACCOUNT_STATUSES:
+        raise HTTPException(403, "An active Referral Partner Account is required")
+    return user

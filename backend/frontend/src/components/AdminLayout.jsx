@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const items = [
@@ -17,6 +17,7 @@ const items = [
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/content", label: "Content", icon: FileText },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { to: "/admin/market/evidence", label: "Market Evidence", icon: Database },
 ];
 
 export default function AdminLayout() {

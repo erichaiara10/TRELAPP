@@ -1,5 +1,5 @@
 """All Pydantic domain models — single-file for simplicity."""
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -18,6 +18,9 @@ class UserCreate(BaseModel):
     name: str
     role: str
     phone: Optional[str] = None
+    account_category: Literal["STAFF", "PROPERTY_ADVERTISER", "REFERRAL_PARTNER"] = "STAFF"
+    status: Literal["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"] = "ACTIVE"
+    advertiser_relationship_type: Optional[Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"]] = None
 
 
 class UserUpdate(BaseModel):
@@ -25,6 +28,9 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[str] = None
     phone: Optional[str] = None
+    account_category: Optional[Literal["STAFF", "PROPERTY_ADVERTISER", "REFERRAL_PARTNER"]] = None
+    status: Optional[Literal["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"]] = None
+    advertiser_relationship_type: Optional[Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"]] = None
 
 
 class PasswordUpdate(BaseModel):
@@ -57,13 +63,22 @@ class CommunicationCreate(BaseModel):
 
 
 # ---- Property ----
+class PropertyDocumentRef(BaseModel):
+    document_type: Literal[
+        "AUTHORITY_LETTER", "TITLE_DOCUMENT", "OWNER_ID", "LEASE_DOCUMENT", "OTHER"
+    ]
+    url: str
+    name: Optional[str] = None
+    status: Literal["UPLOADED", "PENDING_REVIEW", "VERIFIED", "REJECTED"] = "UPLOADED"
+
+
 class Property(BaseModel):
     id: str = Field(default_factory=new_id)
     title: str
     listing_type: Literal["sale", "rent"]
     property_type: str
     price: float
-    currency: str = "PGK"
+    currency: Literal["PGK"] = "PGK"
     bedrooms: Optional[int] = 0
     bathrooms: Optional[int] = 0
     parking: Optional[int] = 0
@@ -74,9 +89,9 @@ class Property(BaseModel):
     address: Optional[str] = None
     map_coords: Optional[str] = None
     description: str = ""
-    features: List[str] = []
-    images: List[str] = []
-    status: str = "active"
+    features: List[str] = Field(default_factory=list)
+    images: List[str] = Field(default_factory=list)
+    status: Literal["draft", "active", "under_offer", "sold", "leased", "withdrawn"] = "draft"
     featured: bool = False
     verified: bool = False
     owner_customer_id: Optional[str] = None
@@ -90,7 +105,7 @@ class Property(BaseModel):
     nearby_landmark: Optional[str] = None
     district: Optional[str] = None
     local_area: Optional[str] = None
-    tenure_type: Optional[str] = None
+    tenure_type: Optional[Literal["STATE_LEASE", "FREEHOLD", "CUSTOMARY", "OTHER"]] = None
     title_reference: Optional[str] = None
     property_type_id: Optional[str] = None
     province_id: Optional[str] = None
@@ -102,9 +117,9 @@ class Property(BaseModel):
     owner_name: Optional[str] = None
     owner_email: Optional[str] = None
     owner_phone: Optional[str] = None
-    owner_relationship: Optional[str] = "OWNER"
-    authority_status: Optional[str] = "PENDING"
-    documents: List[dict] = []
+    owner_relationship: Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"] = "OWNER"
+    authority_status: Literal["PENDING", "VERIFIED", "REJECTED", "EXPIRED"] = "PENDING"
+    documents: List[PropertyDocumentRef] = Field(default_factory=list)
     duplicate_override: bool = False
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
@@ -115,7 +130,7 @@ class PropertyCreate(BaseModel):
     listing_type: str
     property_type: str
     price: float
-    currency: str = "PGK"
+    currency: Literal["PGK"] = "PGK"
     bedrooms: Optional[int] = 0
     bathrooms: Optional[int] = 0
     parking: Optional[int] = 0
@@ -126,9 +141,9 @@ class PropertyCreate(BaseModel):
     address: Optional[str] = None
     map_coords: Optional[str] = None
     description: Optional[str] = ""
-    features: List[str] = []
-    images: List[str] = []
-    status: Optional[str] = "active"
+    features: List[str] = Field(default_factory=list)
+    images: List[str] = Field(default_factory=list)
+    status: Literal["draft", "active", "under_offer", "sold", "leased", "withdrawn"] = "draft"
     featured: bool = False
     verified: bool = False
     owner_customer_id: Optional[str] = None
@@ -141,7 +156,7 @@ class PropertyCreate(BaseModel):
     nearby_landmark: Optional[str] = None
     district: Optional[str] = None
     local_area: Optional[str] = None
-    tenure_type: Optional[str] = None
+    tenure_type: Optional[Literal["STATE_LEASE", "FREEHOLD", "CUSTOMARY", "OTHER"]] = None
     title_reference: Optional[str] = None
     property_type_id: Optional[str] = None
     province_id: Optional[str] = None
@@ -153,10 +168,20 @@ class PropertyCreate(BaseModel):
     owner_name: Optional[str] = None
     owner_email: Optional[str] = None
     owner_phone: Optional[str] = None
-    owner_relationship: Optional[str] = "OWNER"
-    authority_status: Optional[str] = "PENDING"
-    documents: List[dict] = []
+    owner_relationship: Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"] = "OWNER"
+    authority_status: Literal["PENDING", "VERIFIED", "REJECTED", "EXPIRED"] = "PENDING"
+    documents: List[PropertyDocumentRef] = Field(default_factory=list)
     duplicate_override: bool = False
+
+
+class PropertyReferralCreate(BaseModel):
+    property_id: Optional[str] = None
+    owner_name: str
+    owner_phone: Optional[str] = None
+    owner_email: Optional[EmailStr] = None
+    source_relationship: Literal["OWNER", "JOINT_OWNER"]
+    direct_from_owner: Literal[True]
+    notes: Optional[str] = ""
 
 
 class PropertyFilters(BaseModel):
@@ -170,6 +195,61 @@ class PropertyFilters(BaseModel):
     status: Optional[str] = "active"
     q: Optional[str] = None
     limit: int = 60
+
+
+# ---- Property Data Aggregation ----
+class MarketSourceCreate(BaseModel):
+    name: str
+    domain: str
+    base_url: Optional[str] = None
+    active: bool = True
+    is_trel_owned: bool = False
+    collector_key: Optional[str] = None
+    listing_pages: List[Dict[str, Any]] = Field(default_factory=list)
+    parser_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketObservationCreate(BaseModel):
+    source_site_id: str
+    source_listing_id: str
+    source_url: str
+    observed_at: Optional[str] = None
+    current_status: Literal[
+        "ACTIVE", "NOT_SEEN", "REMOVED", "RELISTED", "SOLD_CONFIRMED",
+        "RENTED_CONFIRMED", "WITHDRAWN_CONFIRMED", "UNKNOWN",
+    ] = "ACTIVE"
+    transaction_type: Literal["SALE", "RENT"]
+    property_type_id: Optional[str] = None
+    property_type_name: Optional[str] = None
+    province_id: Optional[str] = None
+    province_name: Optional[str] = None
+    district_id: Optional[str] = None
+    district_name: Optional[str] = None
+    city_id: Optional[str] = None
+    city_name: Optional[str] = None
+    suburb_id: Optional[str] = None
+    suburb_name: Optional[str] = None
+    local_area_id: Optional[str] = None
+    local_area_name: Optional[str] = None
+    street_name: Optional[str] = None
+    location_name: Optional[str] = None
+    lot: Optional[str] = None
+    section: Optional[str] = None
+    portion: Optional[str] = None
+    owner_name: Optional[str] = None
+    bedrooms: Optional[int] = Field(default=None, ge=0)
+    bathrooms: Optional[int] = Field(default=None, ge=0)
+    land_area_sqm: Optional[float] = Field(default=None, gt=0)
+    building_area_sqm: Optional[float] = Field(default=None, gt=0)
+    price_amount: Optional[float] = Field(default=None, gt=0)
+    currency: Literal["PGK"] = "PGK"
+    price_type: Literal[
+        "FIXED", "NEGOTIABLE", "FROM", "RANGE", "POA", "TENDER",
+        "EOI", "AUCTION", "UNKNOWN",
+    ] = "FIXED"
+    rental_period: Optional[Literal["DAY", "WEEK", "FORTNIGHT", "MONTH", "YEAR"]] = None
+    trel_property_id: Optional[str] = None
+    raw_payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ---- Customer ----

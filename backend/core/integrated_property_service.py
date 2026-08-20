@@ -182,13 +182,16 @@ class IntegratedPropertyService:
                     if party:
                         owner_match = True
                         break
-            matched_reasons = list(reasons)
-            if owner_match:
-                matched_reasons.append("same owner")
+            # The approved TREL identity is the owner plus the complete parcel
+            # combination. A parcel belonging to a different owner is not an
+            # automatic duplicate and must not block creation.
+            if not owner_match:
+                continue
+            matched_reasons = [*reasons, "same owner"]
             output.append({
                 "property_id": property_id,
                 "title": (master or {}).get("title") or "Existing property",
-                "confidence": 100 if owner_match else 90,
+                "confidence": 100,
                 "reasons": matched_reasons,
             })
         return output
@@ -305,11 +308,14 @@ class IntegratedPropertyService:
             "created_at": timestamp,
             "updated_at": timestamp,
         }
+        authority_basis = payload.get("owner_relationship") or "OWNER"
         property_party = {
             "id": new_id(),
             "property_id": property_id,
             "party_id": party["id"],
-            "relationship_type": payload.get("owner_relationship") or "OWNER",
+            # owner_name identifies the legal owner used by the duplicate rule.
+            # Agent/representative capacity belongs to advertiser_authorities.
+            "relationship_type": authority_basis if authority_basis in {"OWNER", "JOINT_OWNER"} else "OWNER",
             "authority_status": payload.get("authority_status") or "PENDING",
             "created_at": timestamp,
         }
@@ -430,6 +436,18 @@ class IntegratedPropertyService:
                 await self._replace_media_features_documents(
                     property_id, graph["listings"]["id"], payload, session
                 )
+                await self.db.advertiser_authorities.update_one(
+                    {"property_id": property_id},
+                    {"$set": {
+                        "owner_party_id": party["id"],
+                        "submitted_by_user_id": user["id"],
+                        "authority_basis": payload.get("owner_relationship") or "OWNER",
+                        "status": payload.get("authority_status") or "PENDING",
+                        "updated_at": now_iso(),
+                    }, "$setOnInsert": {"id": new_id(), "created_at": now_iso()}},
+                    upsert=True,
+                    session=session,
+                )
                 await self.db.audit_events.insert_one({
                     "id": new_id(), "action": "PROPERTY_UPDATED",
                     "subject_type": "master_property", "subject_id": property_id,
@@ -464,8 +482,8 @@ class IntegratedPropertyService:
             await self.db.listing_features.insert_many(links, session=session)
 
         documents = payload.get("documents") or []
+        await self.db.property_documents.delete_many({"property_id": property_id}, session=session)
         if documents:
-            await self.db.property_documents.delete_many({"property_id": property_id}, session=session)
             await self.db.property_documents.insert_many([{
                 "id": new_id(), "property_id": property_id,
                 "document_type": item["document_type"], "url": item["url"],
@@ -552,6 +570,9 @@ class IntegratedPropertyService:
             {"_id": 0}, session=session
         ) or await self.db.property_parties.find_one({"property_id": property_id}, {"_id": 0}, session=session)
         owner = await self.db.parties.find_one({"id": (owner_link or {}).get("party_id")}, {"_id": 0}, session=session) if owner_link else {}
+        authority = await self.db.advertiser_authorities.find_one(
+            {"property_id": property_id}, {"_id": 0}, session=session
+        ) or {}
         media = await self.db.listing_media.find(
             {"listing_id": listing["id"]}, {"_id": 0}
         ).sort("sort_order", 1).to_list(100)
@@ -602,8 +623,8 @@ class IntegratedPropertyService:
             "owner_name": (owner or {}).get("display_name"),
             "owner_email": (owner or {}).get("email"),
             "owner_phone": (owner or {}).get("phone"),
-            "owner_relationship": (owner_link or {}).get("relationship_type"),
-            "authority_status": (owner_link or {}).get("authority_status"),
+            "owner_relationship": authority.get("authority_basis") or (owner_link or {}).get("relationship_type"),
+            "authority_status": authority.get("status") or (owner_link or {}).get("authority_status"),
             "created_at": listing.get("created_at"),
             "updated_at": listing.get("updated_at"),
         }

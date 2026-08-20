@@ -16,15 +16,15 @@ function LoginForm() {
     setLoading(true);
     const r = await login(email, pwd);
     setLoading(false);
-    if (r.ok) { toast.success("Signed in"); nav("/admin"); }
+    if (r.ok) { toast.success("Signed in"); nav(r.workspacePath || "/admin"); }
     else toast.error(r.error || "Login failed");
   };
 
   return (
     <form onSubmit={submit} className="w-full max-w-md bg-white rounded-2xl p-8 border border-border" data-testid="login-form">
       <Link to="/" className="text-xs text-muted-foreground">← Back to site</Link>
-      <h1 className="font-serif text-3xl mt-3">Staff sign in</h1>
-      <p className="text-sm text-muted-foreground mt-1">Access the TREL operating system.</p>
+      <h1 className="font-serif text-3xl mt-3">TRELPNG sign in</h1>
+      <p className="text-sm text-muted-foreground mt-1">One secure login for Staff, Property Advertisers and Referral Partners.</p>
       <div className="mt-6 space-y-3">
         <label className="block">
           <span className="text-xs uppercase tracking-widest text-muted-foreground">Email</span>

@@ -8,8 +8,9 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
+from core.account_policy import require_property_writer, require_staff
 from core.db import db, new_id, now_iso
 from core.security import get_current_user
 
@@ -316,7 +317,7 @@ ALLOWED_DOCUMENT_TYPES = {
 @router.post("/documents/upload")
 async def document_upload(
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_property_writer),
 ):
     """Upload a Property authority/title document for authenticated staff."""
     content_type = (file.content_type or "").lower().strip()
@@ -351,6 +352,66 @@ async def document_upload(
         "name": file.filename,
         "content_type": content_type,
     }
+
+
+GOVERNMENT_ID_TYPES = {"PASSPORT", "DRIVER_LICENCE", "NID_CARD"}
+
+
+@router.post("/identity-documents/upload")
+async def identity_document_upload(
+    document_type: str = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Capture exactly one acceptable government-ID type for advertiser review."""
+    document_type = document_type.strip().upper()
+    if document_type not in GOVERNMENT_ID_TYPES:
+        raise HTTPException(400, "Government ID must be Passport, Driver Licence or NID Card")
+    content_type = (file.content_type or "").lower().strip()
+    if content_type not in ALLOWED_DOCUMENT_TYPES:
+        raise HTTPException(400, "Only PDF, JPG, PNG or WebP documents are allowed")
+    data = await file.read()
+    if not data or len(data) < 100:
+        raise HTTPException(400, "Uploaded document is empty")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "Document exceeds 10 MB limit")
+    file_id = new_id()
+    extension = ALLOWED_DOCUMENT_TYPES[content_type]
+    result = _put_object(f"{APP_NAME}/uploads/identity-documents/{file_id}.{extension}", data, content_type)
+    record = {
+        "id": file_id, "user_id": user["id"], "document_type": document_type,
+        "url": result["url"], "storage_path": result["path"],
+        "original_filename": file.filename, "content_type": content_type,
+        "status": "PENDING_REVIEW", "created_at": now_iso(),
+    }
+    await db.identity_documents.insert_one(record)
+    record.pop("_id", None)
+    return record
+
+
+@router.get("/identity-documents/mine")
+async def my_identity_documents(user: dict = Depends(get_current_user)):
+    return await db.identity_documents.find(
+        {"user_id": user["id"]}, {"_id": 0, "storage_path": 0}
+    ).sort("created_at", -1).to_list(20)
+
+
+@router.put("/identity-documents/{document_id}/status")
+async def review_identity_document(
+    document_id: str,
+    status: str,
+    user: dict = Depends(require_staff),
+):
+    status = status.strip().upper()
+    if status not in {"VERIFIED", "REJECTED"}:
+        raise HTTPException(400, "Status must be VERIFIED or REJECTED")
+    result = await db.identity_documents.update_one(
+        {"id": document_id},
+        {"$set": {"status": status, "reviewed_by": user["id"], "reviewed_at": now_iso()}},
+    )
+    if not result.matched_count:
+        raise HTTPException(404, "Identity document not found")
+    return {"ok": True, "status": status}
 
 
 @router.get("/files/{file_id}")

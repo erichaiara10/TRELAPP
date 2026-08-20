@@ -48,7 +48,11 @@ async def run() -> None:
         "total_area_ha": 0.05,
         "features": ["P3 smoke tested"],
         "images": [],
-        "documents": [],
+        "documents": [{
+            "document_type": "TITLE_DOCUMENT",
+            "url": f"https://example.test/{marker}.pdf",
+            "status": "UPLOADED",
+        }],
         "status": "active",
         "featured": False,
         "verified": False,
@@ -75,6 +79,7 @@ async def run() -> None:
         "property_parcels": {"property_id": property_id},
         "property_attributes": {"property_id": property_id},
         "property_parties": {"property_id": property_id},
+        "property_documents": {"property_id": property_id},
         "listings": {"id": listing_id, "property_id": property_id},
         "listing_prices": {"listing_id": listing_id},
         "listing_status_history": {"listing_id": listing_id},
@@ -85,13 +90,26 @@ async def run() -> None:
         if not await db[collection].find_one(query, {"_id": 0, "id": 1}):
             raise RuntimeError(f"Missing relationship record: {collection}")
 
+    same_owner = await service.duplicate_check(payload)
+    if not same_owner or same_owner[0].get("confidence") != 100:
+        raise RuntimeError("Approved owner + parcel duplicate identity was not detected")
+    different_owner = await service.duplicate_check({**payload, "owner_name": f"Different Owner {marker}"})
+    if different_owner:
+        raise RuntimeError("A different owner incorrectly triggered the complete duplicate identity")
+
     updated = await service.update(
         property_id,
-        {**payload, "price": 110000, "description": "P3 update verified"},
+        {**payload, "price": 110000, "description": "P3 update verified",
+         "status": "draft", "authority_status": "REJECTED", "documents": []},
         user,
     )
     if not updated or updated["price"] != 110000:
         raise RuntimeError("Integrated Property update did not persist")
+    authority = await db.advertiser_authorities.find_one({"property_id": property_id}, {"_id": 0})
+    if not authority or authority.get("status") != "REJECTED":
+        raise RuntimeError("Advertiser authority was not synchronized on update")
+    if await db.property_documents.count_documents({"property_id": property_id}):
+        raise RuntimeError("Clearing all supporting documents did not remove their links")
 
     if not await service.delete(property_id, user):
         raise RuntimeError("Integrated Property soft-delete failed")
@@ -105,6 +123,9 @@ async def run() -> None:
     print({
         "p3_smoke_passed": True,
         "property_graph_relationships": len(expected),
+        "owner_duplicate_rule_verified": True,
+        "authority_sync_verified": True,
+        "document_clear_verified": True,
         "create_verified": True,
         "update_verified": True,
         "read_verified": True,
