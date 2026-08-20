@@ -1,6 +1,9 @@
 name: Temporary P2 Property Migration
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - codex/p2-integrated-property-migration
