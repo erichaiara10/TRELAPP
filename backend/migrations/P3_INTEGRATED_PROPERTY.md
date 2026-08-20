@@ -14,8 +14,8 @@ untouched and available as a rollback path.
    soft-delete across the integrated graph in a MongoDB transaction.
 3. **Add Property screen integration** — stable location/type IDs, owner and
    authority capture, supporting-document upload, and duplicate confirmation.
-4. **Controlled activation** — `TREL_PROPERTY_STORAGE_MODE=integrated` activates
-   the new repository path. The safe default remains `legacy`; integrated-mode
+4. **Controlled activation** — `TREL_PROPERTY_STORAGE_MODE=integrated` selects
+   the final repository path and is now the default; integrated-mode
    startup skips legacy Property migration and demo-property seeding.
 5. **Verification and rollback** — unit tests, frontend production build, Atlas
    schema dry-run/apply/verify, and a non-production relationship smoke test.
@@ -34,14 +34,13 @@ untouched and available as a rollback path.
 
 ## Activation
 
-Set this only in an approved environment:
+The final integrated path is the application default. Set this explicitly in deployment configuration for clarity:
 
 ```text
 TREL_PROPERTY_STORAGE_MODE=integrated
 ```
 
-Do not change the production value until the P3 schema verification and smoke test
-pass and a deployment cutover is separately approved.
+Use `legacy` only as the documented rollback switch.
 
 ## Database migration
 

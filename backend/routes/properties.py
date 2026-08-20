@@ -1,6 +1,7 @@
 """Properties CRUD backed by the controlled integrated Property gateway."""
 from fastapi import APIRouter, Depends, HTTPException
 
+from core.account_policy import require_property_writer
 from core.db import db, now_iso
 from core.integrated_property_service import DuplicatePropertyError
 from core.property_repository import PropertyRepository
@@ -9,6 +10,11 @@ from models import Property, PropertyCreate, PropertyFilters
 
 router = APIRouter()
 repository = PropertyRepository(db)
+
+LISTING_STATUSES = {"draft", "active", "under_offer", "sold", "leased", "withdrawn"}
+OWNER_RELATIONSHIPS = {"OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"}
+AUTHORITY_STATUSES = {"PENDING", "VERIFIED", "REJECTED", "EXPIRED"}
+TENURE_TYPES = {None, "", "STATE_LEASE", "FREEHOLD", "CUSTOMARY", "OTHER"}
 
 
 def _q_match(field, value):
@@ -59,7 +65,7 @@ def build_property_query(filters: dict) -> dict:
     return query
 
 
-async def enforce_scheme(payload: dict) -> dict:
+async def enforce_scheme(payload: dict, enforce_publication: bool = True) -> dict:
     for key, label in [
         ("title", "Title"),
         ("listing_type", "Listing Type"),
@@ -72,6 +78,20 @@ async def enforce_scheme(payload: dict) -> dict:
             raise HTTPException(400, f"{label} is required")
     if payload["listing_type"] not in ("sale", "rent"):
         raise HTTPException(400, "Listing Type must be 'sale' or 'rent'")
+    if payload.get("currency", "PGK") != "PGK":
+        raise HTTPException(400, "Currency must be PGK")
+    if payload.get("status") not in LISTING_STATUSES:
+        raise HTTPException(400, "Invalid Property/Listing Status")
+    if payload.get("owner_relationship", "OWNER") not in OWNER_RELATIONSHIPS:
+        raise HTTPException(400, "Invalid relationship to Property")
+    if payload.get("authority_status", "PENDING") not in AUTHORITY_STATUSES:
+        raise HTTPException(400, "Invalid Authority Verification Status")
+    if payload.get("tenure_type") not in TENURE_TYPES:
+        raise HTTPException(400, "Invalid Tenure Type")
+    if payload["listing_type"] == "sale" and payload.get("status") == "leased":
+        raise HTTPException(400, "A sale listing cannot have Leased status")
+    if payload["listing_type"] == "rent" and payload.get("status") == "sold":
+        raise HTTPException(400, "A rental listing cannot have Sold status")
     if float(payload.get("price") or 0) <= 0:
         raise HTTPException(400, "Price must be greater than zero")
 
@@ -110,6 +130,12 @@ async def enforce_scheme(payload: dict) -> dict:
         raise HTTPException(400, "Total Area (hectares) is required for sale listings")
     if repository.storage_mode == "integrated" and not str(payload.get("owner_name") or "").strip():
         raise HTTPException(400, "Owner name is required")
+    if enforce_publication and payload.get("status") in {"active", "under_offer"} and payload.get("authority_status") != "VERIFIED":
+        raise HTTPException(400, "Authority must be verified before a listing can be active")
+    document_types = {item.get("document_type") for item in payload.get("documents") or []}
+    if payload.get("owner_relationship") in {"AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"} \
+            and "AUTHORITY_LETTER" not in document_types:
+        raise HTTPException(400, "An Authority Letter is required for an authorised agent or representative")
     return payload
 
 
@@ -133,9 +159,9 @@ async def list_properties(filters: PropertyFilters = Depends()):
 @router.post("/properties/duplicate-check")
 async def check_property_duplicates(
     payload: PropertyCreate,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_property_writer),
 ):
-    data = await enforce_scheme(payload.model_dump())
+    data = await enforce_scheme(payload.model_dump(), enforce_publication=False)
     candidates = await repository.duplicate_check(data)
     return {"has_possible_duplicates": bool(candidates), "candidates": candidates}
 
@@ -151,7 +177,7 @@ async def get_property(pid: str):
 @router.post("/properties")
 async def create_property(
     payload: PropertyCreate,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_property_writer),
 ):
     data = await enforce_scheme(payload.model_dump())
     document = Property(**data).model_dump()
@@ -167,7 +193,7 @@ async def create_property(
 async def update_property(
     pid: str,
     payload: dict,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_property_writer),
 ):
     payload["updated_at"] = now_iso()
     payload.pop("id", None)
@@ -191,7 +217,7 @@ async def update_property(
 @router.delete("/properties/{pid}")
 async def delete_property(
     pid: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_property_writer),
 ):
     if not await repository.delete(pid, user):
         raise HTTPException(404, "Property not found")

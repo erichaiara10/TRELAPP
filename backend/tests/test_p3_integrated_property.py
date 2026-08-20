@@ -5,6 +5,13 @@ from core.integrated_property_service import (
     norm,
 )
 from migrations.p3_integrated_property import INDEXES, VALIDATORS
+from models import PropertyCreate, PropertyReferralCreate
+from pydantic import ValidationError
+from core.account_policy import account_category, workspace_path
+from core.account_policy import require_property_writer
+from core.property_repository import PropertyRepository
+from fastapi import HTTPException
+import asyncio
 
 
 PAYLOAD = {
@@ -88,3 +95,60 @@ def test_normalization_and_identifier_schemes_are_deterministic():
         "full_portion_number": "2145C",
         "tenure_type": "CUSTOMARY",
     }) == "CUSTOMARY"
+
+
+def test_property_dictionary_enums_are_enforced_at_api_boundary():
+    for key, value in (
+        ("currency", "USD"),
+        ("status", "published"),
+        ("tenure_type", "LEASE"),
+        ("owner_relationship", "BROKER"),
+        ("authority_status", "APPROVED"),
+    ):
+        try:
+            PropertyCreate(**{**PAYLOAD, key: value})
+        except ValidationError:
+            continue
+        raise AssertionError(f"Invalid {key} was accepted")
+
+
+def test_referral_partner_payload_requires_direct_owner_source():
+    valid = PropertyReferralCreate(
+        owner_name="Direct Owner",
+        source_relationship="OWNER",
+        direct_from_owner=True,
+    )
+    assert valid.direct_from_owner is True
+    for payload in (
+        {"owner_name": "Owner", "source_relationship": "AUTHORISED_AGENT", "direct_from_owner": True},
+        {"owner_name": "Owner", "source_relationship": "OWNER", "direct_from_owner": False},
+    ):
+        try:
+            PropertyReferralCreate(**payload)
+        except ValidationError:
+            continue
+        raise AssertionError("Agent-sourced or indirect referral was accepted")
+
+
+def test_common_login_routes_each_account_category_to_its_workspace():
+    assert account_category({"role": "sales_agent"}) == "STAFF"
+    assert workspace_path({"account_category": "STAFF"}) == "/admin"
+    assert workspace_path({"account_category": "PROPERTY_ADVERTISER"}) == "/advertiser"
+    assert workspace_path({"account_category": "REFERRAL_PARTNER"}) == "/referral-partner"
+
+
+def test_integrated_property_storage_is_the_final_default(monkeypatch):
+    monkeypatch.delenv("TREL_PROPERTY_STORAGE_MODE", raising=False)
+    assert PropertyRepository(None).storage_mode == "integrated"
+
+
+def test_referral_partner_cannot_bypass_referral_workflow_to_write_property():
+    try:
+        asyncio.run(require_property_writer({
+            "id": "partner-1", "status": "ACTIVE",
+            "account_category": "REFERRAL_PARTNER",
+        }))
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        return
+    raise AssertionError("Referral Partner was allowed to write a Property directly")

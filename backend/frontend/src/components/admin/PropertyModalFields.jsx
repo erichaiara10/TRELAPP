@@ -43,6 +43,28 @@ export function serializeProperty(modal) {
   return out;
 }
 
+export function validateProperty(modal, isPortion) {
+  const required = [
+    [modal.title, "Title"], [modal.property_type, "Property type"],
+    [modal.province_id, "Province"], [modal.city_id, "City"],
+    [modal.suburb_id, "Suburb"], [modal.owner_name, "Owner name"],
+  ];
+  for (const [value, label] of required) if (!String(value || "").trim()) return `${label} is required`;
+  if (!(Number(modal.price) > 0)) return "Price must be greater than zero";
+  if (modal.listing_type === "sale" && !(Number(modal.total_area_ha) > 0)) return "Total area is required for sale listings";
+  if (isPortion && !String(modal.full_portion_number || "").trim()) return "Portion number is required";
+  if (isPortion && !String(modal.district || modal.district_id || "").trim()) return "District is required";
+  if (!isPortion && modal.property_type) {
+    if (!String(modal.allotment_number || "").trim()) return "Lot number is required";
+    if (!String(modal.section_number || "").trim()) return "Section number is required";
+    if (!String(modal.street_name || "").trim()) return "Street name is required";
+  }
+  if (["active", "under_offer"].includes(modal.status) && modal.authority_status !== "VERIFIED") return "Verify authority before publishing this listing";
+  if (["AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"].includes(modal.owner_relationship)
+      && !(modal.documents || []).some((item) => item.document_type === "AUTHORITY_LETTER")) return "Upload an Authority Letter";
+  return null;
+}
+
 const LABEL_CLS = "text-xs uppercase tracking-widest text-muted-foreground";
 const FIELD_CLS = "mt-1 w-full border border-border rounded px-3 py-2 text-sm bg-white";
 
@@ -57,6 +79,7 @@ function TextField({ label, testId, value, onChange, digitsOnly = false, require
           ? (e) => onChange({ ...e, target: { ...e.target, value: sanitizeDigits(e.target.value, { notify: true }) } })
           : onChange}
         data-testid={testId}
+        required={required}
         className={FIELD_CLS}
       />
     </label>
@@ -144,7 +167,7 @@ export default function PropertyModalFields({ modal, setModal }) {
             />
           </div>
 
-          <TextField label="District (optional)" testId="property-district" value={modal.district} onChange={set("district")} placeholder="e.g. National Capital District" />
+          <TextField label={isPortion ? "District" : "District (optional)"} testId="property-district" value={modal.district} onChange={set("district")} placeholder="e.g. National Capital District" required={isPortion} />
           <TextField label="Local area (optional)" testId="property-local-area" value={modal.local_area} onChange={set("local_area")} placeholder="e.g. Waigani" />
           <TextField label="Title reference (optional)" testId="property-title-reference" value={modal.title_reference} onChange={set("title_reference")} placeholder="e.g. Volume/Folio or title number" />
           <SelectField
@@ -256,7 +279,7 @@ export default function PropertyModalFields({ modal, setModal }) {
       {/* ---- 6. Status & Visibility ---- */}
       <FormSection num={6} icon={ShieldCheck} title="Status & Visibility" hint="Publishing state and homepage placement" testId="prop-section-status">
         <div className="grid md:grid-cols-2 gap-3 text-sm items-end">
-          <SelectField label="Status" testId="property-status" value={modal.status} onChange={set("status")} options={STATUSES} />
+          <SelectField label="Status" testId="property-status" value={modal.status} onChange={set("status")} options={STATUSES.filter((status) => !(modal.listing_type === "sale" && status === "leased") && !(modal.listing_type === "rent" && status === "sold"))} />
           <div className="flex flex-wrap gap-4 pb-2">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={!!modal.featured} onChange={setBool("featured")} data-testid="property-featured" /> Featured

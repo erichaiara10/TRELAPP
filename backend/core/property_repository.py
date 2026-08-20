@@ -1,7 +1,7 @@
 """Property persistence gateway for controlled integrated rollout.
 
-Set TREL_PROPERTY_STORAGE_MODE=integrated in an approved environment.
-The safe fallback remains legacy.
+Integrated is the final-system default. Set TREL_PROPERTY_STORAGE_MODE=legacy
+only for an explicit rollback.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class PropertyRepository:
 
     @property
     def storage_mode(self) -> str:
-        value = os.getenv("TREL_PROPERTY_STORAGE_MODE", MODE_LEGACY).strip().lower()
+        value = os.getenv("TREL_PROPERTY_STORAGE_MODE", MODE_INTEGRATED).strip().lower()
         return value if value in {MODE_INTEGRATED, MODE_LEGACY} else MODE_LEGACY
 
     async def list(self, query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:

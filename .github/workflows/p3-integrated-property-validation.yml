@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 20
     env:
       TREL_PROPERTY_STORAGE_MODE: integrated
+      JWT_SECRET: p3-ci-validation-only
     defaults:
       run:
         working-directory: backend
@@ -39,11 +40,13 @@ jobs:
         run: |
           python -m py_compile \
             migrations/p3_integrated_property.py \
+            core/account_policy.py \
             core/db.py \
             core/integrated_property_service.py \
             core/property_repository.py \
             routes/properties.py \
             routes/files.py \
+            routes/referrals.py \
             models.py \
             seed.py
 
@@ -65,6 +68,14 @@ jobs:
         env:
           CI: "false"
         run: yarn build
+
+      - name: Install browser for P3 end-to-end checks
+        working-directory: backend/frontend
+        run: yarn playwright install --with-deps chromium
+
+      - name: Run P3 screen and navigation end-to-end checks
+        working-directory: backend/frontend
+        run: yarn test:e2e
 
   atlas-dry-run:
     name: P3 Atlas schema dry-run

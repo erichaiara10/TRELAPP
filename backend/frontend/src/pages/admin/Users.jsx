@@ -5,11 +5,18 @@ import { useAuth } from "@/lib/auth";
 import { Trash2, Edit2, KeyRound, X, Plus } from "lucide-react";
 
 const ROLES = ["system_admin","managing_director","sales_manager","sales_agent","leasing_agent","property_manager","marketing_officer"];
+const CATEGORY_ROLES = {
+  STAFF: ROLES,
+  PROPERTY_ADVERTISER: ["property_advertiser"],
+  REFERRAL_PARTNER: ["referral_partner"],
+};
 
 function EditUserModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "" });
+  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "", account_category: user.account_category || "STAFF", status: user.status || "ACTIVE", advertiser_relationship_type: user.advertiser_relationship_type || "OWNER" });
   const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
+  const [profileStatus, setProfileStatus] = useState(user.advertiser_profile_status || "PENDING");
+  const [identityDocuments, setIdentityDocuments] = useState(user.identity_documents || []);
 
   const save = async () => {
     setBusy(true);
@@ -31,6 +38,18 @@ function EditUserModal({ user, onClose, onSaved }) {
     finally { setBusy(false); }
   };
 
+  const reviewProfile = async (status) => {
+    setBusy(true);
+    try { await api.put(`/users/${user.id}/advertiser-profile/status`, null, { params:{ status } }); setProfileStatus(status); toast.success(`Advertiser profile ${status.toLowerCase()}`); }
+    catch (e) { toast.error(formatError(e)); } finally { setBusy(false); }
+  };
+
+  const reviewIdentity = async (id, status) => {
+    setBusy(true);
+    try { await api.put(`/identity-documents/${id}/status`, null, { params:{ status } }); setIdentityDocuments((items)=>items.map((item)=>item.id===id ? {...item,status} : item)); toast.success(`Government ID ${status.toLowerCase()}`); }
+    catch (e) { toast.error(formatError(e)); } finally { setBusy(false); }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={onClose}>
       <div className="bg-white rounded-lg w-full max-w-lg" onClick={(e) => e.stopPropagation()} data-testid="user-edit-modal">
@@ -45,8 +64,22 @@ function EditUserModal({ user, onClose, onSaved }) {
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="edit-user-email" className="mt-1 w-full border border-border rounded px-2 py-1.5" /></label>
           <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Role</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} data-testid="edit-user-role" className="mt-1 w-full border border-border rounded px-2 py-1.5">
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              {CATEGORY_ROLES[form.account_category].map((r) => <option key={r} value={r}>{r}</option>)}
             </select></label>
+          <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Account category</span>
+            <select value={form.account_category} onChange={(e) => { const account_category=e.target.value; setForm({ ...form, account_category, role:CATEGORY_ROLES[account_category][0] }); }} className="mt-1 w-full border border-border rounded px-2 py-1.5">
+              <option value="STAFF">Staff Account</option><option value="PROPERTY_ADVERTISER">Property Advertiser Account</option><option value="REFERRAL_PARTNER">Referral Partner Account</option>
+            </select></label>
+          <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Status</span>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status:e.target.value })} className="mt-1 w-full border border-border rounded px-2 py-1.5"><option>ACTIVE</option><option>PENDING</option><option>SUSPENDED</option><option>REJECTED</option></select></label>
+          {form.account_category === "PROPERTY_ADVERTISER" && <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Relationship to property</span>
+            <select value={form.advertiser_relationship_type} onChange={(e)=>setForm({...form,advertiser_relationship_type:e.target.value})} className="mt-1 w-full border border-border rounded px-2 py-1.5"><option value="OWNER">Owner</option><option value="JOINT_OWNER">Joint Owner</option><option value="AUTHORISED_AGENT">Authorised Agent</option><option value="AUTHORISED_REPRESENTATIVE">Authorised Representative</option></select></label>}
+          {form.account_category === "PROPERTY_ADVERTISER" && <div className="border rounded p-3 space-y-2">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Advertiser verification — {profileStatus}</div>
+            <div className="flex gap-2"><button onClick={()=>reviewProfile("VERIFIED")} disabled={busy} className="px-2 py-1 rounded bg-pine-600 text-white">Verify profile</button><button onClick={()=>reviewProfile("REJECTED")} disabled={busy} className="px-2 py-1 rounded border text-destructive">Reject</button></div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2">Government ID</div>
+            {identityDocuments.length ? identityDocuments.map((doc)=><div key={doc.id} className="flex justify-between gap-2 items-center text-xs border rounded p-2"><a href={doc.url} target="_blank" rel="noreferrer" className="text-pine-700">{doc.document_type}</a><span>{doc.status}</span><span className="flex gap-1"><button onClick={()=>reviewIdentity(doc.id,"VERIFIED")} disabled={busy} className="text-pine-700">Verify</button><button onClick={()=>reviewIdentity(doc.id,"REJECTED")} disabled={busy} className="text-destructive">Reject</button></span></div>) : <div className="text-xs text-muted-foreground">No government ID submitted.</div>}
+          </div>}
           <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Phone</span>
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="edit-user-phone" className="mt-1 w-full border border-border rounded px-2 py-1.5" /></label>
           <div className="pt-3 mt-3 border-t border-border">
@@ -70,14 +103,14 @@ function EditUserModal({ user, onClose, onSaved }) {
 export default function Users() {
   const { user: me } = useAuth();
   const [items, setItems] = useState([]);
-  const [n, setN] = useState({ email: "", password: "", name: "", role: "sales_agent" });
+  const [n, setN] = useState({ email: "", password: "", name: "", role: "sales_agent", account_category: "STAFF", status: "ACTIVE", advertiser_relationship_type: null });
   const [editing, setEditing] = useState(null);
   const load = useCallback(() => api.get("/users").then((r) => setItems(r.data)), []);
   useEffect(() => { load(); }, [load]);
 
   const create = async (e) => {
     e.preventDefault();
-    try { await api.post("/users", n); toast.success("User created"); setN({ email:"", password:"", name:"", role:"sales_agent" }); load(); }
+    try { await api.post("/users", n); toast.success("User created"); setN({ email:"", password:"", name:"", role:"sales_agent", account_category:"STAFF", status:"ACTIVE", advertiser_relationship_type:null }); load(); }
     catch (err) { toast.error(formatError(err)); }
   };
   const del = async (id) => { if (!window.confirm("Delete this user?")) return; try { await api.delete(`/users/${id}`); load(); } catch(e){toast.error(formatError(e));} };
@@ -87,27 +120,32 @@ export default function Users() {
     <div>
       <h1 className="text-2xl font-semibold">User management</h1>
       {isAdmin && (
-        <form onSubmit={create} className="mt-4 bg-white border border-border rounded-lg p-4 grid md:grid-cols-5 gap-2" data-testid="user-form">
+        <form onSubmit={create} className="mt-4 bg-white border border-border rounded-lg p-4 grid md:grid-cols-7 gap-2" data-testid="user-form">
           <input required placeholder="Name" value={n.name} onChange={(e) => setN({ ...n, name: e.target.value })} data-testid="user-name" className="border border-border rounded px-3 py-2" />
           <input required type="email" placeholder="Email" value={n.email} onChange={(e) => setN({ ...n, email: e.target.value })} data-testid="user-email" className="border border-border rounded px-3 py-2" />
           <input required type="password" placeholder="Password" value={n.password} onChange={(e) => setN({ ...n, password: e.target.value })} data-testid="user-pwd" className="border border-border rounded px-3 py-2" />
+          <select value={n.account_category} onChange={(e) => { const account_category=e.target.value; setN({ ...n, account_category, role:CATEGORY_ROLES[account_category][0], advertiser_relationship_type:account_category === "PROPERTY_ADVERTISER" ? "OWNER" : null }); }} className="border border-border rounded px-3 py-2"><option value="STAFF">Staff</option><option value="PROPERTY_ADVERTISER">Property Advertiser</option><option value="REFERRAL_PARTNER">Referral Partner</option></select>
           <select value={n.role} onChange={(e) => setN({ ...n, role: e.target.value })} data-testid="user-role" className="border border-border rounded px-3 py-2">
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            {CATEGORY_ROLES[n.account_category].map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+          <select value={n.status} onChange={(e) => setN({ ...n, status:e.target.value })} className="border border-border rounded px-3 py-2"><option>ACTIVE</option><option>PENDING</option><option>SUSPENDED</option></select>
+          {n.account_category === "PROPERTY_ADVERTISER" && <select value={n.advertiser_relationship_type || "OWNER"} onChange={(e)=>setN({...n,advertiser_relationship_type:e.target.value})} className="border border-border rounded px-3 py-2"><option value="OWNER">Owner</option><option value="JOINT_OWNER">Joint Owner</option><option value="AUTHORISED_AGENT">Authorised Agent</option><option value="AUTHORISED_REPRESENTATIVE">Authorised Representative</option></select>}
           <button data-testid="user-add" className="rounded-md bg-[#0F172A] text-white flex items-center justify-center gap-1"><Plus className="w-4 h-4" /> Add user</button>
         </form>
       )}
       <div className="mt-4 bg-white rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-sand-50 text-left text-xs uppercase text-muted-foreground">
-            <tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Role</th><th className="p-3">Phone</th><th className="p-3">Created</th><th className="p-3 text-right">Actions</th></tr>
+            <tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Category</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Phone</th><th className="p-3">Created</th><th className="p-3 text-right">Actions</th></tr>
           </thead>
           <tbody>
             {items.map((u) => (
               <tr key={u.id} className="border-t border-border" data-testid={`user-row-${u.id}`}>
                 <td className="p-3 font-medium">{u.name}</td>
                 <td className="p-3">{u.email}</td>
+                <td className="p-3 text-xs">{u.account_category || "STAFF"}</td>
                 <td className="p-3"><span className="px-2 py-0.5 rounded-full text-xs bg-sand-100">{u.role}</span></td>
+                <td className="p-3 text-xs">{u.status || "ACTIVE"}</td>
                 <td className="p-3 text-xs">{u.phone || "—"}</td>
                 <td className="p-3 text-xs text-muted-foreground">{(u.created_at||"").slice(0,10)}</td>
                 <td className="p-3 text-right whitespace-nowrap">

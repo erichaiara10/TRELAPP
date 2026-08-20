@@ -31,11 +31,15 @@ import Users from "@/pages/admin/Users";
 import Content from "@/pages/admin/Content";
 import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
+import { AdvertiserWorkspace, ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 
-function Protected({ children }) {
+function Protected({ children, categories }) {
   const { user } = useAuth();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/admin/login" replace />;
+  if (categories && !categories.includes(user.account_category || "STAFF")) {
+    return <Navigate to={user.workspace_path || "/"} replace />;
+  }
   return children;
 }
 
@@ -60,7 +64,7 @@ export default function App() {
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
-          <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
+          <Route path="/admin" element={<Protected categories={["STAFF"]}><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="properties" element={<Properties />} />
             <Route path="customers" element={<Customers />} />
@@ -75,6 +79,8 @@ export default function App() {
             <Route path="content" element={<Content />} />
             <Route path="reports" element={<Reports />} />
           </Route>
+          <Route path="/advertiser" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
+          <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
