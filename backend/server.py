@@ -51,6 +51,13 @@ async def root():
 async def on_startup():
     files.init_storage()
     await run_startup()
+    try:
+        hello = await client.admin.command("hello")
+        replica_set = hello.get("setName")
+        mode = "REPLICA_SET" if replica_set else ("SHARDED" if hello.get("msg") == "isdbgrid" else "STANDALONE")
+        logger.info("MongoDB topology: %s (transactions %s)", mode, "enabled" if mode != "STANDALONE" else "disabled — using non-transactional fallback")
+    except Exception as exc:
+        logger.warning("Unable to detect MongoDB topology: %s", exc)
 
 
 @app.on_event("shutdown")

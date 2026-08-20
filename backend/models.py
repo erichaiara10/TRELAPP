@@ -1,7 +1,7 @@
 """All Pydantic domain models — single-file for simplicity."""
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from core.db import new_id, now_iso
 
@@ -124,6 +124,13 @@ class Property(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
+    @field_validator("tenure_type", mode="before")
+    @classmethod
+    def _empty_tenure_to_none(cls, value):
+        if value == "":
+            return None
+        return value
+
 
 class PropertyCreate(BaseModel):
     title: str
@@ -172,6 +179,13 @@ class PropertyCreate(BaseModel):
     authority_status: Literal["PENDING", "VERIFIED", "REJECTED", "EXPIRED"] = "PENDING"
     documents: List[PropertyDocumentRef] = Field(default_factory=list)
     duplicate_override: bool = False
+
+    @field_validator("tenure_type", mode="before")
+    @classmethod
+    def _empty_tenure_to_none(cls, value):
+        if value == "":
+            return None
+        return value
 
 
 class PropertyReferralCreate(BaseModel):

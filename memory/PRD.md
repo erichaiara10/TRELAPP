@@ -305,15 +305,32 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Iteration 19 (Feb 21, 2026): Full regression on Unified AI Price Analysis — 6/6 new AI tests + 100% frontend flow coverage (Sell/Buy/Rent/Detail/Admin/Leads/Maps). No issues.
 
 ## Backlog (deferred to V2)
+- P1 — Backfill 9 legacy `properties` docs into P3 integrated graph (blocked by JSON-schema validator requiring `property_type_id` + `created_by`). Once done, Dashboard KPI and Admin/Public property lists will agree.
 - P1 — Real email provider (Resend/SendGrid) for confirmations
 - P1 — WhatsApp Business API integration (currently `wa.me` deep links)
 - P1 — Communication history — external channels (auto-log outbound email/SMS/WhatsApp once providers wired)
+- P1 — R2 storage env vars (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`) required for file/document uploads (currently blocks D3 upload flows in preview).
 - P2 — Advanced reporting (revenue, agent performance, conversion funnel)
 - P2 — Data export (CSV/Excel)
 - P2 — Audit log UI (records currently written to Mongo but no UI yet)
 - P2 — SEO metadata per property, search-friendly URLs
 - P2 — Mobile app, tenant/owner portals, online rent payment (explicitly out-of-scope in V1)
-- P2 — Test hygiene: update `/app/backend/tests/backend_test.py` stale admin creds (`admin@pngrealty.pg` → `admin@trel.com.pg`); make `test_lead_convert.py` / `test_locations.py` use `os.environ.get(...)` at import time; add `total_area_ha` to sale-property fixtures in `test_lead_convert.py`, `test_iter24_lock_and_legal.py`, `test_map_coords.py`
+- P2 — Login brute-force lockout (429/423 after 5 failures) + CORS explicit origins with `allow_credentials=True` for httpOnly cookie auth.
+- P2 — Compensating cleanup in `IntegratedPropertyService._txn()` non-transactional fallback (track inserted ids and rollback on partial failure).
+- P2 — Home Featured strip: distinguish "loading" vs "empty" states (currently shows `Loading properties…` forever when list is empty). Add empty-state banner to Admin Properties table.
+- P2 — Fix `<span>` inside `<option>` DOM nesting warning on `/admin/matching`.
+- P2 — Move Property Type management chips out of the "Add Property" modal (moving into Locations-style settings screen).
+- P2 — Namespace P3 `master_properties` writes vs the market pipeline's pre-existing 493 docs (schema collision).
+- P2 — Test hygiene: refactor 24 legacy pytest failures (test_lead_convert, test_locations, test_map_coords, test_iter24) to use the P3 canonical payload.
+
+## What's Been Implemented (Aug 20, 2026 — iter-29)
+### P3 Integration Hardening
+- **IntegratedPropertyService._txn() topology probe** — detects standalone/replica-set/sharded MongoDB via `hello` command; falls back to sequential non-transactional writes on standalone. Result logged at startup as `MongoDB topology: STANDALONE|REPLICA_SET|SHARDED`.
+- **PropertyCreate + Property `tenure_type` validator** — `@field_validator(mode='before')` coerces `""` → `None` so the admin Add Property modal's "Not specified" option no longer throws 422.
+- **Staff credentials reset** — director/sales/leasing/marketing @trel.com.pg all logging in with `Password@123` again.
+- **Frontend location** — React source moved to `/app/backend/frontend`; supervisor still serves via a symlink from `/app/frontend`.
+- **Playwright E2E suite** — 5/5 tests passing (`yarn test:e2e` with `PLAYWRIGHT_BASE_URL=<preview>`).
+- **Screen matrix (iter-29)** — 11/11 regression suite + 50/54 iter-28 replay (remaining 4 = 2 known backlog + 1 test artifact + legacy-count mismatch).
 
 ## Next Actions
 1. Provide branded logo/photography if not using placeholders

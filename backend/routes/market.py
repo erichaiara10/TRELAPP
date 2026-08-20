@@ -78,6 +78,7 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
         await db.collection_runs.update_one({"id": run["id"]}, {"$set": run})
         raise HTTPException(502, "Collector run failed")
     await db.collection_runs.update_one({"id": run["id"]}, {"$set": run})
+    run.pop("_id", None)
     return run
 
 

@@ -1,0 +1,48 @@
+{
+  "summary": "Iter-29 re-verification of the 3 iter-28 critical blockers plus the P3 Screen & Workflow matrix against the preview URL. NEW suite /app/backend/tests/test_iter29_regressions.py = 11/11 PASS. Re-ran /app/backend/tests/test_iter28_screen_matrix.py = 50/54 PASS (was 38/54); the only remaining failures are the 2 known backlog items (CORS credentials, brute-force lockout), one test-data artefact (that suite creates the property as status=draft then asserts it in the default active list) and the legacy-count mismatch. ALL THREE CRITICAL BLOCKERS ARE FIXED: (1) tenure_type='' now coerces to null on POST /api/properties and /api/properties/duplicate-check (verified 200 + tenure_type=null in response); (2) POST /api/properties succeeds on standalone MongoDB via the topology probe / non-transactional fallback, returning id + integrated_listing_id + integrated_property_id; (3) read path works — a created active property is returned by default GET /api/properties, by GET /api/properties/{id}, by the public listing_type=sale query, and drafts are returned only with ?status=draft. Staff logins (director/sales/leasing/marketing) now all return 200 with the correct role. Duplicate detection returns 409 POSSIBLE_DUPLICATE_PROPERTY with candidates and duplicate_override:true creates; same parcel + different owner is correctly NOT a duplicate. Customary path: missing district -> 400 'District is required'; portion create with district succeeds. Admin UI: login works, all 13 sidebar routes render with no page errors, Add Property modal end-to-end (duplicate-check 200 -> POST /api/properties 200 -> modal closes -> row appears in table) works, Market Evidence renders KPI cards. All 9 public pages load with no JS errors and no failing API calls. Auth playbook checks pass: all password_hash values are $2b$ (60 chars), login sets HttpOnly+Secure access_token cookie. REMAINING HIGH ISSUE (carried over, not in this iteration's fix list): the 9 legacy docs in the `properties` collection were never backfilled into the listing graph (listings=0, property_parcels=0 after my cleanup), so the Admin Properties table, /buy, /rent and the home Featured strip show ZERO real properties while the Dashboard KPI still reads 'Active Properties 9' from the legacy collection.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/properties vs GET /api/reports/summary", "issue": "HIGH-priority data inconsistency (carried over from iter-28): reports/summary reports properties_active=9 from the legacy `properties` collection while GET /api/properties reads listings+master_properties which contain 0 legacy rows. Public /buy, /rent, home Featured and the Admin Properties table are therefore empty. Needs the P2/P3 backfill migration for the 9 legacy rows (or make reports/summary read the same source)."},
+      {"endpoint": "POST /api/auth/login", "issue": "Known backlog: no brute-force lockout (6 consecutive bad passwords all return 401, no 429/423)."},
+      {"endpoint": "CORS (all endpoints)", "issue": "Known backlog: allow_origins=['*'] and no Access-Control-Allow-Credentials, while login sets an httpOnly cookie — cookie auth cannot work cross-origin."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin Properties table / public browse", "issue": "No real properties render anywhere (only test-created ones) because the legacy 9 properties are not in the listing graph; Dashboard KPI simultaneously shows 'Active Properties 9' — user-visible contradiction.", "affected_selectors": ["/admin/properties table", "/buy", "/rent"]}
+    ],
+    "design_issues": [
+      {"screen": "/admin/matching", "issues": ["Known backlog: React hydration warning '<span> cannot be a child of <option>' logged on load (visual-editor instrumentation wrapping option children)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_regressions.py",
+    "/app/backend/tests/test_iter28_screen_matrix.py",
+    "/app/backend/tests/cleanup_iter29.py",
+    "/app/test_reports/pytest/iter29_regressions.xml",
+    "/app/test_reports/pytest/iter29_full.xml"
+  ],
+  "action_items": [
+    "Backfill the 9 legacy `properties` docs into master_properties/listings/property_parcels/property_addresses (or point reports/summary at the same read source) so the Admin table, /buy, /rent and the home Featured strip stop being empty while the Dashboard says 9 active.",
+    "Optional test-data fix in test_iter28_screen_matrix.py: TestPropertyWritePath creates the property with status='draft' then asserts it appears in the default (active-only) GET /api/properties — either create it as active/VERIFIED or query ?status=draft.",
+    "Backlog (unchanged): brute-force lockout, CORS explicit origins + allow_credentials, home 'Loading properties…' text."
+  ],
+  "critical_code_review_comments": [
+    "core/integrated_property_service.py::_txn() non-transactional fallback yields None with no compensating cleanup — if any write after master_properties/listings insert fails on standalone Mongo, orphan parcel/address/party docs are left behind. Wrap the fallback path in a try/except that deletes the documents created so far (track inserted ids) before re-raising.",
+    "_detect_transaction_support() caches the probe per service instance; if the deployment is later promoted to a replica set the process must restart to pick it up — acceptable, but log the detected mode once at startup for supportability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_regressions.py (new)",
+    "/app/backend/tests/cleanup_iter29.py (new)",
+    "/app/backend/tests/backend_test.py (fixed stale admin email admin@pngrealty.pg -> admin@trel.com.pg)"
+  ],
+  "success_rate": {"backend": "100% on iter-29 regression suite (11/11); 93% on iter-28 matrix (50/54, remaining = 2 known backlog + 1 test artefact + legacy count mismatch)", "frontend": "100% of verified flows (admin login, 13 sidebar routes, Add Property save, Market Evidence, 9 public pages)"},
+  "seed_data_creation": "Created and then hard-deleted all TEST_ITER29* properties (10 listings + parcels + addresses + masters removed via /app/backend/tests/cleanup_iter29.py). Also removed TEST_ITER28 leftovers. DB verified back to listings=0, properties=9. One public sell_form lead attempt was rejected by captcha so no lead data was added.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (works); director|sales|leasing|marketing@trel.com.pg / Password@123 (all work now)",
+  "context_for_next_testing_agent": "Public POST /api/public/leads and /api/public/inspections now require a captcha token ('Human verification required' 400) — legacy backend_test.py public-intake tests fail for that reason, not a regression (see test_captcha.py for the correct flow). Legacy suites test_map_coords / test_iter24 / test_iter27 fail because their property payloads predate P3 (province, owner_name, total_area_ha now required and status=active requires authority_status=VERIFIED). Full-suite baseline: 206 passed / 24 failed / 20 errors. Use payload from test_iter29_regressions.py::payload() as the canonical valid property body; remember to run cleanup_iter29.py after creating properties since DELETE only soft-withdraws them.",
+  "rca_of_the_issue": "iter-28 critical#1 fixed by @field_validator(mode='before') coercing ''->None on PropertyCreate/Property.tenure_type; critical#2 fixed by IntegratedPropertyService._detect_transaction_support() probing the `hello` command (setName / isdbgrid) and _txn() yielding no session on standalone mongod; critical#3 was a consequence of #2 and now resolves. The residual empty-listing symptom is a separate data-migration gap: the 9 pre-P3 rows still live only in the legacy `properties` collection."
+}

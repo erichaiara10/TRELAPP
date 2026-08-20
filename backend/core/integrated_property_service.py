@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+from pymongo.errors import OperationFailure
 
 from core.db import new_id, now_iso
 
@@ -33,6 +36,26 @@ class IntegratedPropertyService:
     def __init__(self, database, client):
         self.db = database
         self.client = client
+        self._supports_transactions: Optional[bool] = None
+
+    async def _detect_transaction_support(self) -> bool:
+        if self._supports_transactions is not None:
+            return self._supports_transactions
+        try:
+            info = await self.client.admin.command("hello")
+            self._supports_transactions = bool(info.get("setName") or info.get("msg") == "isdbgrid")
+        except Exception:
+            self._supports_transactions = False
+        return self._supports_transactions
+
+    @asynccontextmanager
+    async def _txn(self):
+        if await self._detect_transaction_support():
+            async with await self.client.start_session() as session:
+                async with session.start_transaction():
+                    yield session
+        else:
+            yield None
 
     async def _resolve_reference(
         self,
@@ -361,99 +384,97 @@ class IntegratedPropertyService:
         }
 
     async def create(self, payload: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
-        async with await self.client.start_session() as session:
-            async with session.start_transaction():
-                context = await self.resolve_context(payload, session)
-                candidates = await self.duplicate_check(payload, session=session)
-                if candidates and not payload.get("duplicate_override"):
-                    raise DuplicatePropertyError(candidates)
-                party = await self._party(payload, session)
-                graph = self.build_graph(payload, user, context, party)
-                for collection, document in graph.items():
-                    await self.db[collection].insert_one(document, session=session)
-                await self._replace_media_features_documents(
-                    graph["master_properties"]["id"], graph["listings"]["id"], payload, session
+        async with self._txn() as session:
+            context = await self.resolve_context(payload, session)
+            candidates = await self.duplicate_check(payload, session=session)
+            if candidates and not payload.get("duplicate_override"):
+                raise DuplicatePropertyError(candidates)
+            party = await self._party(payload, session)
+            graph = self.build_graph(payload, user, context, party)
+            for collection, document in graph.items():
+                await self.db[collection].insert_one(document, session=session)
+            await self._replace_media_features_documents(
+                graph["master_properties"]["id"], graph["listings"]["id"], payload, session
+            )
+            authority = {
+                "id": new_id(),
+                "property_id": graph["master_properties"]["id"],
+                "owner_party_id": party["id"],
+                "submitted_by_user_id": user["id"],
+                "authority_basis": payload.get("owner_relationship") or "OWNER",
+                "status": payload.get("authority_status") or "PENDING",
+                "created_at": now_iso(),
+            }
+            await self.db.advertiser_authorities.insert_one(authority, session=session)
+            await self.db.audit_events.insert_one({
+                "id": new_id(), "action": "PROPERTY_CREATED",
+                "subject_type": "master_property",
+                "subject_id": graph["master_properties"]["id"],
+                "actor_id": user["id"], "created_at": now_iso(),
+            }, session=session)
+            return await self._project(graph["listings"], session)
+
+    async def update(self, property_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        async with self._txn() as session:
+            master = await self.db.master_properties.find_one(
+                {"id": property_id}, {"_id": 0}, session=session
+            )
+            if not master:
+                return None
+            listing = await self.db.listings.find_one(
+                {"property_id": property_id, "responsible_channel_active": True},
+                {"_id": 0}, session=session
+            ) or await self.db.listings.find_one(
+                {"property_id": property_id}, {"_id": 0}, session=session
+            )
+            context = await self.resolve_context(payload, session)
+            candidates = await self.duplicate_check(payload, property_id, session)
+            if candidates and not payload.get("duplicate_override"):
+                raise DuplicatePropertyError(candidates)
+            party = await self._party(payload, session)
+            graph = self.build_graph(
+                payload, user, context, party, property_id,
+                listing["id"] if listing else None,
+            )
+            immutable = {"created_at": master.get("created_at") or now_iso()}
+            graph["master_properties"].update(immutable)
+            for collection in (
+                "master_properties", "property_addresses", "property_parcels",
+                "property_attributes", "property_parties", "listings",
+            ):
+                document = graph[collection]
+                key = {"id": document["id"]} if collection in {"master_properties", "listings"} else {"property_id": property_id}
+                await self.db[collection].update_one(
+                    key, {"$set": document}, upsert=True, session=session
                 )
-                authority = {
-                    "id": new_id(),
-                    "property_id": graph["master_properties"]["id"],
+            current_price = listing.get("price_current") if listing else None
+            if current_price != float(payload["price"]):
+                await self.db.listing_prices.insert_one(graph["listing_prices"], session=session)
+            if not listing or listing.get("publication_status") != graph["listings"]["publication_status"]:
+                await self.db.listing_status_history.insert_one(
+                    graph["listing_status_history"], session=session
+                )
+            await self._replace_media_features_documents(
+                property_id, graph["listings"]["id"], payload, session
+            )
+            await self.db.advertiser_authorities.update_one(
+                {"property_id": property_id},
+                {"$set": {
                     "owner_party_id": party["id"],
                     "submitted_by_user_id": user["id"],
                     "authority_basis": payload.get("owner_relationship") or "OWNER",
                     "status": payload.get("authority_status") or "PENDING",
-                    "created_at": now_iso(),
-                }
-                await self.db.advertiser_authorities.insert_one(authority, session=session)
-                await self.db.audit_events.insert_one({
-                    "id": new_id(), "action": "PROPERTY_CREATED",
-                    "subject_type": "master_property",
-                    "subject_id": graph["master_properties"]["id"],
-                    "actor_id": user["id"], "created_at": now_iso(),
-                }, session=session)
-                return await self._project(graph["listings"], session)
-
-    async def update(self, property_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        async with await self.client.start_session() as session:
-            async with session.start_transaction():
-                master = await self.db.master_properties.find_one(
-                    {"id": property_id}, {"_id": 0}, session=session
-                )
-                if not master:
-                    return None
-                listing = await self.db.listings.find_one(
-                    {"property_id": property_id, "responsible_channel_active": True},
-                    {"_id": 0}, session=session
-                ) or await self.db.listings.find_one(
-                    {"property_id": property_id}, {"_id": 0}, session=session
-                )
-                context = await self.resolve_context(payload, session)
-                candidates = await self.duplicate_check(payload, property_id, session)
-                if candidates and not payload.get("duplicate_override"):
-                    raise DuplicatePropertyError(candidates)
-                party = await self._party(payload, session)
-                graph = self.build_graph(
-                    payload, user, context, party, property_id,
-                    listing["id"] if listing else None,
-                )
-                immutable = {"created_at": master.get("created_at") or now_iso()}
-                graph["master_properties"].update(immutable)
-                for collection in (
-                    "master_properties", "property_addresses", "property_parcels",
-                    "property_attributes", "property_parties", "listings",
-                ):
-                    document = graph[collection]
-                    key = {"id": document["id"]} if collection in {"master_properties", "listings"} else {"property_id": property_id}
-                    await self.db[collection].update_one(
-                        key, {"$set": document}, upsert=True, session=session
-                    )
-                current_price = listing.get("price_current") if listing else None
-                if current_price != float(payload["price"]):
-                    await self.db.listing_prices.insert_one(graph["listing_prices"], session=session)
-                if not listing or listing.get("publication_status") != graph["listings"]["publication_status"]:
-                    await self.db.listing_status_history.insert_one(
-                        graph["listing_status_history"], session=session
-                    )
-                await self._replace_media_features_documents(
-                    property_id, graph["listings"]["id"], payload, session
-                )
-                await self.db.advertiser_authorities.update_one(
-                    {"property_id": property_id},
-                    {"$set": {
-                        "owner_party_id": party["id"],
-                        "submitted_by_user_id": user["id"],
-                        "authority_basis": payload.get("owner_relationship") or "OWNER",
-                        "status": payload.get("authority_status") or "PENDING",
-                        "updated_at": now_iso(),
-                    }, "$setOnInsert": {"id": new_id(), "created_at": now_iso()}},
-                    upsert=True,
-                    session=session,
-                )
-                await self.db.audit_events.insert_one({
-                    "id": new_id(), "action": "PROPERTY_UPDATED",
-                    "subject_type": "master_property", "subject_id": property_id,
-                    "actor_id": user["id"], "created_at": now_iso(),
-                }, session=session)
-                return await self._project(graph["listings"], session)
+                    "updated_at": now_iso(),
+                }, "$setOnInsert": {"id": new_id(), "created_at": now_iso()}},
+                upsert=True,
+                session=session,
+            )
+            await self.db.audit_events.insert_one({
+                "id": new_id(), "action": "PROPERTY_UPDATED",
+                "subject_type": "master_property", "subject_id": property_id,
+                "actor_id": user["id"], "created_at": now_iso(),
+            }, session=session)
+            return await self._project(graph["listings"], session)
 
     async def _replace_media_features_documents(self, property_id, listing_id, payload, session) -> None:
         await self.db.listing_media.delete_many({"listing_id": listing_id}, session=session)

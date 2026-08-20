@@ -6,7 +6,7 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://req-to-web-1.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "admin@pngrealty.pg", "password": "Admin@123"}
+ADMIN = {"email": "admin@trel.com.pg", "password": "Admin@123"}
 SALES = {"email": "sales@pngrealty.pg", "password": "Password@123"}
 
 
