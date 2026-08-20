@@ -36,12 +36,12 @@ export default function LocationPicker({
   }, []);
 
   const currentProvince = useMemo(
-    () => provinces.find((p) => p.name === value.province) || null,
-    [provinces, value.province],
+    () => provinces.find((p) => p.id === value.province_id || p.name === value.province) || null,
+    [provinces, value.province_id, value.province],
   );
   const currentCity = useMemo(
-    () => cities.find((c) => c.name === value.city) || null,
-    [cities, value.city],
+    () => cities.find((c) => c.id === value.city_id || c.name === value.city) || null,
+    [cities, value.city_id, value.city],
   );
 
   useEffect(() => {
@@ -59,19 +59,29 @@ export default function LocationPicker({
   const setPatch = (patch) => onChange?.({ ...value, ...patch });
 
   const onProvinceChange = (e) => {
-    const name = e.target.value;
-    setPatch({ province: name, city: "", suburb: "" });
+    const selected = provinces.find((p) => p.id === e.target.value);
+    setPatch({
+      province_id: selected?.id || "",
+      province: selected?.name || "",
+      city_id: "", city: "", suburb_id: "", suburb: "",
+    });
     setAddingSuburb(false);
   };
   const onCityChange = (e) => {
-    setPatch({ city: e.target.value, suburb: "" });
+    const selected = cities.find((item) => item.id === e.target.value);
+    setPatch({
+      city_id: selected?.id || "",
+      city: selected?.name || "",
+      suburb_id: "", suburb: "",
+    });
     setAddingSuburb(false);
   };
   const onSuburbChange = (e) => {
     const v = e.target.value;
     if (v === "__ADD__") { setAddingSuburb(true); setNewSuburb(""); return; }
+    const selected = suburbs.find((item) => item.id === v);
     setAddingSuburb(false);
-    setPatch({ suburb: v });
+    setPatch({ suburb_id: selected?.id || "", suburb: selected?.name || "" });
   };
 
   const saveNewSuburb = async () => {
@@ -86,7 +96,7 @@ export default function LocationPicker({
         const filtered = prev.filter((s) => s.id !== data.id);
         return [...filtered, data].sort((a, b) => a.name.localeCompare(b.name));
       });
-      setPatch({ suburb: data.name });
+      setPatch({ suburb_id: data.id, suburb: data.name });
       setAddingSuburb(false);
       setNewSuburb("");
       toast.success(data.source === "user" ? "New suburb added" : "Suburb selected");
@@ -105,24 +115,24 @@ export default function LocationPicker({
       <div className="md:col-span-3 text-xs uppercase tracking-[0.3em] text-muted-foreground">Location details</div>
       <label className="block">
         {label("Province")}
-        <select value={value.province || ""} onChange={onProvinceChange} data-testid={`${testIdPrefix}-province`} className={select}>
+        <select value={currentProvince?.id || ""} onChange={onProvinceChange} data-testid={`${testIdPrefix}-province`} className={select}>
           <option value="">— Select a province —</option>
-          {provinces.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+          {provinces.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
       <label className="block">
         {label("City")}
-        <select value={value.city || ""} onChange={onCityChange} disabled={!currentProvince} data-testid={`${testIdPrefix}-city`} className={`${select} disabled:opacity-60 disabled:cursor-not-allowed`}>
+        <select value={currentCity?.id || ""} onChange={onCityChange} disabled={!currentProvince} data-testid={`${testIdPrefix}-city`} className={`${select} disabled:opacity-60 disabled:cursor-not-allowed`}>
           <option value="">{currentProvince ? "— Select a city —" : "Pick a province first"}</option>
-          {cities.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </label>
       <label className="block">
         {label("Suburb")}
-        <select value={addingSuburb ? "__ADD__" : (value.suburb || "")} onChange={onSuburbChange} disabled={!currentCity} data-testid={`${testIdPrefix}-suburb`} className={`${select} disabled:opacity-60 disabled:cursor-not-allowed`}>
+        <select value={addingSuburb ? "__ADD__" : (value.suburb_id || "")} onChange={onSuburbChange} disabled={!currentCity} data-testid={`${testIdPrefix}-suburb`} className={`${select} disabled:opacity-60 disabled:cursor-not-allowed`}>
           <option value="">{currentCity ? "— Select a suburb —" : "Pick a city first"}</option>
           {suburbs.map((s) => (
-            <option key={s.id} value={s.name}>{s.name}{s.source === "user" ? " • user-added" : ""}</option>
+            <option key={s.id} value={s.id}>{s.name}{s.source === "user" ? " • user-added" : ""}</option>
           ))}
           {currentCity && <option value="__ADD__">➕ Add a new suburb…</option>}
         </select>
