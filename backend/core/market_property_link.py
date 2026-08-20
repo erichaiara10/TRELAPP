@@ -91,11 +91,14 @@ class MarketPropertyLinkService:
 
     async def _candidate_address_ids(self, payload: Dict[str, Any]) -> List[str]:
         query: Dict[str, Any] = {"is_canonical": True, "valid_to": None}
-        for id_key in ("province_id", "district_id", "city_id", "suburb_id", "local_area_id"):
+        for id_key, name_key in (
+            ("province_id", "province_name"), ("district_id", "district_name"),
+            ("city_id", "city_name"), ("suburb_id", "suburb_name"),
+            ("local_area_id", "local_area_name"),
+        ):
             if payload.get(id_key):
                 query[id_key] = payload[id_key]
-        for name_key in ("province_name", "district_name", "city_name", "suburb_name", "local_area_name"):
-            if payload.get(name_key):
+            elif payload.get(name_key):
                 query[name_key] = {"$regex": f"^{re.escape(str(payload[name_key]).strip())}$", "$options": "i"}
         if len(query) == 2:
             return []
