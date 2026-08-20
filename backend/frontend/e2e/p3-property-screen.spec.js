@@ -11,6 +11,17 @@ async function mockApi(page, capture = {}) {
     if (path === "/api/properties" && request.method() === "GET") return json(route, []);
     if (path === "/api/properties" && request.method() === "POST") { capture.created = request.postDataJSON(); return json(route, { id:"property-1", ...capture.created }); }
     if (path === "/api/properties/duplicate-check") return json(route, { has_possible_duplicates:false, candidates:[] });
+    if (path === "/api/admin/market/summary") return json(route, { active_listings:1, market_listings:1, matches_active:1, master_properties:1, active_sources:1, sources:1 });
+    if (path === "/api/admin/market/listings") return json(route, [{
+      id:"source-link-1", source_site_id:"source-1", source_name:"Example Market",
+      source_listing_id:"ad-10", source_url:"https://example.test/ad-10",
+      transaction_type:"SALE", property_type_name:"House", province_name:"National Capital District",
+      city_name:"Port Moresby", suburb_name:"Waigani", street_name:"Waigani Drive",
+      lot:"15", section:"42", price_amount:900000, current_status:"ACTIVE",
+      first_seen_at:"2026-08-20T01:00:00Z", last_seen_at:"2026-08-20T01:00:00Z",
+      master_property_id:"property-1", match_status:"MATCHED", match_confidence:100,
+      match_rule:"DIRECT_TREL_ID", origin_kind:"EXTERNAL", comparable_eligible:true,
+    }]);
     if (path === "/api/documents/upload") return json(route, { id:"doc-1", url:"https://files.test/title.pdf", name:"title.pdf", content_type:"application/pdf" });
     if (path === "/api/property-types") return json(route, [
       { id:"type-house", name:"House", legal_scheme:"lot_section_street", is_active:true },
@@ -98,10 +109,19 @@ test("portion/customary screen prevents save without required district", async (
 test("admin screen links resolve to their expected routes", async ({ page }) => {
   await mockApi(page);
   await page.goto("/admin");
-  for (const target of ["properties", "customers", "leads", "requirements", "matching", "inspections", "tasks", "pipeline", "users", "locations", "content", "reports"]) {
+  for (const target of ["properties", "customers", "leads", "requirements", "matching", "inspections", "tasks", "pipeline", "users", "locations", "content", "reports", "market/evidence"]) {
     await page.getByTestId(`sidebar-${target}`).click();
     await expect(page).toHaveURL(new RegExp(`/admin/${target}$`));
   }
+});
+
+test("Market Evidence shows the link to the advertised Master Property", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/admin/market/evidence");
+  await expect(page.getByTestId("kpi-evidence-linked")).toContainText("1");
+  await page.getByTestId("evidence-row-source-link-1").click();
+  await expect(page.getByTestId("inspector-master-property")).toHaveText("property-1");
+  await expect(page.getByText("DIRECT_TREL_ID")).toBeVisible();
 });
 
 test("common login routes a Referral Partner to the referral workspace", async ({ page }) => {

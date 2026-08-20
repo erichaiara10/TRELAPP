@@ -31,6 +31,7 @@ import Users from "@/pages/admin/Users";
 import Content from "@/pages/admin/Content";
 import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
+import MarketEvidence from "@/pages/admin/market/Evidence";
 import { AdvertiserWorkspace, ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 
 function Protected({ children, categories }) {
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="locations" element={<Locations />} />
             <Route path="content" element={<Content />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="market/evidence" element={<MarketEvidence />} />
           </Route>
           <Route path="/advertiser" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
           <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />

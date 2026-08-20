@@ -93,13 +93,13 @@ export default function MarketEvidence() {
                       className={`border-b border-border/60 cursor-pointer hover:bg-[#F1F6F3] transition-colors ${selected?.id === l.id ? "bg-[#F1F6F3]" : ""}`}
                       data-testid={`evidence-row-${l.id}`}>
                     <td className="py-2 pr-3 font-mono text-xs">{l.id.slice(0, 8)}</td>
-                    <td className="py-2 pr-3">{l.source_id?.slice(0, 8)}</td>
-                    <td className="py-2 pr-3">{l.purpose}</td>
-                    <td className="py-2 pr-3">{l.property_class || "—"}</td>
-                    <td className="py-2 pr-3">{[l.suburb, l.city].filter(Boolean).join(", ")}</td>
-                    <td className="py-2 pr-3 tabular-nums">{formatMoney(l.price)}</td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">{formatPngDateTime(l.last_seen)}</td>
-                    <td className="py-2 pr-3 uppercase text-xs tracking-widest">{l.status}</td>
+                    <td className="py-2 pr-3">{l.source_name || l.source_site_id?.slice(0, 8)}</td>
+                    <td className="py-2 pr-3">{l.transaction_type}</td>
+                    <td className="py-2 pr-3">{l.property_type_name || "—"}</td>
+                    <td className="py-2 pr-3">{[l.suburb_name, l.city_name].filter(Boolean).join(", ")}</td>
+                    <td className="py-2 pr-3 tabular-nums">{formatMoney(l.price_amount)}</td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">{formatPngDateTime(l.last_seen_at)}</td>
+                    <td className="py-2 pr-3 uppercase text-xs tracking-widest">{l.current_status}</td>
                   </tr>
                 ))}
               </tbody>
@@ -112,8 +112,8 @@ export default function MarketEvidence() {
       </Section>
 
       <div className="mt-4">
-        <PhaseBanner phase="Phase E">
-          Filter chips per the mockup ship with the first collector rollout. Full record inspector is live — click any row.
+        <PhaseBanner phase="Integrated">
+          Collector observations retain their source history and show the verified or review-required link to the advertised Master Property.
         </PhaseBanner>
       </div>
 
@@ -132,48 +132,46 @@ export default function MarketEvidence() {
 // obvious at a glance.
 function RecordInspector({ record, onClose }) {
   const url = record.source_url;
-  const moneyLabel = record.purpose === "rent" ? "Rent" : "Asking Price";
-  const moneyValue = `${formatMoney(record.price)}${record.purpose === "rent" ? rentPeriodLabel(record.rent_period) : ""}`;
+  const moneyLabel = record.transaction_type === "RENT" ? "Rent" : "Asking Price";
+  const moneyValue = `${formatMoney(record.price_amount)}${record.transaction_type === "RENT" ? rentPeriodLabel(record.rental_period?.toLowerCase()) : ""}`;
   const groups = [
     {
       title: "Listing",
       rows: [
-        ["Purpose", record.purpose],
+        ["Purpose", record.transaction_type],
         [moneyLabel, <strong className="text-lg tabular-nums text-[#2A5B46]">{moneyValue}</strong>],
-        ["Property Class", record.property_class],
-        ["Property Subtype", record.property_subtype],
+        ["Property Type", record.property_type_name],
         ["Record ID (full)", <span className="font-mono text-xs break-all">{record.id}</span>],
       ],
     },
     {
       title: "Property Identification",
       rows: [
-        ["Lot / Allotment", record.allotment_number],
-        ["Section", record.section_number],
-        ["Portion", record.portion_number],
+        ["Lot / Allotment", record.lot],
+        ["Section", record.section],
+        ["Portion", record.portion],
       ],
     },
     {
       title: "Location",
       rows: [
-        ["Property / Building Name", record.building_name],
-        ["Street", record.street], ["Suburb", record.suburb],
-        ["Local Area", record.local_area], ["City", record.city],
-        ["Province", record.province],
+        ["Street", record.street_name], ["Suburb", record.suburb_name],
+        ["Local Area", record.local_area_name], ["City", record.city_name],
+        ["Province", record.province_name],
       ],
     },
     {
       title: "Property Details",
       rows: [
         ["Bedrooms", record.bedrooms], ["Bathrooms", record.bathrooms],
-        ["Land Area", record.land_area_m2 ? `${record.land_area_m2} m²` : null],
-        ["Building / Floor Area", record.building_area_m2 ? `${record.building_area_m2} m²` : null],
+        ["Land Area", record.land_area_sqm ? `${record.land_area_sqm} m²` : null],
+        ["Building / Floor Area", record.building_area_sqm ? `${record.building_area_sqm} m²` : null],
       ],
     },
     {
       title: "Source",
       rows: [
-        ["Source", <span className="font-mono text-xs break-all">{record.source_id}</span>],
+        ["Source", record.source_name || <span className="font-mono text-xs break-all">{record.source_site_id}</span>],
         ["Source Listing ID", record.source_listing_id],
         ["Listing URL", url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-[#2A5B46] underline break-all text-xs" data-testid="inspector-source-url">{url}</a> : "—"],
       ],
@@ -181,12 +179,21 @@ function RecordInspector({ record, onClose }) {
     {
       title: "Record History",
       rows: [
-        ["First Seen", formatPngDateTime(record.first_seen)],
-        ["Last Seen", formatPngDateTime(record.last_seen)],
+        ["First Seen", formatPngDateTime(record.first_seen_at)],
+        ["Last Seen", formatPngDateTime(record.last_seen_at)],
         ["Created", formatPngDateTime(record.created_at)],
         ["Updated", formatPngDateTime(record.updated_at)],
-        ["Exclusion Reason", record.exclusion_reason],
-        ["Alias Map Version", record.alias_map_version],
+      ],
+    },
+    {
+      title: "Master Property Link",
+      rows: [
+        ["Master Property ID", <span className="font-mono text-xs break-all" data-testid="inspector-master-property">{record.master_property_id || "—"}</span>],
+        ["Match Status", record.match_status],
+        ["Match Confidence", record.match_confidence === undefined ? null : `${record.match_confidence}%`],
+        ["Match Rule", record.match_rule],
+        ["Origin", record.origin_kind],
+        ["Comparable Eligible", record.comparable_eligible ? "Yes" : "No"],
       ],
     },
   ];
@@ -207,8 +214,8 @@ function RecordInspector({ record, onClose }) {
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Market Listing</div>
             <div className="text-xl font-semibold mt-1" data-testid="inspector-title">
-              {record.property_subtype || record.property_class || "Listing"}
-              {record.suburb ? ` · ${record.suburb}` : ""}
+              {record.property_type_name || "Listing"}
+              {record.suburb_name ? ` · ${record.suburb_name}` : ""}
             </div>
             <div className="text-xs text-muted-foreground mt-1 font-mono">
               {record.id}
@@ -235,21 +242,10 @@ function RecordInspector({ record, onClose }) {
             </summary>
             <pre className="text-[11px] font-mono p-3 whitespace-pre-wrap break-words max-h-80 overflow-y-auto bg-white"
                  data-testid="inspector-raw-body">
-              {JSON.stringify(record.raw_fields || {}, null, 2) || "{}"}
+              {JSON.stringify(record.raw_payload || {}, null, 2) || "{}"}
             </pre>
           </details>
 
-          {/* Normalized payload (if the collector supplied one) */}
-          {record.normalized_fields && Object.keys(record.normalized_fields).length > 0 && (
-            <details className="border border-border rounded" data-testid="inspector-normalized-toggle">
-              <summary className="cursor-pointer text-sm font-medium px-3 py-2 bg-[#FAFBFA] hover:bg-muted/40">
-                Normalized fields
-              </summary>
-              <pre className="text-[11px] font-mono p-3 whitespace-pre-wrap break-words max-h-80 overflow-y-auto bg-white">
-                {JSON.stringify(record.normalized_fields, null, 2)}
-              </pre>
-            </details>
-          )}
         </div>
       </div>
     </>

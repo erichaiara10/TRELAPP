@@ -40,10 +40,13 @@ jobs:
         run: |
           python -m py_compile \
             migrations/p3_integrated_property.py \
+            migrations/p3_market_property_link.py \
             core/account_policy.py \
             core/db.py \
             core/integrated_property_service.py \
+            core/market_property_link.py \
             core/property_repository.py \
+            routes/market.py \
             routes/properties.py \
             routes/files.py \
             routes/referrals.py \
@@ -53,7 +56,7 @@ jobs:
       - name: Run P3 unit tests
         env:
           PYTHONPATH: ${{ github.workspace }}/backend
-        run: pytest -q tests/test_p3_integrated_property.py
+        run: pytest -q tests/test_p3_integrated_property.py tests/test_p3_market_property_link.py
 
       - uses: actions/setup-node@v4
         with:
@@ -101,4 +104,6 @@ jobs:
       - name: Verify migration secret exists
         run: test -n "$MONGO_PASSWORD"
       - name: P3 schema extension dry-run
-        run: python migrations/p3_integrated_property.py --mode dry-run
+        run: |
+          python migrations/p3_integrated_property.py --mode dry-run
+          python migrations/p3_market_property_link.py --mode dry-run

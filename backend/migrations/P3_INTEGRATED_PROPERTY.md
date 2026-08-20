@@ -32,6 +32,27 @@ untouched and available as a rollback path.
   `listing_status_history` retain price, media, features, and lifecycle history.
 - `advertiser_authorities` and `audit_events` record authority and actions.
 
+## Property Data Aggregation link
+
+External market evidence is not stored as another advertised Listing. The
+canonical relationship is:
+
+`source_sites → source_listings → source_listing_observations → master_properties`
+
+`source_listings.master_property_id` links a confidently identified source ad
+to the same `master_properties.id` used by `listings.property_id`. Ambiguous
+matches enter `property_match_reviews`; unmatched ads remain independent market
+evidence and never create a TREL advertisement automatically. Observations from
+TREL-owned domains are retained for audit/history but are marked ineligible as
+independent comparables.
+
+Apply the additive link validator/index migration after P1 and P3:
+
+```bash
+python migrations/p3_market_property_link.py \
+  --mode apply --confirmation APPLY_TREL_DB_P3_MARKET_LINK
+```
+
 ## Activation
 
 The final integrated path is the application default. Set this explicitly in deployment configuration for clarity:

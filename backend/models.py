@@ -1,5 +1,5 @@
 """All Pydantic domain models — single-file for simplicity."""
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -195,6 +195,61 @@ class PropertyFilters(BaseModel):
     status: Optional[str] = "active"
     q: Optional[str] = None
     limit: int = 60
+
+
+# ---- Property Data Aggregation ----
+class MarketSourceCreate(BaseModel):
+    name: str
+    domain: str
+    base_url: Optional[str] = None
+    active: bool = True
+    is_trel_owned: bool = False
+    collector_key: Optional[str] = None
+    listing_pages: List[Dict[str, Any]] = Field(default_factory=list)
+    parser_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketObservationCreate(BaseModel):
+    source_site_id: str
+    source_listing_id: str
+    source_url: str
+    observed_at: Optional[str] = None
+    current_status: Literal[
+        "ACTIVE", "NOT_SEEN", "REMOVED", "RELISTED", "SOLD_CONFIRMED",
+        "RENTED_CONFIRMED", "WITHDRAWN_CONFIRMED", "UNKNOWN",
+    ] = "ACTIVE"
+    transaction_type: Literal["SALE", "RENT"]
+    property_type_id: Optional[str] = None
+    property_type_name: Optional[str] = None
+    province_id: Optional[str] = None
+    province_name: Optional[str] = None
+    district_id: Optional[str] = None
+    district_name: Optional[str] = None
+    city_id: Optional[str] = None
+    city_name: Optional[str] = None
+    suburb_id: Optional[str] = None
+    suburb_name: Optional[str] = None
+    local_area_id: Optional[str] = None
+    local_area_name: Optional[str] = None
+    street_name: Optional[str] = None
+    location_name: Optional[str] = None
+    lot: Optional[str] = None
+    section: Optional[str] = None
+    portion: Optional[str] = None
+    owner_name: Optional[str] = None
+    bedrooms: Optional[int] = Field(default=None, ge=0)
+    bathrooms: Optional[int] = Field(default=None, ge=0)
+    land_area_sqm: Optional[float] = Field(default=None, gt=0)
+    building_area_sqm: Optional[float] = Field(default=None, gt=0)
+    price_amount: Optional[float] = Field(default=None, gt=0)
+    currency: Literal["PGK"] = "PGK"
+    price_type: Literal[
+        "FIXED", "NEGOTIABLE", "FROM", "RANGE", "POA", "TENDER",
+        "EOI", "AUCTION", "UNKNOWN",
+    ] = "FIXED"
+    rental_period: Optional[Literal["DAY", "WEEK", "FORTNIGHT", "MONTH", "YEAR"]] = None
+    trel_property_id: Optional[str] = None
+    raw_payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ---- Customer ----
