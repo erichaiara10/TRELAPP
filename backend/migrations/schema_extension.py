@@ -120,7 +120,7 @@ INDEXES: Sequence[IndexSpec] = (
     ("audit_events", "ix_audit_actor", (("actor_id", ASCENDING), ("created_at", DESCENDING)), {}),
     ("master_properties", "ux_master_property_id", (("id", ASCENDING),), {"unique": True}),
     ("master_properties", "ix_property_parent", (("parent_property_id", ASCENDING),), {"sparse": True}),
-    ("property_addresses", "ux_canonical_address", (("property_id", ASCENDING), ("is_canonical", ASCENDING)), {"unique": True, "partialFilterExpression": {"is_canonical": True, "valid_to": {"$exists": False}}}),
+    ("property_addresses", "ux_canonical_address", (("property_id", ASCENDING), ("is_canonical", ASCENDING)), {"unique": True, "partialFilterExpression": {"is_canonical": True, "valid_to": None}}),
     ("property_addresses", "ix_micro_location", (("suburb_id", ASCENDING), ("local_area_id", ASCENDING), ("street_id", ASCENDING)), {}),
     ("property_parcels", "ix_urban_identity", (("province_id", ASCENDING), ("suburb_id", ASCENDING), ("street_norm", ASCENDING), ("section_norm", ASCENDING), ("lot_norm", ASCENDING)), {"partialFilterExpression": {"identifier_scheme": "URBAN_LOT_SECTION"}}),
     ("property_parcels", "ix_portion_identity", (("province_id", ASCENDING), ("district_id", ASCENDING), ("location_norm", ASCENDING), ("portion_norm", ASCENDING)), {"partialFilterExpression": {"identifier_scheme": {"$in": ["PORTION", "CUSTOMARY"]}}}),
@@ -218,9 +218,18 @@ def apply(db) -> Dict[str, Any]:
         db.create_collection(name, validator=validator, validationLevel="strict", validationAction="error")
         created_collections.append(name)
 
+    attempt_started_at = datetime.now(timezone.utc)
     db.schema_migrations.update_one(
         {"version": MIGRATION_VERSION},
-        {"$setOnInsert": {"checksum": checksum, "status": "RUNNING", "started_at": datetime.now(timezone.utc)}},
+        {
+            "$set": {
+                "checksum": checksum,
+                "status": "RUNNING",
+                "last_attempt_at": attempt_started_at,
+            },
+            "$setOnInsert": {"started_at": attempt_started_at},
+            "$unset": {"failed_at": "", "failure_code": ""},
+        },
         upsert=True,
     )
 
