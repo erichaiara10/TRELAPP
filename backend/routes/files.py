@@ -8,9 +8,10 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
 from core.db import db, new_id, now_iso
+from core.security import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger("trel")
@@ -300,6 +301,54 @@ async def public_upload(file: UploadFile = File(...)):
         "url": result["url"],
         "storage_path": result["path"],
         "size": result["size"],
+        "content_type": content_type,
+    }
+
+
+ALLOWED_DOCUMENT_TYPES = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
+
+
+@router.post("/documents/upload")
+async def document_upload(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Upload a Property authority/title document for authenticated staff."""
+    content_type = (file.content_type or "").lower().strip()
+    if content_type not in ALLOWED_DOCUMENT_TYPES:
+        raise HTTPException(400, "Only PDF, JPG, PNG or WebP documents are allowed")
+    data = await file.read()
+    if not data or len(data) < 100:
+        raise HTTPException(400, "Uploaded document is empty")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "Document exceeds 10 MB limit")
+    file_id = new_id()
+    extension = ALLOWED_DOCUMENT_TYPES[content_type]
+    storage_path = f"{APP_NAME}/uploads/property-documents/{file_id}.{extension}"
+    result = _put_object(storage_path, data, content_type)
+    record = {
+        "id": file_id,
+        "storage_path": result["path"],
+        "public_url": result["url"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result["size"],
+        "is_deleted": False,
+        "source": "property_document",
+        "uploaded_by": user["id"],
+        "created_at": now_iso(),
+    }
+    await db.files.insert_one(record)
+    return {
+        "ok": True,
+        "id": file_id,
+        "url": result["url"],
+        "name": file.filename,
         "content_type": content_type,
     }
 
