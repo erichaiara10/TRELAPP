@@ -7,7 +7,7 @@ import { normalizePhotos } from "@/components/admin/PropertyModalFields";
 import PropertiesTable from "@/components/admin/PropertiesTable";
 import CsvToolbar from "@/components/admin/CsvToolbar";
 
-const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"", district:"", local_area:"", tenure_type:"", title_reference:"" };
+const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"active", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"", district:"", local_area:"", tenure_type:"", title_reference:"", property_type_id:"", province_id:"", city_id:"", suburb_id:"", district_id:"", local_area_id:"", street_id:"", owner_name:"", owner_email:"", owner_phone:"", owner_relationship:"OWNER", authority_status:"PENDING", documents:[], duplicate_override:false };
 
 export default function Properties() {
   const [items, setItems] = useState([]);
