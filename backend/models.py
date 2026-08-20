@@ -92,6 +92,20 @@ class Property(BaseModel):
     local_area: Optional[str] = None
     tenure_type: Optional[str] = None
     title_reference: Optional[str] = None
+    property_type_id: Optional[str] = None
+    province_id: Optional[str] = None
+    city_id: Optional[str] = None
+    suburb_id: Optional[str] = None
+    district_id: Optional[str] = None
+    local_area_id: Optional[str] = None
+    street_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+    owner_phone: Optional[str] = None
+    owner_relationship: Optional[str] = "OWNER"
+    authority_status: Optional[str] = "PENDING"
+    documents: List[dict] = []
+    duplicate_override: bool = False
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -129,6 +143,20 @@ class PropertyCreate(BaseModel):
     local_area: Optional[str] = None
     tenure_type: Optional[str] = None
     title_reference: Optional[str] = None
+    property_type_id: Optional[str] = None
+    province_id: Optional[str] = None
+    city_id: Optional[str] = None
+    suburb_id: Optional[str] = None
+    district_id: Optional[str] = None
+    local_area_id: Optional[str] = None
+    street_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+    owner_phone: Optional[str] = None
+    owner_relationship: Optional[str] = "OWNER"
+    authority_status: Optional[str] = "PENDING"
+    documents: List[dict] = []
+    duplicate_override: bool = False
 
 
 class PropertyFilters(BaseModel):
