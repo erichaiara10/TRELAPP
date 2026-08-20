@@ -269,6 +269,87 @@ def apply(db) -> Dict[str, Any]:
     return outcome
 
 
+def recreate_empty(db) -> Dict[str, Any]:
+    """Recreate only empty P1 collections when collMod is unavailable.
+
+    The operation aborts before any drop if a target contains a document. Existing
+    non-_id indexes are captured and restored before P3 indexes are added.
+    """
+    counts = {
+        collection: db[collection].count_documents({}, limit=1)
+        for collection in VALIDATORS
+    }
+    non_empty = sorted(name for name, count in counts.items() if count)
+    if non_empty:
+        raise RuntimeError(
+            "Empty-collection fallback refused; data exists in: "
+            + ", ".join(non_empty)
+        )
+
+    captured: Dict[str, List[Dict[str, Any]]] = {}
+    for collection in VALIDATORS:
+        captured[collection] = [
+            item for item in db[collection].list_indexes()
+            if item.get("name") != "_id_"
+        ]
+
+    for collection, validator in VALIDATORS.items():
+        db.drop_collection(collection)
+        db.create_collection(
+            collection,
+            validator=validator,
+            validationLevel="strict",
+            validationAction="error",
+        )
+        for item in captured[collection]:
+            options = {
+                key: item[key]
+                for key in (
+                    "name", "unique", "sparse", "expireAfterSeconds",
+                    "partialFilterExpression", "collation", "hidden",
+                )
+                if key in item
+            }
+            db[collection].create_index(
+                list(item["key"].items()),
+                **options,
+            )
+
+    created = []
+    for collection, name, keys, options in INDEXES:
+        if _equivalent(db[collection].list_indexes(), keys, options):
+            continue
+        db[collection].create_index(list(keys), name=name, **options)
+        created.append(f"{collection}.{name}")
+
+    outcome = {
+        "status": "APPLIED",
+        "migration_version": MIGRATION_VERSION,
+        "checksum": checksum(),
+        "validators_applied": len(VALIDATORS),
+        "collections_recreated": sorted(VALIDATORS),
+        "empty_precondition_verified": True,
+        "indexes_created": created,
+        "business_document_writes": 0,
+        "business_document_deletes": 0,
+    }
+    now = datetime.now(timezone.utc)
+    db.schema_migrations.update_one(
+        {"version": MIGRATION_VERSION},
+        {
+            "$set": {
+                "checksum": checksum(),
+                "status": "APPLIED",
+                "applied_at": now,
+                "result": outcome,
+            },
+            "$setOnInsert": {"started_at": now},
+        },
+        upsert=True,
+    )
+    return outcome
+
+
 def verify(db) -> Dict[str, Any]:
     issues: List[Dict[str, str]] = []
     for collection, validator in VALIDATORS.items():
@@ -305,7 +386,11 @@ def verify(db) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("dry-run", "apply", "verify"), default="dry-run")
+    parser.add_argument(
+        "--mode",
+        choices=("dry-run", "apply", "recreate-empty", "verify"),
+        default="dry-run",
+    )
     parser.add_argument("--confirmation", default="")
     parser.add_argument("--uri", default=os.environ.get("MONGO_URL"))
     parser.add_argument("--username", default=os.environ.get("MONGO_USERNAME"))
@@ -318,6 +403,12 @@ def main() -> int:
     if args.mode == "apply" and args.confirmation != CONFIRMATION:
         print(f"Apply requires --confirmation {CONFIRMATION}", file=sys.stderr)
         return 2
+    if args.mode == "recreate-empty" and args.confirmation != "RECREATE_EMPTY_TREL_DB_P3":
+        print(
+            "Empty recreation requires --confirmation RECREATE_EMPTY_TREL_DB_P3",
+            file=sys.stderr,
+        )
+        return 2
     options: Dict[str, Any] = {"serverSelectionTimeoutMS": 15000}
     if args.username:
         options.update(
@@ -329,7 +420,14 @@ def main() -> int:
     try:
         db = client[args.database]
         db.command("ping")
-        output = plan(db) if args.mode == "dry-run" else apply(db) if args.mode == "apply" else verify(db)
+        if args.mode == "dry-run":
+            output = plan(db)
+        elif args.mode == "apply":
+            output = apply(db)
+        elif args.mode == "recreate-empty":
+            output = recreate_empty(db)
+        else:
+            output = verify(db)
         print(json.dumps(output, indent=2, default=str, sort_keys=True))
         return 0 if args.mode != "verify" or output["verification_passed"] else 1
     finally:
