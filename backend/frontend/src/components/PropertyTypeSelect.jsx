@@ -32,7 +32,8 @@ export default function PropertyTypeSelect({
       setAddOpen(true);
       return;
     }
-    onChange?.(v);
+    const selected = (types || []).find((item) => item.name === v);
+    onChange?.(v, selected?.id || "");
   };
 
   const deleteType = async (t) => {
@@ -40,7 +41,7 @@ export default function PropertyTypeSelect({
       await api.delete(`/property-types/${t.id}`);
       toast.success(`Removed “${t.name}”`);
       await refresh();
-      if (value === t.name) onChange?.("");
+      if (value === t.name) onChange?.("", "");
     } catch (err) {
       toast.error(formatError(err));
     } finally {
@@ -89,9 +90,9 @@ export default function PropertyTypeSelect({
       {addOpen && (
         <AddTypeModal
           onClose={() => setAddOpen(false)}
-          onCreated={async (name) => {
+          onCreated={async (created) => {
             await refresh();
-            onChange?.(name);
+            onChange?.(created.name, created.id);
             setAddOpen(false);
           }}
         />
@@ -124,7 +125,7 @@ function AddTypeModal({ onClose, onCreated }) {
     try {
       const { data } = await api.post("/property-types", { name: name.trim(), legal_scheme: scheme, order: 999, is_active: true });
       toast.success("Property type added");
-      onCreated?.(data.name);
+      onCreated?.(data);
     } catch (err) {
       toast.error(formatError(err));
     } finally { setSaving(false); }
