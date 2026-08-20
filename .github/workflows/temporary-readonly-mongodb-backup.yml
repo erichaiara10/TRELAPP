@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      MONGODB_AUDIT_URI: ${{ secrets.MONGODB_AUDIT_URI }}
+      MONGODB_AUDIT_PASSWORD: ${{ secrets.MONGODB_AUDIT_PASSWORD }}
       BACKUP_ENCRYPTION_PASSWORD: ${{ secrets.BACKUP_ENCRYPTION_PASSWORD }}
 
     steps:
@@ -20,7 +20,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$MONGODB_AUDIT_URI" || { echo "MONGODB_AUDIT_URI is not configured"; exit 1; }
+          test -n "$MONGODB_AUDIT_PASSWORD" || { echo "MONGODB_AUDIT_PASSWORD is not configured"; exit 1; }
           test -n "$BACKUP_ENCRYPTION_PASSWORD" || { echo "BACKUP_ENCRYPTION_PASSWORD is not configured"; exit 1; }
 
       - name: Install pinned MongoDB Database Tools
@@ -38,9 +38,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          config_file="$RUNNER_TEMP/mongodump.yml"
+          trap 'rm -f "$config_file"' EXIT
+          python3 -c 'import json, os; print("password: " + json.dumps(os.environ["MONGODB_AUDIT_PASSWORD"]))' > "$config_file"
+          chmod 600 "$config_file"
           mkdir -p backup_plain
           mongodump \
-            --uri="$MONGODB_AUDIT_URI" \
+            --config="$config_file" \
+            --uri="mongodb+srv://cluster0.hwzmeqs.mongodb.net/trel_db" \
+            --username="trel_p0_audit_20260820" \
+            --authenticationDatabase="admin" \
             --db="trel_db" \
             --out="backup_plain" \
             2>&1 | tee mongodump.log
