@@ -59,7 +59,7 @@ jobs:
         working-directory: backend
         run: |
           python -m py_compile migrations/property_backfill.py core/property_repository.py routes/properties.py models.py
-          pytest -q tests/test_schema_extension.py tests/test_property_backfill.py
+          PYTHONPATH="$PWD" pytest -q tests/test_schema_extension.py tests/test_property_backfill.py
 
       - name: Run protected P2 migration
         id: migration
