@@ -64,15 +64,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: yarn
-          cache-dependency-path: backend/frontend/yarn.lock
 
       - name: Build Property admin screen
         working-directory: backend/frontend
         env:
           CI: "false"
         run: |
-          yarn install --frozen-lockfile
+          yarn install --no-lockfile
           yarn build
 
       - name: Run protected P2 migration
