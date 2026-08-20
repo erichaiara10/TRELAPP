@@ -1,0 +1,81 @@
+name: Temporary P2 Property Migration
+
+on:
+  push:
+    branches:
+      - codex/p2-integrated-property-migration
+    paths:
+      - backend/migrations/property_backfill.py
+      - backend/core/property_repository.py
+      - backend/routes/properties.py
+      - backend/models.py
+      - backend/tests/test_property_backfill.py
+      - backend/frontend/src/components/admin/PropertyModalFields.jsx
+      - backend/frontend/src/pages/admin/Properties.jsx
+      - .github/workflows/temporary-p2-property-migration.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Migration mode
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - verify
+          - apply
+      confirmation:
+        description: For apply only, enter BACKFILL_TREL_DB_P2
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  p2-property-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MONGO_URL: mongodb+srv://cluster0.hwzmeqs.mongodb.net/trel_db
+      MONGO_USERNAME: trel_schema_migration_20260820
+      MONGO_PASSWORD: ${{ secrets.MONGODB_MIGRATION_PASSWORD }}
+      MONGO_AUTH_DATABASE: admin
+      DB_NAME: trel_db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install migration test dependencies
+        run: python -m pip install --disable-pip-version-check pymongo==4.6.3 pytest==8.3.5
+
+      - name: Validate migration and repository modules
+        working-directory: backend
+        run: |
+          python -m py_compile migrations/property_backfill.py core/property_repository.py routes/properties.py models.py
+          pytest -q tests/test_schema_extension.py tests/test_property_backfill.py
+
+      - name: Run protected P2 migration
+        id: migration
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MONGO_PASSWORD"
+          MODE="${{ github.event.inputs.mode || 'dry-run' }}"
+          CONFIRMATION="${{ github.event.inputs.confirmation || '' }}"
+          if [[ "$MODE" == "apply" && "$CONFIRMATION" != "BACKFILL_TREL_DB_P2" ]]; then
+            echo "Apply confirmation did not match" >&2
+            exit 2
+          fi
+          python -m migrations.property_backfill             --mode "$MODE"             --confirmation "$CONFIRMATION"             --uri "$MONGO_URL"             --username "$MONGO_USERNAME"             --auth-database "$MONGO_AUTH_DATABASE"             --database "$DB_NAME" | tee p2-property-migration-result.json
+
+      - name: Upload aggregate migration report
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-property-migration-${{ github.run_id }}
+          path: backend/p2-property-migration-result.json
+          retention-days: 1
