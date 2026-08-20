@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Sparkles, ChevronDown, ChevronUp, TrendingUp, TrendingDown, CheckCircle2, Loader2, AlertCircle, X } from "lucide-react";
 import { api, formatError } from "@/lib/api";
 
@@ -158,6 +158,7 @@ export default function AIPriceAnalysis({
   buyerFacing = false,
   audience = "buyer",
   testIdPrefix = "ai-price",
+  autoRun = false,
 }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
@@ -184,6 +185,12 @@ export default function AIPriceAnalysis({
       setError(formatError(e));
     } finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    if (autoRun && canRun && !open && !data && !loading) run();
+    // Auto-run is intentionally evaluated only when the deep-linked comparison becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, canRun]);
 
   if (!canRun) return null;
 

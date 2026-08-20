@@ -1,5 +1,8 @@
-"""Auth (login/logout/me) + Users CRUD."""
+"""Auth (login/logout/me/registration) + Users CRUD."""
+from typing import Literal, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, EmailStr, Field
 
 from core.account_policy import account_category, require_staff, workspace_path
 from core.db import db, new_id, now_iso
@@ -11,6 +14,17 @@ from core.security import (
 from models import LoginIn, PasswordUpdate, UserCreate, UserUpdate
 
 router = APIRouter()
+
+
+class PublicRegisterIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    phone: str = Field(min_length=5, max_length=40)
+    password: str = Field(min_length=8, max_length=128)
+    account_category: Literal["PROPERTY_ADVERTISER", "REFERRAL_PARTNER"]
+    advertiser_relationship_type: Optional[Literal[
+        "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
+    ]] = None
 
 STAFF_ROLES = {
     "system_admin", "managing_director", "sales_manager", "sales_agent",
@@ -42,8 +56,6 @@ async def login(payload: LoginIn, request: Request, response: Response):
     if await is_locked(email, ip):
         raise HTTPException(429, "Too many login attempts. Try again later.")
     user = await db.users.find_one({"email": email})
-    # Uniform error for both "no user" and "bad password" so we don't reveal
-    # whether the email account exists.
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         await record_failure(email, ip)
         raise HTTPException(401, "Invalid email or password")
@@ -62,6 +74,34 @@ async def login(payload: LoginIn, request: Request, response: Response):
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+@router.post("/auth/register", status_code=201)
+async def public_register(payload: PublicRegisterIn):
+    """Self-registration for the two approved external account categories only."""
+    email = payload.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "Email already registered")
+    _validate_advertiser_relationship(payload.account_category, payload.advertiser_relationship_type)
+    role = "property_advertiser" if payload.account_category == "PROPERTY_ADVERTISER" else "referral_partner"
+    user = {
+        "id": new_id(), "email": email, "name": payload.name.strip(), "phone": payload.phone.strip(),
+        "role": role, "account_category": payload.account_category, "status": "ACTIVE",
+        "password_hash": hash_password(payload.password), "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    if payload.account_category == "PROPERTY_ADVERTISER":
+        await db.advertiser_profiles.insert_one({
+            "id": new_id(), "user_id": user["id"],
+            "relationship_type": payload.advertiser_relationship_type,
+            "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
+        })
+    else:
+        await db.referral_partner_profiles.insert_one({
+            "id": new_id(), "user_id": user["id"], "status": "ACTIVE",
+            "created_at": now_iso(), "updated_at": now_iso(),
+        })
+    return {"ok": True, "account_category": payload.account_category, "login_path": "/admin/login"}
 
 
 @router.get("/auth/me")

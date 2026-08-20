@@ -33,6 +33,7 @@ import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
 import MarketEvidence from "@/pages/admin/market/Evidence";
 import { AdvertiserWorkspace, ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
+import Register from "@/pages/account/Register";
 
 function Protected({ children, categories }) {
   const { user } = useAuth();
@@ -65,6 +66,7 @@ export default function App() {
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/admin" element={<Protected categories={["STAFF"]}><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="properties" element={<Properties />} />
