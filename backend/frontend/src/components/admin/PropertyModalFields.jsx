@@ -119,7 +119,7 @@ export default function PropertyModalFields({ modal, setModal }) {
           <label className="block">
             <span className={LABEL_CLS}>Property type<span className="text-destructive ml-0.5">*</span></span>
             <div className="mt-1">
-              <PropertyTypeSelect admin value={modal.property_type} onChange={(v) => setModal({ ...modal, property_type: v })} testId="property-type" />
+              <PropertyTypeSelect admin value={modal.property_type} onChange={(name, id) => setModal({ ...modal, property_type: name, property_type_id: id })} testId="property-type" />
             </div>
           </label>
           <label className="block">
