@@ -1,5 +1,6 @@
 import React from "react";
 import PhotoUploader from "@/components/PhotoUploader";
+import DocumentUploader from "@/components/admin/DocumentUploader";
 import MapCoordsField from "@/components/MapCoordsField";
 import LocationPicker from "@/components/LocationPicker";
 import PriceInput from "@/components/PriceInput";
@@ -7,7 +8,7 @@ import PropertyTypeSelect from "@/components/PropertyTypeSelect";
 import FormSection from "@/components/FormSection";
 import { sanitizeDigits } from "@/lib/validators";
 import { usePropertyTypes, isPortionScheme } from "@/lib/usePropertyTypes";
-import { FileText, ScrollText, Wallet, MapPin, ShieldCheck } from "lucide-react";
+import { FileText, ScrollText, Wallet, MapPin, ShieldCheck, UserRound } from "lucide-react";
 
 const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price", "total_area_ha"];
 const STATUSES = ["draft", "active", "under_offer", "sold", "leased", "withdrawn"];
@@ -136,8 +137,8 @@ export default function PropertyModalFields({ modal, setModal }) {
 
           <div className="md:col-span-2">
             <LocationPicker
-              value={{ province: modal.province || "", city: modal.location || "", suburb: modal.suburb || "" }}
-              onChange={(v) => setModal({ ...modal, province: v.province, location: v.city, suburb: v.suburb })}
+              value={{ province_id: modal.province_id || "", province: modal.province || "", city_id: modal.city_id || "", city: modal.location || "", suburb_id: modal.suburb_id || "", suburb: modal.suburb || "" }}
+              onChange={(v) => setModal({ ...modal, province_id: v.province_id, province: v.province, city_id: v.city_id, location: v.city, suburb_id: v.suburb_id, suburb: v.suburb })}
               testIdPrefix="property-location"
               required
             />
@@ -180,8 +181,44 @@ export default function PropertyModalFields({ modal, setModal }) {
         </div>
       </FormSection>
 
-      {/* ---- 3. Pricing & Valuation ---- */}
-      <FormSection num={3} icon={Wallet} title="Pricing & Valuation" hint={isSale ? "Sale price in PGK" : "Monthly rent in PGK"} testId="prop-section-pricing">
+      {/* ---- 3. Ownership & Authority ---- */}
+      <FormSection num={3} icon={UserRound} title="Ownership & Authority" hint="Owner identity and authority to advertise" testId="prop-section-owner">
+        <div className="grid md:grid-cols-2 gap-3 text-sm">
+          <TextField label="Owner name" testId="property-owner-name" value={modal.owner_name} onChange={set("owner_name")} required span="md:col-span-2" />
+          <TextField label="Owner email (optional)" testId="property-owner-email" value={modal.owner_email} onChange={set("owner_email")} />
+          <TextField label="Owner phone (optional)" testId="property-owner-phone" value={modal.owner_phone} onChange={set("owner_phone")} />
+          <SelectField
+            label="Relationship to property"
+            testId="property-owner-relationship"
+            value={modal.owner_relationship || "OWNER"}
+            onChange={set("owner_relationship")}
+            options={[
+              { value: "OWNER", label: "Owner" },
+              { value: "JOINT_OWNER", label: "Joint owner" },
+              { value: "AUTHORISED_AGENT", label: "Authorised real estate agent" },
+              { value: "AUTHORISED_REPRESENTATIVE", label: "Authorised representative" },
+            ]}
+          />
+          <SelectField
+            label="Authority verification"
+            testId="property-authority-status"
+            value={modal.authority_status || "PENDING"}
+            onChange={set("authority_status")}
+            options={[
+              { value: "PENDING", label: "Pending review" },
+              { value: "VERIFIED", label: "Verified" },
+              { value: "REJECTED", label: "Rejected" },
+            ]}
+          />
+          <DocumentUploader
+            value={modal.documents || []}
+            onChange={(documents) => setModal({ ...modal, documents })}
+          />
+        </div>
+      </FormSection>
+
+      {/* ---- 4. Pricing & Valuation ---- */}
+      <FormSection num={4} icon={Wallet} title="Pricing & Valuation" hint={isSale ? "Sale price in PGK" : "Monthly rent in PGK"} testId="prop-section-pricing">
         <label className="block text-sm">
           <span className={LABEL_CLS}>Price<span className="text-destructive ml-0.5">*</span></span>
           <div className="mt-1">
@@ -190,8 +227,8 @@ export default function PropertyModalFields({ modal, setModal }) {
         </label>
       </FormSection>
 
-      {/* ---- 4. Location Details ---- */}
-      <FormSection num={4} icon={MapPin} title="Location Details" hint="Address, landmark, map coordinates and photos" testId="prop-section-location">
+      {/* ---- 5. Location Details ---- */}
+      <FormSection num={5} icon={MapPin} title="Location Details" hint="Address, landmark, map coordinates and photos" testId="prop-section-location">
         <div className="grid md:grid-cols-1 gap-3 text-sm">
           <TextField label="Street address" testId="property-address" value={modal.address} onChange={set("address")} placeholder="e.g. 12 Ela Beach Road" />
           <TextField label="Nearby landmark (optional)" testId="property-nearby-landmark" value={modal.nearby_landmark} onChange={set("nearby_landmark")} placeholder={isPortion ? "e.g. 2 km east of Sogeri Plateau road" : "e.g. next to Vision City"} />
@@ -216,8 +253,8 @@ export default function PropertyModalFields({ modal, setModal }) {
         </div>
       </FormSection>
 
-      {/* ---- 5. Status & Visibility ---- */}
-      <FormSection num={5} icon={ShieldCheck} title="Status & Visibility" hint="Publishing state and homepage placement" testId="prop-section-status">
+      {/* ---- 6. Status & Visibility ---- */}
+      <FormSection num={6} icon={ShieldCheck} title="Status & Visibility" hint="Publishing state and homepage placement" testId="prop-section-status">
         <div className="grid md:grid-cols-2 gap-3 text-sm items-end">
           <SelectField label="Status" testId="property-status" value={modal.status} onChange={set("status")} options={STATUSES} />
           <div className="flex flex-wrap gap-4 pb-2">
