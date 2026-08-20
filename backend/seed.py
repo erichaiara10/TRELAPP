@@ -183,11 +183,25 @@ async def run_startup():
 
     # ---- Legacy migrations (one-off, idempotent) ----
     await migrate_legacy_user_emails()
-    await migrate_land_category()
+
+    property_storage_mode = os.getenv(
+        "TREL_PROPERTY_STORAGE_MODE", "legacy"
+    ).strip().lower()
+    if property_storage_mode == "legacy":
+        await migrate_land_category()
+    else:
+        logger.info(
+            "Integrated Property mode active — skipping legacy property migration"
+        )
 
     # ---- First-boot seeds (skip if collection has data) ----
     await seed_users()
-    await seed_properties()
+    if property_storage_mode == "legacy":
+        await seed_properties()
+    else:
+        logger.info(
+            "Integrated Property mode active — skipping legacy property seed"
+        )
     await seed_content()
     await seed_page_content()
     await seed_requirements()
