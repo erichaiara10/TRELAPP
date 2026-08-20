@@ -6,6 +6,7 @@ on:
       - codex/p1-schema-apply-once
     paths:
       - .github/workflows/temporary-p1-schema-apply-once.yml
+      - backend/migrations/schema_extension.py
 
 permissions:
   contents: read
