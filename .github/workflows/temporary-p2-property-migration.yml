@@ -61,6 +61,20 @@ jobs:
           python -m py_compile migrations/property_backfill.py core/property_repository.py routes/properties.py models.py
           PYTHONPATH="$PWD" pytest -q tests/test_schema_extension.py tests/test_property_backfill.py
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: backend/frontend/yarn.lock
+
+      - name: Build Property admin screen
+        working-directory: backend/frontend
+        env:
+          CI: "false"
+        run: |
+          yarn install --frozen-lockfile
+          yarn build
+
       - name: Run protected P2 migration
         id: migration
         working-directory: backend
