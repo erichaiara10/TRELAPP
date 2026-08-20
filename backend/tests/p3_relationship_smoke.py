@@ -14,7 +14,7 @@ CONFIRMATION = "RUN_TREL_P3_SMOKE"
 
 async def run() -> None:
     property_type = await db.property_types.find_one(
-        {"is_active": True}, {"_id": 0}
+        {"is_active": True, "legal_scheme": "lot_section_street"}, {"_id": 0}
     )
     suburb = await db.suburbs.find_one({}, {"_id": 0})
     if not property_type or not suburb:
