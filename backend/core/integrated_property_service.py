@@ -555,6 +555,9 @@ class IntegratedPropertyService:
         media = await self.db.listing_media.find(
             {"listing_id": listing["id"]}, {"_id": 0}
         ).sort("sort_order", 1).to_list(100)
+        documents = await self.db.property_documents.find(
+            {"property_id": property_id}, {"_id": 0}
+        ).sort("created_at", 1).to_list(100)
         return {
             "id": property_id,
             "integrated_property_id": property_id,
@@ -580,6 +583,7 @@ class IntegratedPropertyService:
             "description": listing.get("description", ""),
             "features": attributes.get("features", []),
             "images": [item["url"] for item in media],
+            "documents": documents,
             "status": listing.get("publication_status"),
             "featured": bool(listing.get("featured")),
             "verified": master.get("verification_status") == "VERIFIED",
