@@ -12,6 +12,7 @@ const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, curren
 export default function Properties() {
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
+  const [checking, setChecking] = useState(false);
 
   const load = useCallback(() => api.get("/properties", { params: { status: "" } }).then((r) => setItems(r.data)), []);
   useEffect(() => { load(); }, [load]);
@@ -22,6 +23,31 @@ export default function Properties() {
     features: (p.features || []).join(", "),
     photos: normalizePhotos(p.images),
   });
+
+  const checkDuplicates = async () => {
+    setChecking(true);
+    try {
+      const body = serializeProperty(modal);
+      const { data } = await api.post("/properties/duplicate-check", body);
+      if (!data.has_possible_duplicates) {
+        setModal({ ...modal, duplicate_override: false });
+        toast.success("No matching property found");
+        return;
+      }
+      const first = data.candidates[0];
+      const allow = window.confirm(
+        `Possible duplicate: ${first.title} (${first.confidence}% match).\n\n` +
+        `Reasons: ${first.reasons.join(", ")}.\n\n` +
+        "Only continue as a separate property if you have checked the existing record."
+      );
+      setModal({ ...modal, duplicate_override: allow });
+      if (allow) toast.warning("Duplicate override recorded for this submission");
+    } catch (error) {
+      toast.error(formatError(error));
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const save = async () => {
     try {
@@ -47,7 +73,7 @@ export default function Properties() {
       </div>
       <CsvToolbar entity="properties" entityLabel="Properties" onImported={load} />
       <PropertiesTable items={items} onEdit={openEdit} onDelete={del} />
-      {modal && <PropertyModal modal={modal} setModal={setModal} onSave={save} onClose={() => setModal(null)} />}
+      {modal && <PropertyModal modal={modal} setModal={setModal} onSave={save} onDuplicateCheck={checkDuplicates} checking={checking} onClose={() => setModal(null)} />}
     </div>
   );
 }
