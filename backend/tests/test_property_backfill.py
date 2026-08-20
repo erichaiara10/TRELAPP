@@ -1,4 +1,4 @@
-from backend.migrations.property_backfill import (
+from migrations.property_backfill import (
     MIGRATION_VERSION,
     analyze,
     stable_id,
