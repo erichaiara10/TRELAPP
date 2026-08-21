@@ -19,7 +19,15 @@ export default function Matching() {
       <div className="mt-3">
         <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} data-testid="match-req-select" className="border border-border rounded px-3 py-2 bg-white">
           <option value="">— Choose a requirement —</option>
-          {reqs.map((r) => <option key={r.id} value={r.id}>{r.customer_name || "Anon"} · {r.intent} · {(r.max_price||0).toLocaleString()} PGK</option>)}
+          {reqs.map((r) => {
+            const name = r.customer_name || "Anon";
+            const price = (r.max_price || 0).toLocaleString();
+            return (
+              <option key={r.id} value={r.id}>
+                {`${name} · ${r.intent} · ${price} PGK`}
+              </option>
+            );
+          })}
         </select>
       </div>
       {result && (

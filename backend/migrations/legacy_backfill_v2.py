@@ -85,7 +85,11 @@ def _classify(doc: Dict[str, Any]) -> str:
         return "PORTION"
     if clean(doc.get("allotment_number")) or clean(doc.get("section_number")):
         return "URBAN_LOT_SECTION"
-    return "UNKNOWN"
+    # No parcel evidence — legacy data was captured before the P3 identifier
+    # scheme existed. Default to URBAN_LOT_SECTION (the most common PNG
+    # urban tenure) so the parcel row is schema-valid; the fields themselves
+    # are left null.
+    return "URBAN_LOT_SECTION"
 
 
 def _validate(doc: Dict[str, Any], types_by_name: Dict[str, Any]) -> Optional[str]:
@@ -159,12 +163,17 @@ def _plan_records(
         "id": parcel_id,
         "property_id": property_id,
         "identifier_scheme": scheme,
+        "province_id": (province or {}).get("id"),
         "province_name": clean(doc.get("province")),
+        "district_id": None,
         "district_name": clean(doc.get("district")),
+        "city_id": (city or {}).get("id"),
         "location_name": clean(doc.get("location")),
         "location_norm": norm(doc.get("location")),
+        "suburb_id": (suburb or {}).get("id"),
         "suburb_name": clean(doc.get("suburb")),
         "suburb_norm": norm(doc.get("suburb")),
+        "street_id": None,
         "street_name": clean(doc.get("street_name")),
         "street_norm": norm(doc.get("street_name")),
         "section": clean(doc.get("section_number")),
@@ -271,6 +280,81 @@ async def plan(db, admin_user_id: str) -> Dict[str, Any]:
     return summary
 
 
+async def _ensure_location_ids(db, doc: Dict[str, Any], locations: Dict[str, Any]) -> None:
+    """Auto-provision missing province/city/suburb records referenced by a
+    legacy Property so the P3 address graph has valid FKs. Idempotent — a
+    matching name (case-insensitive) will be reused."""
+    province_name = clean(doc.get("province"))
+    city_name = clean(doc.get("location"))
+    suburb_name = clean(doc.get("suburb"))
+    timestamp = now_iso()
+
+    province = None
+    if province_name:
+        key = province_name.lower()
+        province = locations["provinces"].get(key)
+        if not province:
+            province = {
+                "id": stable_id("province", province_name),
+                "name": province_name,
+                "created_at": timestamp,
+                "source": "legacy_backfill",
+            }
+            await db.provinces.update_one({"name": province_name}, {"$set": province}, upsert=True)
+            locations["provinces"][key] = province
+
+    city = None
+    if city_name:
+        key = city_name.lower()
+        city = locations["cities"].get(key)
+        if not city:
+            city = {
+                "id": stable_id("city", city_name),
+                "name": city_name,
+                "province_id": (province or {}).get("id"),
+                "created_at": timestamp,
+                "source": "legacy_backfill",
+            }
+            await db.cities.update_one({"name": city_name}, {"$set": city}, upsert=True)
+            locations["cities"][key] = city
+
+    if suburb_name:
+        key = suburb_name.lower()
+        suburb = locations["suburbs"].get(key)
+        if not suburb:
+            suburb = {
+                "id": stable_id("suburb", suburb_name),
+                "name": suburb_name,
+                "city_id": (city or {}).get("id"),
+                "province_id": (province or {}).get("id"),
+                "created_at": timestamp,
+                "source": "legacy_backfill",
+            }
+            await db.suburbs.update_one({"name": suburb_name}, {"$set": suburb}, upsert=True)
+            locations["suburbs"][key] = suburb
+    else:
+        # Address schema requires a non-empty suburb_id. Provide a stable
+        # placeholder scoped to the city so the FK is honoured while making
+        # the "unknown suburb" state explicit.
+        placeholder_name = f"Unknown suburb — {city_name or province_name or 'PNG'}"
+        key = placeholder_name.lower()
+        suburb = locations["suburbs"].get(key)
+        if not suburb:
+            suburb = {
+                "id": stable_id("suburb-placeholder", placeholder_name),
+                "name": placeholder_name,
+                "city_id": (city or {}).get("id"),
+                "province_id": (province or {}).get("id"),
+                "created_at": timestamp,
+                "source": "legacy_backfill_placeholder",
+            }
+            await db.suburbs.update_one({"name": placeholder_name}, {"$set": suburb}, upsert=True)
+            locations["suburbs"][key] = suburb
+        # Also mutate the source doc's suburb so downstream _plan_records
+        # picks up the placeholder.
+        doc["suburb"] = placeholder_name
+
+
 async def apply(db, admin_user_id: str) -> Dict[str, Any]:
     types_by_name = await _load_property_type_index(db)
     locations = await _load_location_indexes(db)
@@ -284,6 +368,7 @@ async def apply(db, admin_user_id: str) -> Dict[str, Any]:
             entry["reason"] = issue
             outcomes.append(entry)
             continue
+        await _ensure_location_ids(db, doc, locations)
         graph = _plan_records(doc, types_by_name, locations, admin_user_id)
         try:
             for collection, document in graph.items():
@@ -312,14 +397,18 @@ async def apply(db, admin_user_id: str) -> Dict[str, Any]:
     }
     for r in outcomes:
         summary["by_category"][r["category"]] = summary["by_category"].get(r["category"], 0) + 1
+    now = datetime.now(timezone.utc)
     await db.schema_migrations.update_one(
         {"version": MIGRATION_VERSION},
-        {"$set": {
-            "checksum": "p3-legacy-v2",
-            "status": "APPLIED",
-            "applied_at": now_iso(),
-            "summary": summary["by_category"],
-        }},
+        {
+            "$set": {
+                "checksum": "p3-legacy-v2",
+                "status": "APPLIED",
+                "applied_at": now,
+                "summary": summary["by_category"],
+            },
+            "$setOnInsert": {"started_at": now},
+        },
         upsert=True,
     )
     return summary

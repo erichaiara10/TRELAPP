@@ -644,6 +644,13 @@ class IntegratedPropertyService:
                 {"title": {"$regex": term, "$options": "i"}},
                 {"description": {"$regex": term, "$options": "i"}},
             ]
+        # Ownership scoping: `created_by` is stored on `master_properties`, so
+        # pre-filter to the caller's own property_ids before pulling listings.
+        if query.get("created_by"):
+            own_property_ids = await self.db.master_properties.distinct(
+                "id", {"created_by": query["created_by"]}
+            )
+            listing_query["property_id"] = {"$in": own_property_ids}
         listings = await self.db.listings.find(
             listing_query, {"_id": 0}
         ).sort("created_at", -1).to_list(limit * 2)
@@ -711,6 +718,22 @@ class IntegratedPropertyService:
         authority = await self.db.advertiser_authorities.find_one(
             {"property_id": property_id}, {"_id": 0}, session=session
         ) or {}
+        # Compute "owner verified" flag — the property was submitted by a
+        # Property Advertiser whose profile AND at least one government ID are
+        # both VERIFIED. Used to display the "Verified Owner" badge on the
+        # public property card.
+        owner_verified = False
+        submitter_id = authority.get("submitted_by_user_id") or master.get("created_by")
+        if submitter_id:
+            profile_verified = await self.db.advertiser_profiles.find_one(
+                {"user_id": submitter_id, "status": "VERIFIED"},
+                {"_id": 0, "id": 1}, session=session,
+            )
+            id_verified = await self.db.identity_documents.find_one(
+                {"user_id": submitter_id, "status": "VERIFIED"},
+                {"_id": 0, "id": 1}, session=session,
+            )
+            owner_verified = bool(profile_verified and id_verified)
         media = await self.db.listing_media.find(
             {"listing_id": listing["id"]}, {"_id": 0}
         ).sort("sort_order", 1).to_list(100)
@@ -763,6 +786,7 @@ class IntegratedPropertyService:
             "owner_phone": (owner or {}).get("phone"),
             "owner_relationship": authority.get("authority_basis") or (owner_link or {}).get("relationship_type"),
             "authority_status": authority.get("status") or (owner_link or {}).get("authority_status"),
+            "owner_verified": owner_verified,
             "created_at": listing.get("created_at"),
             "updated_at": listing.get("updated_at"),
         }

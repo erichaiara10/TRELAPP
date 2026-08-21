@@ -209,6 +209,7 @@ class PropertyFilters(BaseModel):
     featured: Optional[bool] = None
     status: Optional[str] = "active"
     q: Optional[str] = None
+    mine: Optional[bool] = None
     limit: int = 60
 
 

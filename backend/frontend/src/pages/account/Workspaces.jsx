@@ -33,7 +33,7 @@ export function AdvertiserWorkspace() {
         <div className="mt-4 space-y-2">{documents.map((d) => <div key={d.id} className="border rounded p-2 text-sm">{d.document_type} — {d.status}</div>)}</div>
       </section>
       <p className="text-sm text-muted-foreground">Property creation is accepted only after the advertiser profile and one government ID are verified.</p>
-      <section className="bg-white border rounded-xl p-5"><Properties /></section>
+      <section className="bg-white border rounded-xl p-5"><Properties scope="mine" /></section>
     </main></div>;
 }
 

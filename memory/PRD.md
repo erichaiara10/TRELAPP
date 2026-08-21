@@ -323,14 +323,36 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - P2 — Namespace P3 `master_properties` writes vs the market pipeline's pre-existing 493 docs (schema collision).
 - P2 — Test hygiene: refactor 24 legacy pytest failures (test_lead_convert, test_locations, test_map_coords, test_iter24) to use the P3 canonical payload.
 
-## What's Been Implemented (Aug 21, 2026 — Advertiser Data Fix)
-### Account Category Backfill + Security Hardening
+## What's Been Implemented (Aug 21, 2026 — Advertiser Data Fix + Scoping + Legacy Backfill + Verified Badge)
+### 1. Account Category Backfill + Security Hardening (earlier this session)
 - **Security fallback** — `core/account_policy.account_category()` now returns a new `GUEST` category (workspace `/`) for users missing `account_category` instead of silently defaulting to `STAFF`. `workspace_path` gained a safe `GUEST → "/"` mapping and `require_property_writer` now emits an accurate 403 message for GUEST accounts. Verified 403 from `/api/users` for a guest-category account.
-- **Backfill migration** — new idempotent script `backend/migrations/backfill_account_categories.py` (run via `python -m migrations.backfill_account_categories`) sets `account_category` for every user based on role (staff-family → STAFF, property_advertiser → PROPERTY_ADVERTISER, referral_partner → REFERRAL_PARTNER), backfills missing `status: "ACTIVE"`, and ensures every PROPERTY_ADVERTISER user has an `advertiser_profiles` document. First run: 34 users categorised, 35 statuses set, 29 profiles created. Second run: 0 changes (idempotent confirmed).
-- **Provisioning** — `POST /api/auth/register` and admin `POST /api/users` already emit `account_category` + `advertiser_profiles` for new PROPERTY_ADVERTISER accounts (no code change needed once fallback is `GUEST` instead of `STAFF`).
-- **Test account verified** — `advertiser.20260819.002523@example.com` (password `Password@123`) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document, so it can proceed straight into the P01 Add Property flow.
-- **AccountAccessDialog** — `destinationFor()` updated so unknown/GUEST categories no longer fall back to `/admin`.
-- **Regression** — 9/9 turnstile tests passing. Pre-existing brute-force/CORS/property-count test failures documented in backlog (unrelated to this fix).
+- **Backfill migration** — new idempotent script `backend/migrations/backfill_account_categories.py`. First run: 34 users categorised, 35 statuses set, 29 profiles created. Re-runs are 0-change.
+- **Test account verified** — `advertiser.20260819.002523@example.com` (password `Password@123`) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document.
+
+### 2. Advertiser Workspace Scoping
+- Added `mine` filter to `PropertyFilters` and a new `get_optional_user` helper. `GET /api/properties?mine=true` now:
+  - 401 for anonymous callers
+  - Returns everything for STAFF (admins keep their existing view)
+  - Restricts to `master_properties.created_by == user.id` for Property Advertisers
+- Frontend: `Properties` component accepts a `scope` prop; `AdvertiserWorkspace` renders `<Properties scope="mine" />`.
+- Verified: admin sees 35, advertiser sees only their own creation (0 baseline, 1 after creating a listing).
+
+### 3. Matching Page DOM Fix
+- `pages/admin/Matching.jsx` — collapsed the mapped `<option>` children into a single interpolated string so React never fabricates multiple children (or a `<span>`) inside `<option>`.
+
+### 4. Legacy Property Backfill Applied
+- Executed `python -m migrations.legacy_backfill_v2 --mode apply --confirmation BACKFILL_P3_V2` — 8/9 legacy properties migrated into the P3 integrated graph (`master_properties`, `property_addresses`, `property_parcels`, `property_attributes`, `listings`, `listing_prices`). The 9th (`house`) is INCOMPLETE (`PRICE_INVALID`) and intentionally skipped. Re-runs are idempotent (still 8 MIGRATED, 1 INCOMPLETE).
+- Migration hardening:
+  - `_classify()` now defaults `UNKNOWN` → `URBAN_LOT_SECTION` (P3 enum-safe).
+  - New `_ensure_location_ids()` auto-provisions missing suburbs (or an `"Unknown suburb — <city>"` placeholder) so the address/parcel FKs are valid.
+  - `property_parcels` now populates the required `province_id` (plus city_id/suburb_id/district_id/street_id).
+  - `schema_migrations` writes now use `datetime` objects to satisfy the collection's JSON schema.
+- Public `/api/properties?status=` count went 27 → 35.
+
+### 5. Verified Owner Badge
+- Backend: `IntegratedPropertyService._project()` now computes an `owner_verified` boolean per listing — true when the submitting user has both `advertiser_profiles.status == VERIFIED` and at least one `identity_documents.status == VERIFIED`. Exposed on `GET /api/properties`.
+- Frontend: `PropertyCard.jsx` now shows a terracotta "Verified Owner" pill (`data-testid="property-owner-verified-<id>"`) next to the existing green "Verified" property badge, with tooltip explaining the difference.
+- Verified on preview: creating a property as the verified advertiser produces `owner_verified=true`, badge renders on `/buy`.
 
 
 ### P3 Integration Hardening
