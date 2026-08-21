@@ -1,0 +1,43 @@
+{
+  "summary": "Verified the three iteration_30 hardening fixes plus the 5 regression checks on the preview URL. Backend (pytest, 5/5 passed): (1) email-wide brute-force lockout now works with ROTATING X-Forwarded-For — 5 wrong passwords for admin@trel.com.pg from 10.0.0.1-.5 all 401, 6th attempt from a 6th IP (10.0.0.6) returned 429, and even the CORRECT password from a 7th IP stayed 429; successful login resets the whole email counter (3 failures -> 0 docs). (2) POST /api/auth/register returns login_path='/add-property?auth=login' for BOTH PROPERTY_ADVERTISER and REFERRAL_PARTNER, and the resulting accounts log in with workspace_path /advertiser and /referral-partner respectively. bcrypt hash for the seeded admin starts with $2b$, httpOnly access_token cookie set on login, CORS uses explicit origins + allow_credentials. Frontend (Playwright, 1920x1080): all 5 regressions PASS — header 'Log In' opens login tab, 'Register' opens register tab, '+ Add Property' (data-testid=nav-add-property) opens the popup while unauthenticated; /admin/login, /register and /advertiser all land on /add-property?auth=... with next= preserved; authenticated Staff sees 'Your current account is a Staff Account.' with both action buttons and NO silent /admin redirect; ephemeral advertiser login -> /advertiser, ephemeral referral partner login -> /referral-partner with the correct 'Your current account is a Referral Partner Account.' notice; popup dismiss via X and Escape works. FIX 3 (scrim) is only PARTIALLY effective: locator('[data-testid=account-access-scrim]').click() with no override still fails (Playwright: card subtree intercepts pointer events), because the scrim button is absolute inset-0 and the 600px card sits over its geometric centre. Real-user backdrop clicks DO dismiss (page.mouse.click(30,30) -> count 0, and scrim click with position={x:20,y:20} -> count 0), so this is a test-harness geometry limitation, not a user-facing defect. Ephemeral accounts deleted; login_failures collection cleared (0 docs).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AccountAccessDialog scrim",
+        "issue": "Default-centre click on [data-testid=account-access-scrim] is still intercepted by the dialog card (scrim is absolute inset-0 spanning the full viewport, card is a z-10 sibling over its centre). Dismiss itself works for real users (backdrop coordinate click and scrim click with an edge position both close the dialog). Suggested resolution: move data-testid=\"account-access-scrim\" onto a wrapper that has no overlapping child at its centre, or accept Escape / close-X / position-offset clicks in automation and drop the centre-click expectation.",
+        "selector": "[data-testid=\"account-access-scrim\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_hardening.py",
+    "/app/backend/tests/iter31_ephemeral.py"
+  ],
+  "action_items": [
+    "Optional/LOW: decide on the scrim testability approach (see ui_bugs) — no functional change required.",
+    "Out of scope this run but still open (P1, previously logged in iteration_30): advertiser workspace shows other owners' properties with Edit/Delete — reconfirmed visually in this run's advertiser screenshot."
+  ],
+  "critical_code_review_comments": [
+    "login_guard.is_locked issues two count_documents per login attempt; consider a compound index on (email, occurred_at) to keep the email-wide count cheap as login_failures grows.",
+    "login_guard.reset() deletes ALL failures for the email — correct for pod rotation, but means one successful login clears an in-progress attack's tally; acceptable given the 5/15-min policy, worth a comment/monitoring hook.",
+    "X-Forwarded-For left-most value is client-controllable; the email-wide counter is what actually guarantees the lockout — keep it as the primary guard and never relax it to IP-only."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_hardening.py",
+    "/app/backend/tests/iter31_ephemeral.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "seed_data_creation": "Ephemeral test_iter31_adv@example.com (PROPERTY_ADVERTISER/OWNER) and test_iter31_ref@example.com (REFERRAL_PARTNER) created via POST /api/auth/register and deleted afterwards (users + advertiser_profiles + referral_partner_profiles). login_failures cleared to 0.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (STAFF) from /app/memory/test_credentials.md",
+  "context_for_next_testing_agent": "All three iteration_30 hardening items are verified fixed except the cosmetic scrim centre-click geometry (dismiss works via Escape, close X, backdrop coordinate click, or scrim click with position offset — use one of those in future scripts, never plain .click() on the scrim). Reusable backend suite: /app/backend/tests/test_iter31_hardening.py (run with: python -m pytest tests/test_iter31_hardening.py -p xdist -n 0 -v from /app/backend). It clears login_failures before/after each test, so it is safe to re-run. Ephemeral-account helper: tests/iter31_ephemeral.py create|cleanup. The advertiser data-isolation leak (GET /api/properties not owner-scoped) is still open and remains OUT OF SCOPE until the user approves.",
+  "rca_of_the_issue": "Scrim: the dismiss handler is now correct (outer container checks e.target === e.currentTarget, and the scrim <button> itself calls onClose), but Playwright's default click targets the element's bounding-box centre; since the scrim spans the whole viewport, its centre is covered by the dialog card, so actionability fails before any handler runs. Nothing in the app blocks dismissal."
+}

@@ -48,9 +48,9 @@ export default function PublicHeader({ site }) {
       <BrandLogo site={site} />
       <nav className="hidden lg:flex flex-1 items-center justify-center gap-3 xl:gap-5" aria-label="Primary navigation"><MenuLinks /></nav>
       <div className="hidden lg:flex items-center gap-2 xl:gap-3 shrink-0 text-[12px] xl:text-[13px]">
-        <Link to="/advertiser" data-testid="nav-add-property" className="inline-flex items-center gap-1.5 rounded-lg bg-[#168CF5] px-3 py-2.5 text-white font-semibold hover:bg-[#0878D8] whitespace-nowrap"><PlusCircle className="w-4 h-4" /> Add Property</Link>
-        <Link to="/admin/login" data-testid="nav-login" className="font-medium whitespace-nowrap">Log In</Link>
-        <Link to="/register" data-testid="nav-register" className="font-medium whitespace-nowrap">Register</Link>
+        <Link to="/add-property" data-testid="nav-add-property" className="inline-flex items-center gap-1.5 rounded-lg bg-[#168CF5] px-3 py-2.5 text-white font-semibold hover:bg-[#0878D8] whitespace-nowrap"><PlusCircle className="w-4 h-4" /> Add Property</Link>
+        <Link to="/add-property?auth=login" data-testid="nav-login" className="font-medium whitespace-nowrap">Log In</Link>
+        <Link to="/add-property?auth=register" data-testid="nav-register" className="font-medium whitespace-nowrap">Register</Link>
         <Link to="/about" data-testid="nav-about" className="font-medium whitespace-nowrap">About</Link>
         <Link to="/contact" data-testid="nav-contact" className="font-medium whitespace-nowrap">Contact</Link>
         <a href={phoneHref} className="inline-flex items-center gap-1 whitespace-nowrap" data-testid="header-phone"><Phone className="w-3.5 h-3.5" />{phone}</a>
@@ -60,8 +60,8 @@ export default function PublicHeader({ site }) {
     </div>
     {open && <nav id="mobile-navigation" className="lg:hidden bg-white border-t px-5 pb-5 flex flex-col" aria-label="Mobile navigation">
       <MenuLinks mobile />
-      <Link to="/advertiser" data-testid="mnav-add-property" className="mt-3 py-2.5 px-3 rounded-lg bg-[#168CF5] text-white font-semibold inline-flex items-center gap-2"><PlusCircle className="w-4 h-4" />Add Property</Link>
-      <Link to="/admin/login" className="py-2.5 border-b">Log In</Link><Link to="/register" className="py-2.5 border-b">Register</Link>
+      <Link to="/add-property" data-testid="mnav-add-property" className="mt-3 py-2.5 px-3 rounded-lg bg-[#168CF5] text-white font-semibold inline-flex items-center gap-2"><PlusCircle className="w-4 h-4" />Add Property</Link>
+      <Link to="/add-property?auth=login" data-testid="mnav-login" className="py-2.5 border-b">Log In</Link><Link to="/add-property?auth=register" data-testid="mnav-register" className="py-2.5 border-b">Register</Link>
       <Link to="/about" className="py-2.5 border-b">About</Link><Link to="/contact" className="py-2.5 border-b">Contact</Link>
       <a href={phoneHref} data-testid="mnav-phone" className="py-2.5 inline-flex items-center gap-2"><Phone className="w-4 h-4" />{phone}</a>
       <a href={whatsappHref} data-testid="mnav-whatsapp" target="_blank" rel="noopener noreferrer" className="py-2.5 inline-flex items-center gap-2 text-[#075C36]"><MessageCircle className="w-4 h-4" />WhatsApp</a>

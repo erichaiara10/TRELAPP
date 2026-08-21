@@ -18,8 +18,9 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem("png_token", data.token);
-      setUser({ id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path });
-      return { ok: true, workspacePath: data.workspace_path };
+      const user = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path };
+      setUser(user);
+      return { ok: true, user, workspacePath: data.workspace_path };
     } catch (e) { return { ok: false, error: formatError(e) }; }
   }, []);
 

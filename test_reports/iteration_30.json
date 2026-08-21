@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend-only verification of the AccountAccessDialog popup restoration (replacing rejected standalone /admin/login + /register screens). 15 of the 16 requested behaviours verified PASS on the preview URL via Playwright: header Log In/Register/+Add Property destinations and tab pre-selection, unauthenticated auth-gate with zero property-entry questions, legacy /admin/login + /register compatibility redirects, Protected-route guards for /advertiser and /admin (next= preserved), advertiser popup login -> /advertiser, UI Create-Account happy path (POST /api/auth/register 201 + auto-login -> /advertiser), Staff notice ('Your current account is a Staff Account.' + Return to Staff Workspace / Log Out and Use Another Account, NO silent /admin redirect), Referral Partner notice with correct labels/routes, popup dismiss via X + Escape + scrim with reopen-popup fallback, password-mismatch validation without any /auth/register call, full field inventory on both tabs, desktop layout (600px centred card, #0398FC submit with black text) and mobile 390x844 layout (no horizontal overflow, close X top-right, fields stacked). Ephemeral advertiser + referral-partner + UI-registered accounts were created via POST /api/auth/register and DELETED from users/advertiser_profiles/referral_partner_profiles afterwards; login_failures collection cleared. Two defects found (both pre-existing, outside popup scope): advertiser workspace data isolation leak and brute-force lockout keyed on proxy pod IP.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/properties?status= (Advertiser workspace)", "issue": "DATA ISOLATION LEAK: a brand-new PROPERTY_ADVERTISER with zero listings receives 10 properties belonging to other advertisers/staff (incl. Draft/Withdrawn). The advertiser workspace reuses pages/admin/Properties.jsx, which calls GET /properties with no owner scoping, and renders Edit/Delete buttons on those foreign rows. Reproduced with a freshly registered account (token-authenticated).", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/auth/login (brute-force guard)", "issue": "Lockout keys on request.client.host, which behind the k8s ingress is the proxy pod IP (observed rotating between 10.227.0.161 and 10.227.37.194). Result: 8 consecutive wrong passwords on a fresh email all returned 401; 429 only started appearing around attempt 10+, and responses alternate 401/429 depending on which pod handles the request. Effective threshold = 5 x (number of ingress pods). Use X-Forwarded-For (left-most) or key on email only."},
+      {"endpoint": "POST /api/auth/register", "issue": "Response still returns login_path: '/admin/login' — that path is now only a compatibility redirect; should return '/add-property?auth=login'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AccountAccessDialog scrim", "issue": "data-testid=account-access-scrim is an absolute inset-0 button rendered as a SIBLING BEHIND the dialog card, so its geometric centre is covered by the form. A plain Playwright click on the testid times out ('subtree intercepts pointer events'); clicking the visible scrim area (e.g. x=80) does close it correctly. Functionally fine for users, but any spec doing page.getByTestId('account-access-scrim').click() will fail without force/position. Suggest attaching the dismiss handler to the outer container onClick (e.target === e.currentTarget) or giving the scrim a real z-index below the card and clicking with position.", "selector": "[data-testid=\"account-access-scrim\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AccountAccessDialog (desktop 1440x900)", "issues": ["Verified OK: card 600x754 centred at x=420, TRELPNG wordmark centred, tab bar full width, submit rgb(3,152,252) with rgb(0,0,0) text"]},
+      {"screen": "AccountAccessDialog (mobile 390x844)", "issues": ["Verified OK: card 358px wide, close X at x=306/y=53, no horizontal overflow; Create Account tab card height 778px so the bottom of the form requires scrolling inside the scrim (acceptable, scroll container present)"]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_30.json"],
+  "action_items": [
+    "CRITICAL: scope the Property Advertiser workspace property list to the logged-in advertiser (backend filter + stop reusing admin Properties component unscoped); a new advertiser currently sees and can edit/delete other users' properties.",
+    "Fix brute-force lockout client-IP resolution (use X-Forwarded-For) so 5 failed attempts genuinely lock regardless of which ingress pod serves the request.",
+    "Optional: make the popup scrim click-dismiss reachable at the testid centre (container-level onClick) so the shipped popup-authoritative.spec.js scrim assertion is not force-dependent.",
+    "Optional: change POST /api/auth/register login_path to /add-property?auth=login."
+  ],
+  "critical_code_review_comments": [
+    "pages/account/Workspaces.jsx imports pages/admin/Properties (admin CRUD surface) into the advertiser workspace — this is the root cause of the cross-account property exposure and of admin-only affordances leaking to advertisers.",
+    "AddProperty.jsx CategoryNotice 'switch account' always navigates to next=/advertiser regardless of the original next intent — harmless today but drops the caller's intent for staff/referral users.",
+    "AccountAccessDialog derives the account name from the email local-part; acceptable for MVP but the register form has no name field, so users get a machine-derived display name (seen as 'ephemeral-ui-173616' in the workspace header)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only request; register/login/lockout probed only as support)", "frontend": "94% (15/16 verified; scrim-testid centre click is the only failing assertion)"},
+  "seed_data_creation": "Created and then fully deleted 3 ephemeral accounts (ephemeral-adv-15e8ef9e@example.com, ephemeral-ref-65dc8b22@example.com, ephemeral-ui-173616@example.com) plus their advertiser/referral profiles. login_failures collection cleared. No persistent test data left; admin@trel.com.pg login re-verified 200 afterwards.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@trel.com.pg / Admin@123 (STAFF). Ephemeral advertiser/referral accounts were deleted — create new ones via POST /api/auth/register when needed.",
+  "context_for_next_testing_agent": "Popup regression is fixed and verified end to end; no standalone 'TRELPNG sign in' or /register page renders anywhere. Node/npx Playwright CLI is NOT installed in this container, so e2e/h01-authoritative.spec.js and e2e/popup-authoritative.spec.js could not be executed directly — all assertions were re-implemented through the browser automation tool instead. Remaining open items are the advertiser property-list data leak (GET /api/properties unscoped) and the proxy-IP brute-force keying. Remember lockout counters are per (email, ingress pod IP): clear db.login_failures before login-heavy runs.",
+  "rca_of_the_issue": "Advertiser data leak: pages/account/Workspaces.jsx renders the admin Properties module, which fetches GET /api/properties with status='' and no owner filter; the backend does not restrict the collection by the caller's advertiser id for role=property_advertiser, so every advertiser sees the global property set. Lockout weakness: core/login_guard keys on request.client.host, which is the ingress pod address behind the preview proxy, so failures fan out across pods and the 5-attempt window is never reached in order."
+}

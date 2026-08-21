@@ -65,7 +65,7 @@ test("H01 header and footer preserve the authoritative order, wording and live d
   for (const [label, href] of [
     ["Home", "/"], ["Buy", "/buy"], ["Rent", "/rent"], ["Property Wanted", "/wanted"],
     ["Property Management", "/management"], ["Corporate Services", "/corporate"],
-    ["Add Property", "/advertiser"], ["Log In", "/admin/login"], ["Register", "/register"],
+    ["Add Property", "/add-property"], ["Log In", "/add-property?auth=login"], ["Register", "/add-property?auth=register"],
     ["About", "/about"], ["Contact", "/contact"],
   ]) await expect(header.getByRole("link", { name: label, exact: true })).toHaveAttribute("href", href);
   await expect(page.getByTestId("header-phone")).toHaveAttribute("href", "tel:+67576281552");
@@ -95,5 +95,6 @@ test("H01 live property area expands to twelve listings and all principal action
 
   await page.goto("/");
   await page.getByTestId("nav-add-property").click();
-  await expect(page).toHaveURL(/\/admin\/login$/);
+  await expect(page).toHaveURL(/\/add-property/);
+  await expect(page.getByTestId("account-access-dialog")).toBeVisible();
 });

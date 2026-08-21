@@ -1,0 +1,21 @@
+const { chromium } = require("playwright");
+(async () => {
+  const b = await chromium.launch();
+  const p = await b.newPage();
+  p.on("console", (m) => console.log(`[${m.type()}]`, m.text().substring(0, 200)));
+  p.on("pageerror", (e) => console.log("[pageerror]", e.message.substring(0, 200)));
+  await p.route("**/api/**", (r) => r.fulfill({ status: 200, body: "[]", contentType: "application/json" }));
+  await p.goto("http://127.0.0.1:3000/add-property?auth=login", { waitUntil: "domcontentloaded", timeout: 15000 });
+  await p.waitForTimeout(1500);
+  console.log("dialogs before:", await p.locator('[data-testid="account-access-dialog"]').count());
+  console.log("close btns:", await p.locator('[data-testid="account-access-close"]').count());
+  await p.locator('[data-testid="account-access-close"]').click();
+  await p.waitForTimeout(1500);
+  console.log("dialogs after:", await p.locator('[data-testid="account-access-dialog"]').count());
+  console.log("URL:", p.url());
+  const authgate = await p.locator('[data-testid="add-property-authgate"]').count();
+  console.log("authgate:", authgate);
+  const reopen = await p.locator('[data-testid="reopen-popup"]').count();
+  console.log("reopen btn:", reopen);
+  await b.close();
+})();

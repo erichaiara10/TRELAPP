@@ -52,7 +52,11 @@ def _validate_advertiser_relationship(category: str, relationship: str | None) -
 @router.post("/auth/login")
 async def login(payload: LoginIn, request: Request, response: Response):
     email = payload.email.lower().strip()
-    ip = request.client.host if request.client else None
+    # Behind the k8s ingress, request.client.host is the proxy pod. Prefer the
+    # left-most entry in X-Forwarded-For so per-IP counters actually track the
+    # real caller. The email-wide counter in login_guard is the belt-and-braces.
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
     if await is_locked(email, ip):
         raise HTTPException(429, "Too many login attempts. Try again later.")
     user = await db.users.find_one({"email": email})
@@ -101,7 +105,7 @@ async def public_register(payload: PublicRegisterIn):
             "id": new_id(), "user_id": user["id"], "status": "ACTIVE",
             "created_at": now_iso(), "updated_at": now_iso(),
         })
-    return {"ok": True, "account_category": payload.account_category, "login_path": "/admin/login"}
+    return {"ok": True, "account_category": payload.account_category, "login_path": "/add-property?auth=login"}
 
 
 @router.get("/auth/me")

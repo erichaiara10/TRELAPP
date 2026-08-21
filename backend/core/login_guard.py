@@ -31,9 +31,19 @@ def _key(email: str, ip: Optional[str]) -> dict:
 
 
 async def is_locked(email: str, ip: Optional[str]) -> bool:
-    filt = {**_key(email, ip), "occurred_at": {"$gte": _window_start().isoformat()}}
-    count = await db.login_failures.count_documents(filt)
-    return count >= MAX_ATTEMPTS
+    """Locked if EITHER the (email, ip) key OR the email-alone counter exceeds threshold.
+
+    Behind a k8s ingress the caller IP rotates across proxy pods, so keying
+    only on IP defeats the guard. We therefore also enforce an email-wide
+    counter so no single account can be brute-forced regardless of which pod
+    fielded each attempt.
+    """
+    window = _window_start().isoformat()
+    by_ip = await db.login_failures.count_documents({**_key(email, ip), "occurred_at": {"$gte": window}})
+    if by_ip >= MAX_ATTEMPTS:
+        return True
+    by_email = await db.login_failures.count_documents({"email": (email or "").lower().strip(), "occurred_at": {"$gte": window}})
+    return by_email >= MAX_ATTEMPTS
 
 
 async def record_failure(email: str, ip: Optional[str]) -> None:
@@ -42,4 +52,5 @@ async def record_failure(email: str, ip: Optional[str]) -> None:
 
 
 async def reset(email: str, ip: Optional[str]) -> None:
-    await db.login_failures.delete_many(_key(email, ip))
+    # Reset the whole email counter — success from any pod clears every pod's tally.
+    await db.login_failures.delete_many({"email": (email or "").lower().strip()})
