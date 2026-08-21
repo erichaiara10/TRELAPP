@@ -63,12 +63,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: yarn
-          cache-dependency-path: backend/frontend/yarn.lock
 
       - name: Install frontend dependencies
         working-directory: backend/frontend
-        run: yarn install --frozen-lockfile --non-interactive
+        run: |\n          corepack enable\n          yarn install --non-interactive
 
       - name: Build frontend
         working-directory: backend/frontend
