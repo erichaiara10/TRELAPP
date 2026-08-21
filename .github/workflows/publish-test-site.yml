@@ -1,0 +1,119 @@
+name: Publish Test Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Enter PUBLISH_TRELWEB_TEST
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trelweb-test-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate-build-deploy:
+    name: Validate, build and publish trelweb-test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    environment: fly-test
+    env:
+      TEST_APP_NAME: trelweb-test
+      TEST_URL: https://trelweb-test.fly.dev
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+
+    steps:
+      - name: Check confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_CONFIRMATION" != "PUBLISH_TRELWEB_TEST" ]; then
+            echo "Test deployment blocked: confirmation text did not match." >&2
+            exit 1
+          fi
+
+      - name: Check out selected workflow branch
+        uses: actions/checkout@v4
+
+      - name: Guard production from test workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f fly.test.toml
+          grep -Eq '^app = "trelweb-test"$' fly.test.toml
+          if grep -Eq '^app = "trelweb"$' fly.test.toml; then
+            echo "Test deployment blocked: production Fly app detected." >&2
+            exit 1
+          fi
+          grep -Eq '^  DB_NAME = "trel_test"$' fly.test.toml
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile backend
+        working-directory: backend
+        shell: bash
+        run: python -m compileall -q .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        working-directory: backend/frontend
+        run: |
+          corepack enable
+          yarn install --non-interactive
+
+      - name: Build frontend
+        working-directory: backend/frontend
+        env:
+          CI: "false"
+        run: yarn build
+
+      - name: Install Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Publish test site
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: >-
+          flyctl deploy
+          --config fly.test.toml
+          --app "$TEST_APP_NAME"
+          --remote-only
+          --ha=false
+
+      - name: Verify deployed API and homepage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error "$TEST_URL/api/" | grep -q '"ok":true'; then
+              curl --fail --silent --show-error --output /dev/null "$TEST_URL/"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Test site did not become healthy in time." >&2
+          exit 1
+
+      - name: Publish deployment summary
+        if: always()
+        shell: bash
+        run: |
+          deployed_commit="$(git rev-parse HEAD 2>/dev/null || echo unavailable)"
+          {
+            echo "## TRELPNG test-site deployment"
+            echo ""
+            echo "- Source branch: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`$deployed_commit\`"
+            echo "- Target: [trelweb-test.fly.dev]($TEST_URL)"
+            echo "- Production app \`trelweb\` was not targeted."
+          } >> "$GITHUB_STEP_SUMMARY"
