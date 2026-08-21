@@ -1,8 +1,8 @@
 # TRELPNG Fly.io test environment
 
-This environment publishes a selected Git branch or commit to a separate Fly
-application. It does not deploy to the production Fly app or use the production
-database.
+This environment publishes the branch selected in GitHub Actions to a separate
+Fly application. It does not deploy to the production Fly app or use the
+production database.
 
 ## Separation rules
 
@@ -58,7 +58,7 @@ Use a separate R2 test bucket. Do not reuse the production bucket.
 1. Open the repository's **Actions** page.
 2. Select **Publish Test Site**.
 3. Select **Run workflow**.
-4. Enter the branch name or exact commit in `source_ref`.
+4. Select the approved branch in GitHub's **Use workflow from** control.
 5. Enter `PUBLISH_TRELWEB_TEST` in the confirmation field.
 6. Run the workflow and open the URL shown in its summary.
 
@@ -69,6 +69,8 @@ both `/api/` and `/` on the test site.
 ## Safety gates
 
 - Deployment is manual only.
+- The Fly token is exposed only to the deploy step, never to dependency install
+  or application build steps.
 - The workflow checks that `fly.test.toml` names `trelweb-test`, not `trelweb`.
 - The workflow checks that the configured database name is `trel_test`.
 - Deployments are serialized so two test releases cannot overlap.
