@@ -88,6 +88,7 @@ jobs:
           --config fly.test.toml
           --app "$TEST_APP_NAME"
           --remote-only
+          --ha=false
 
       - name: Verify deployed API and homepage
         shell: bash
