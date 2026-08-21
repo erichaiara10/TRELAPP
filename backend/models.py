@@ -10,6 +10,7 @@ from core.db import new_id, now_iso
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+    turnstile_token: Optional[str] = None
 
 
 class UserCreate(BaseModel):

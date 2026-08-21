@@ -90,7 +90,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
           </Route>
-          <Route path="/advertiser" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
+          <Route path="/advertiser" element={<Protected><AdvertiserWorkspace /></Protected>} />
           <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

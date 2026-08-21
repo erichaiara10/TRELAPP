@@ -96,5 +96,6 @@ test("H01 live property area expands to twelve listings and all principal action
   await page.goto("/");
   await page.getByTestId("nav-add-property").click();
   await expect(page).toHaveURL(/\/add-property/);
-  await expect(page.getByTestId("account-access-dialog")).toBeVisible();
+  // + Add Property now lands on the P01 selector (Sell/Rent → Service → Relationship).
+  await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
 });

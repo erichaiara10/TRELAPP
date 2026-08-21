@@ -14,9 +14,9 @@ export function AuthProvider({ children }) {
       .catch(() => { localStorage.removeItem("png_token"); setUser(false); });
   }, []);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, turnstile_token) => {
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", { email, password, turnstile_token });
       localStorage.setItem("png_token", data.token);
       const user = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path };
       setUser(user);

@@ -11,6 +11,7 @@ from core.security import (
     create_access_token, get_current_user, hash_password,
     require_roles, verify_password,
 )
+from core.turnstile import verify_turnstile
 from models import LoginIn, PasswordUpdate, UserCreate, UserUpdate
 
 router = APIRouter()
@@ -25,6 +26,7 @@ class PublicRegisterIn(BaseModel):
     advertiser_relationship_type: Optional[Literal[
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]] = None
+    turnstile_token: Optional[str] = None
 
 STAFF_ROLES = {
     "system_admin", "managing_director", "sales_manager", "sales_agent",
@@ -52,11 +54,11 @@ def _validate_advertiser_relationship(category: str, relationship: str | None) -
 @router.post("/auth/login")
 async def login(payload: LoginIn, request: Request, response: Response):
     email = payload.email.lower().strip()
-    # Behind the k8s ingress, request.client.host is the proxy pod. Prefer the
-    # left-most entry in X-Forwarded-For so per-IP counters actually track the
-    # real caller. The email-wide counter in login_guard is the belt-and-braces.
     fwd = request.headers.get("x-forwarded-for", "")
     ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
+    # Cloudflare Turnstile — passing is enforced when TURNSTILE_SECRET_KEY is set.
+    if not await verify_turnstile(getattr(payload, "turnstile_token", None), ip):
+        raise HTTPException(400, "Human verification failed. Please retry the check.")
     if await is_locked(email, ip):
         raise HTTPException(429, "Too many login attempts. Try again later.")
     user = await db.users.find_one({"email": email})
@@ -81,7 +83,11 @@ async def logout(response: Response):
 
 
 @router.post("/auth/register", status_code=201)
-async def public_register(payload: PublicRegisterIn):
+async def public_register(payload: PublicRegisterIn, request: Request):
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
+    if not await verify_turnstile(payload.turnstile_token, ip):
+        raise HTTPException(400, "Human verification failed. Please retry the check.")
     """Self-registration for the two approved external account categories only."""
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):

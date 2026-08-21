@@ -323,7 +323,16 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - P2 — Namespace P3 `master_properties` writes vs the market pipeline's pre-existing 493 docs (schema collision).
 - P2 — Test hygiene: refactor 24 legacy pytest failures (test_lead_convert, test_locations, test_map_coords, test_iter24) to use the P3 canonical payload.
 
-## What's Been Implemented (Aug 20, 2026 — iter-29)
+## What's Been Implemented (Aug 21, 2026 — Advertiser Data Fix)
+### Account Category Backfill + Security Hardening
+- **Security fallback** — `core/account_policy.account_category()` now returns a new `GUEST` category (workspace `/`) for users missing `account_category` instead of silently defaulting to `STAFF`. `workspace_path` gained a safe `GUEST → "/"` mapping and `require_property_writer` now emits an accurate 403 message for GUEST accounts. Verified 403 from `/api/users` for a guest-category account.
+- **Backfill migration** — new idempotent script `backend/migrations/backfill_account_categories.py` (run via `python -m migrations.backfill_account_categories`) sets `account_category` for every user based on role (staff-family → STAFF, property_advertiser → PROPERTY_ADVERTISER, referral_partner → REFERRAL_PARTNER), backfills missing `status: "ACTIVE"`, and ensures every PROPERTY_ADVERTISER user has an `advertiser_profiles` document. First run: 34 users categorised, 35 statuses set, 29 profiles created. Second run: 0 changes (idempotent confirmed).
+- **Provisioning** — `POST /api/auth/register` and admin `POST /api/users` already emit `account_category` + `advertiser_profiles` for new PROPERTY_ADVERTISER accounts (no code change needed once fallback is `GUEST` instead of `STAFF`).
+- **Test account verified** — `advertiser.20260819.002523@example.com` (password `Password@123`) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document, so it can proceed straight into the P01 Add Property flow.
+- **AccountAccessDialog** — `destinationFor()` updated so unknown/GUEST categories no longer fall back to `/admin`.
+- **Regression** — 9/9 turnstile tests passing. Pre-existing brute-force/CORS/property-count test failures documented in backlog (unrelated to this fix).
+
+
 ### P3 Integration Hardening
 - **IntegratedPropertyService._txn() topology probe** — detects standalone/replica-set/sharded MongoDB via `hello` command; falls back to sequential non-transactional writes on standalone. Result logged at startup as `MongoDB topology: STANDALONE|REPLICA_SET|SHARDED`.
 - **PropertyCreate + Property `tenure_type` validator** — `@field_validator(mode='before')` coerces `""` → `None` so the admin Add Property modal's "Not specified" option no longer throws 422.

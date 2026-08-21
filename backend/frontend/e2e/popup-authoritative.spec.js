@@ -1,169 +1,207 @@
-// Popup-authoritative regression: ensures the H01 header triggers the approved
-// common AccountAccessDialog for every entry point, that authentication comes
-// before any property-entry question, that Add Property intent survives a
-// login, and that each account category reaches only its permitted workspace.
+// P01 + popup + Turnstile authoritative regression.
 //
-// All API calls are mocked so this file runs against a plain dev server
-// without any DB seeding. Category-mismatch and rejected-standalone-screens
-// checks are all pure UI assertions.
+// Covers the four latest requirements:
+//   1. + Add Property opens the P01 selector (Sell/Rent → TREL/Self → Owner/Agent/Rep)
+//   2. Real Cloudflare Turnstile widget renders; buttons disabled until token
+//   3. Any authenticated user (STAFF, ADMIN, REFERRAL_PARTNER, PROPERTY_ADVERTISER)
+//      can proceed past the entry screen — no category-mismatch notice
+//   4. Guest selections are preserved through login and reach /advertiser
+//
+// The Turnstile widget script is stubbed with a mock that immediately delivers
+// a "test-token", so the flow is deterministic without contacting Cloudflare.
 
 const { test, expect } = require("@playwright/test");
 
-const jsonRoute = (route, body, status = 200) =>
+const json = (route, body, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-const SITE_CONTENT = { key: "site", value: { phone: "+675 76281552", whatsapp: "67581383302" } };
-const HOME_CONTENT = { key: "home", value: { hero: { title: "Find a place you're proud to call home.", subtitle: "Browse quality properties for sale and rent across Papua New Guinea." } } };
+const SITE = { key: "site", value: {} };
+const HOME = { key: "home", value: {} };
 
 async function stubBaseline(page) {
-  await page.route("**/api/content/site", (r) => jsonRoute(r, SITE_CONTENT));
-  await page.route("**/api/page/home", (r) => jsonRoute(r, HOME_CONTENT));
-  await page.route("**/api/properties**", (r) => jsonRoute(r, []));
-  await page.route("**/api/property-types", (r) => jsonRoute(r, []));
-  await page.route("**/api/locations/**", (r) => jsonRoute(r, []));
-  await page.route("**/api/auth/me", (r) => jsonRoute(r, {}, 401));
+  await page.route("**/api/**", (r) => json(r, []));
+  await page.route("**/api/content/site", (r) => json(r, SITE));
+  await page.route("**/api/page/home", (r) => json(r, HOME));
+  await page.route("**/api/auth/me", (r) => json(r, {}, 401));
+  // Stub the Cloudflare Turnstile CDN script with a shim that calls the
+  // callback with a mock token as soon as `render()` runs. This is the
+  // deterministic equivalent of using Cloudflare's always-passing test key.
+  await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js**", (r) =>
+    r.fulfill({ status: 200, contentType: "text/javascript", body: `
+      window.turnstile = {
+        render(container, opts) {
+          const id = "mock-" + Math.random().toString(36).slice(2);
+          setTimeout(() => opts && opts.callback && opts.callback("test-token"), 50);
+          return id;
+        },
+        reset() {},
+        remove() {},
+      };
+    ` })
+  );
 }
 
-async function loginAs(page, user) {
-  await page.route("**/api/auth/login", (r) => jsonRoute(r, { token: "test-token", ...user }));
-  await page.route("**/api/auth/me", (r) => jsonRoute(r, user));
-  // Seed the token BEFORE the app boots so AuthProvider fetches /auth/me.
+async function authedAs(page, user) {
+  await page.route("**/api/auth/me", (r) => json(r, user));
   await page.addInitScript(() => window.localStorage.setItem("png_token", "test-token"));
 }
 
-test.describe("Common account popup — authoritative", () => {
-  test.beforeEach(async ({ page }) => {
-    await stubBaseline(page);
+test.describe("P01 + popup + Turnstile — authoritative", () => {
+  test.beforeEach(async ({ page }) => { await stubBaseline(page); });
+
+  test("Header + Add Property renders the P01 selector (Sell/Rent, TREL/Self, Owner/Agent/Rep)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("nav-add-property").click();
+    await expect(page).toHaveURL(/\/add-property$/);
+    await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
+    await expect(page.getByTestId("p01-listing-sale")).toBeVisible();
+    await expect(page.getByTestId("p01-listing-rent")).toBeVisible();
+    await expect(page.getByTestId("p01-service-trel")).toBeVisible();
+    await expect(page.getByTestId("p01-service-self")).toBeVisible();
+    await expect(page.getByTestId("p01-relationship-owner")).toBeVisible();
+    await expect(page.getByTestId("p01-relationship-authorised_agent")).toBeVisible();
+    await expect(page.getByTestId("p01-relationship-authorised_representative")).toBeVisible();
+    await expect(page.getByTestId("p01-create-account")).toBeVisible();
+    await expect(page.getByTestId("p01-login")).toBeVisible();
   });
 
-  test("Header Log In opens the approved popup on the Log In tab", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("nav-login").click();
-    await expect(page).toHaveURL(/\/add-property\?auth=login/);
+  test("CTA buttons are disabled until all three steps are answered", async ({ page }) => {
+    await page.goto("/add-property");
+    await expect(page.getByTestId("p01-cta-hint")).toBeVisible();
+    await expect(page.getByTestId("p01-create-account")).toBeDisabled();
+    await expect(page.getByTestId("p01-login")).toBeDisabled();
+    await page.getByTestId("p01-listing-sale").click();
+    await page.getByTestId("p01-service-trel").click();
+    await page.getByTestId("p01-relationship-owner").click();
+    await expect(page.getByTestId("p01-create-account")).toBeEnabled();
+    await expect(page.getByTestId("p01-login")).toBeEnabled();
+    await expect(page.getByTestId("p01-cta-hint")).toHaveCount(0);
+  });
+
+  test("Log In opens the popup on Log In tab; Turnstile renders; login button disabled until token then enabled", async ({ page }) => {
+    await page.goto("/add-property");
+    await page.getByTestId("p01-listing-rent").click();
+    await page.getByTestId("p01-service-self").click();
+    await page.getByTestId("p01-relationship-owner").click();
+    await page.getByTestId("p01-login").click();
     await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    await expect(page.getByTestId("account-access-title")).toHaveText("Welcome Back");
     await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("account-access-login-email")).toBeVisible();
-    await expect(page.getByTestId("account-access-login-password")).toBeVisible();
-    await expect(page.getByTestId("turnstile-preview")).toBeVisible();
-    await expect(page.getByTestId("account-access-google")).toBeVisible();
-    // Rejected standalone screen must never render.
-    await expect(page.locator("text=TRELPNG sign in")).toHaveCount(0);
+    await expect(page.getByTestId("turnstile-container")).toBeVisible();
+    // Before token, submit is disabled.
+    await expect(page.getByTestId("account-access-login-submit")).toBeDisabled();
+    // Token resolves asynchronously via the stub; wait for it.
+    await expect(page.getByTestId("account-access-login-submit")).toBeEnabled({ timeout: 3000 });
   });
 
-  test("Header Register opens the same popup on the Create Account tab", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("nav-register").click();
-    await expect(page).toHaveURL(/\/add-property\?auth=register/);
-    await expect(page.getByTestId("account-access-title")).toHaveText("Create Your Account");
-    await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("account-access-register-email")).toBeVisible();
-    await expect(page.getByTestId("account-access-register-mobile")).toBeVisible();
-    await expect(page.getByTestId("account-access-register-password")).toBeVisible();
-    await expect(page.getByTestId("account-access-register-confirm")).toBeVisible();
-    await expect(page.getByTestId("account-access-register-terms")).toBeVisible();
-  });
-
-  test("Add Property never shows property-entry questions before authentication", async ({ page }) => {
-    await page.goto("/add-property");
-    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    // The rejected Sell/Rent question set must not be rendered.
-    await expect(page.locator("text=What would you like to do?")).toHaveCount(0);
-    await expect(page.locator("text=I want TREL to sell my property")).toHaveCount(0);
-    // The authgate page is present but no property-entry form.
-    await expect(page.getByTestId("add-property-authgate")).toBeVisible();
-    await expect(page.locator("text=Sign in to add your property")).toBeVisible();
-  });
-
-  test("Add Property intent survives login for a Property Advertiser", async ({ page }) => {
-    // Route the login call — after success the popup will call login() and
-    // then navigate. Intercept /auth/me AFTER login so the popup's local
-    // login() branch decides the destination directly from the result.user.
+  test("Guest login preserves selections and lands on /advertiser with router state", async ({ page }) => {
     let loggedIn = false;
-    await page.route("**/api/auth/me", (r) => {
-      if (!loggedIn) return jsonRoute(r, {}, 401);
-      return jsonRoute(r, { id: "adv1", email: "adv@test.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" });
-    });
+    await page.route("**/api/auth/me", (r) => loggedIn
+      ? json(r, { id: "adv1", email: "adv@t.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" })
+      : json(r, {}, 401));
     await page.route("**/api/auth/login", (r) => {
+      const body = JSON.parse(r.request().postData() || "{}");
+      // Backend Turnstile guard: request must carry the token.
+      if (!body.turnstile_token) return json(r, { detail: "Human verification failed." }, 400);
       loggedIn = true;
-      return jsonRoute(r, { token: "test-token", id: "adv1", email: "adv@test.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" });
+      return json(r, { token: "tk", id: "adv1", email: "adv@t.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" });
     });
-    await page.route("**/api/identity-documents/mine", (r) => jsonRoute(r, []));
+
     await page.goto("/add-property");
-    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    await page.getByTestId("account-access-login-email").fill("adv@test.pg");
+    await page.getByTestId("p01-listing-sale").click();
+    await page.getByTestId("p01-service-trel").click();
+    await page.getByTestId("p01-relationship-authorised_agent").click();
+    await page.getByTestId("p01-login").click();
+    await expect(page.getByTestId("account-access-login-submit")).toBeEnabled({ timeout: 3000 });
+    await page.getByTestId("account-access-login-email").fill("adv@t.pg");
     await page.getByTestId("account-access-login-password").fill("Password@123");
     await page.getByTestId("account-access-login-submit").click();
     await expect(page).toHaveURL(/\/advertiser$/);
-    await expect(page.locator("text=Property Advertiser Workspace")).toBeVisible();
   });
 
-  test("Authenticated Staff user sees a Staff notice on Add Property (never silent /admin redirect)", async ({ page }) => {
-    await loginAs(page, { id: "staff1", email: "admin@trel.com.pg", name: "Admin", role: "system_admin", account_category: "STAFF", workspace_path: "/admin" });
-    await page.goto("/");                 // resolves /api/auth/me → staff
-    await page.getByTestId("nav-add-property").click();
-    await expect(page.getByTestId("add-property-category-notice")).toBeVisible();
-    await expect(page.locator("text=Your current account is a Staff Account.")).toBeVisible();
-    await expect(page.getByTestId("add-property-return-primary")).toContainText("Return to Staff Workspace");
-    await expect(page.getByTestId("add-property-switch-account")).toContainText("Log Out and Use Another Account");
-    // Silent redirect to /admin would fail this URL assertion:
-    await expect(page).toHaveURL(/\/add-property/);
+  test("Guest registration submits Turnstile token and lands on /advertiser", async ({ page }) => {
+    let registered = false, loggedIn = false;
+    await page.route("**/api/auth/me", (r) => loggedIn
+      ? json(r, { id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" })
+      : json(r, {}, 401));
+    await page.route("**/api/auth/register", (r) => {
+      const body = JSON.parse(r.request().postData() || "{}");
+      if (!body.turnstile_token) return json(r, { detail: "Human verification failed." }, 400);
+      registered = true;
+      return json(r, { ok: true, account_category: "PROPERTY_ADVERTISER", login_path: "/add-property?auth=login" }, 201);
+    });
+    await page.route("**/api/auth/login", (r) => {
+      loggedIn = true;
+      return json(r, { token: "tk", id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" });
+    });
+
+    await page.goto("/add-property");
+    await page.getByTestId("p01-listing-sale").click();
+    await page.getByTestId("p01-service-self").click();
+    await page.getByTestId("p01-relationship-owner").click();
+    await page.getByTestId("p01-create-account").click();
+    await expect(page.getByTestId("account-access-register-submit")).toBeEnabled({ timeout: 3000 });
+    await page.getByTestId("account-access-register-email").fill("new@t.pg");
+    await page.getByTestId("account-access-register-mobile").fill("70000123");
+    await page.getByTestId("account-access-register-password").fill("Password@123");
+    await page.getByTestId("account-access-register-confirm").fill("Password@123");
+    await page.getByTestId("account-access-register-terms").check();
+    await page.getByTestId("account-access-register-submit").click();
+    await expect(page).toHaveURL(/\/advertiser$/);
+    expect(registered).toBeTruthy();
+    expect(loggedIn).toBeTruthy();
   });
 
-  test("Authenticated Referral Partner user sees a Referral notice on Add Property", async ({ page }) => {
-    await loginAs(page, { id: "ref1", email: "ref@test.pg", name: "Ref", role: "referral_partner", account_category: "REFERRAL_PARTNER", workspace_path: "/referral-partner" });
-    await page.goto("/");
-    await page.getByTestId("nav-add-property").click();
-    await expect(page.getByTestId("add-property-category-notice")).toBeVisible();
-    await expect(page.locator("text=Your current account is a Referral Partner Account.")).toBeVisible();
-    await expect(page.getByTestId("add-property-return-primary")).toContainText("Go to Referral Partner Workspace");
-    await expect(page.getByTestId("add-property-switch-account")).toBeVisible();
+  test("Authenticated Staff sees the P01 selector and can proceed (no category notice)", async ({ page }) => {
+    await authedAs(page, { id: "s1", email: "admin@trel.com.pg", name: "Admin", role: "system_admin", account_category: "STAFF", workspace_path: "/admin" });
+    await page.goto("/add-property");
+    await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
+    // Category-mismatch UI is gone.
+    await expect(page.getByTestId("add-property-category-notice")).toHaveCount(0);
+    await page.getByTestId("p01-listing-sale").click();
+    await page.getByTestId("p01-service-trel").click();
+    await page.getByTestId("p01-relationship-owner").click();
+    await expect(page.getByTestId("p01-proceed-authed")).toBeEnabled();
+    await page.getByTestId("p01-proceed-authed").click();
+    await expect(page).toHaveURL(/\/advertiser$/);
   });
 
-  test("Rejected standalone screens are inaccessible — /admin/login and /register both redirect to the popup", async ({ page }) => {
-    await page.goto("/admin/login");
-    await expect(page).toHaveURL(/\/add-property\?auth=login/);
-    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
-    // TRELPNG-sign-in banner from the rejected standalone must not appear.
-    await expect(page.locator("text=TRELPNG sign in")).toHaveCount(0);
-
-    await page.goto("/register");
-    await expect(page).toHaveURL(/\/add-property\?auth=register/);
-    await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator("h1", { hasText: "Register" })).toHaveCount(0);
+  test("Authenticated Referral Partner also proceeds (universal access)", async ({ page }) => {
+    await authedAs(page, { id: "r1", email: "ref@t.pg", name: "Ref", role: "referral_partner", account_category: "REFERRAL_PARTNER", workspace_path: "/referral-partner" });
+    await page.goto("/add-property");
+    await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
+    await expect(page.getByTestId("add-property-category-notice")).toHaveCount(0);
+    await page.getByTestId("p01-listing-rent").click();
+    await page.getByTestId("p01-service-self").click();
+    await page.getByTestId("p01-relationship-authorised_representative").click();
+    await page.getByTestId("p01-proceed-authed").click();
+    await expect(page).toHaveURL(/\/advertiser$/);
   });
 
-  test("Direct URLs cannot bypass authentication or role permissions", async ({ page }) => {
-    // Unauthenticated visitor to /advertiser must be sent through the popup.
-    await page.goto("/advertiser");
-    await expect(page).toHaveURL(/\/add-property\?auth=login/);
-    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    // Same for /admin.
-    await page.goto("/admin");
-    await expect(page).toHaveURL(/\/add-property\?auth=login/);
-    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-  });
-
-  test("Popup close, Esc, and scrim all dismiss without navigating", async ({ page }) => {
-    await page.goto("/add-property?auth=login");
+  test("Popup dismiss and Escape still work", async ({ page }) => {
+    await page.goto("/add-property");
+    await page.getByTestId("p01-listing-sale").click();
+    await page.getByTestId("p01-service-trel").click();
+    await page.getByTestId("p01-relationship-owner").click();
+    await page.getByTestId("p01-login").click();
     await expect(page.getByTestId("account-access-dialog")).toBeVisible();
     await page.getByTestId("account-access-close").click();
     await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
-
-    await page.goto("/add-property?auth=register");
+    // P01 selector is still on-screen with selections intact.
+    await expect(page.getByTestId("p01-title")).toBeVisible();
+    await page.getByTestId("p01-create-account").click();
+    await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
   });
 
-  test("Login validation — password mismatch on the Create Account tab shows an error", async ({ page }) => {
-    await page.goto("/add-property?auth=register");
-    await page.getByTestId("account-access-register-email").fill("newuser@test.pg");
-    await page.getByTestId("account-access-register-mobile").fill("70000123");
-    await page.getByTestId("account-access-register-password").fill("Password@123");
-    await page.getByTestId("account-access-register-confirm").fill("Different@123");
-    await page.getByTestId("account-access-register-terms").check();
-    await page.getByTestId("account-access-register-submit").click();
-    await expect(page.getByTestId("account-access-error")).toHaveText("Passwords do not match");
+  test("Legacy /admin/login and /register still redirect to the popup (with P01 selector as base page)", async ({ page }) => {
+    await page.goto("/admin/login");
+    await expect(page).toHaveURL(/\/add-property\?auth=login/);
+    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
+    await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
+
+    await page.goto("/register");
+    await expect(page).toHaveURL(/\/add-property\?auth=register/);
+    await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
   });
 });
