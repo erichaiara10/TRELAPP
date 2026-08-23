@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { Search, MapPin, Home as HomeIcon, Bed, Bath, Car, Ruler, Users, ArrowRight, RefreshCw } from "lucide-react";
 import { api, money } from "@/lib/api";
+import PriceCompareButton from "@/components/PriceCompareButton";
 
 const H01_HERO = "/images/h01-authoritative-hero.png";
 const FALLBACK_PROPERTY = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
@@ -26,7 +27,14 @@ function ListingCard({ property }) {
     </Link>
     <div className="px-4 pb-4 grid grid-cols-2 gap-3">
       <Link to={`/property/${property.id}`} className="rounded-lg border border-[#075C36] py-2 text-center text-sm text-[#075C36] font-medium">View Details</Link>
-      <Link to={`/property/${property.id}#price-guidance`} className="rounded-lg py-2 text-center text-sm text-[#075C36] font-medium">Compare Price</Link>
+      <PriceCompareButton
+        property={property}
+        audience="buyer"
+        testIdPrefix={`home-ai-${property.id}`}
+        showIcon={false}
+        buttonClassName="w-full inline-flex items-center justify-center rounded-lg py-2 text-center text-sm text-[#075C36] font-medium hover:bg-emerald-50 transition-colors"
+        buttonStyle={{ backgroundColor: "transparent" }}
+      />
     </div>
   </article>;
 }
