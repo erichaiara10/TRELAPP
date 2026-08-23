@@ -89,9 +89,9 @@ test("H01 live property area expands to twelve listings and all principal action
   await expect(page).toHaveURL(/\/buy\?q=Boroko$/);
 
   await page.goto("/");
-  await page.getByRole("link", { name: "Compare Price", exact: true }).first().click();
-  await expect(page).toHaveURL(/\/property\/p-1#price-guidance$/);
-  await expect(page.getByTestId("detail-ai-price-body")).toBeVisible();
+  await page.getByRole("button", { name: "Compare Price", exact: true }).first().click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("dialog", { name: "Compare Price" })).toBeVisible();
 
   await page.goto("/");
   await page.getByTestId("nav-add-property").click();
