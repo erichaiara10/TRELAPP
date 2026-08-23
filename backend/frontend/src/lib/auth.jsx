@@ -44,7 +44,11 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ user, login, googleLogin, logout }), [user, login, googleLogin, logout]);
+  const updateUser = useCallback((updates) => {
+    setUser((current) => current && ({ ...current, ...updates }));
+  }, []);
+
+  const value = useMemo(() => ({ user, login, googleLogin, logout, updateUser }), [user, login, googleLogin, logout, updateUser]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 

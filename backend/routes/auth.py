@@ -55,6 +55,18 @@ class GoogleAuthIn(BaseModel):
     terms_accepted: bool = False
 
 
+class SelfProfileUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    phone: Optional[str] = Field(default=None, min_length=5, max_length=40)
+    preferred_communication: Optional[Literal["WhatsApp", "Email", "Both"]] = None
+    residential_address: Optional[str] = Field(default=None, max_length=300)
+    business_name: Optional[str] = Field(default=None, max_length=160)
+    ipa_registration_number: Optional[str] = Field(default=None, max_length=80)
+    position: Optional[str] = Field(default=None, max_length=120)
+    business_phone: Optional[str] = Field(default=None, max_length=40)
+    notification_preferences: Optional[dict[str, bool]] = None
+
+
 STAFF_ROLES = {
     "system_admin", "managing_director", "sales_manager", "sales_agent",
     "leasing_agent", "property_manager", "marketing_officer",
@@ -312,7 +324,33 @@ async def reset_password(payload: ResetPasswordIn):
 
 @router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    return {**user, "account_category": account_category(user), "workspace_path": workspace_path(user)}
+    output = {**user, "account_category": account_category(user), "workspace_path": workspace_path(user)}
+    output.pop("password_hash", None)
+    output.pop("_id", None)
+    if account_category(user) == "PROPERTY_ADVERTISER":
+        profile = await db.advertiser_profiles.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+        output["advertiser_profile"] = profile
+        output["identity_documents"] = await db.identity_documents.find(
+            {"user_id": user["id"]}, {"_id": 0}
+        ).sort("created_at", -1).to_list(20)
+    return output
+
+
+@router.put("/auth/me")
+async def update_me(payload: SelfProfileUpdate, user: dict = Depends(get_current_user)):
+    values = payload.model_dump(exclude_none=True)
+    user_updates = {key: values.pop(key) for key in ("name", "phone") if key in values}
+    if user_updates:
+        await db.users.update_one({"id": user["id"]}, {"$set": user_updates})
+    if values and account_category(user) == "PROPERTY_ADVERTISER":
+        await db.advertiser_profiles.update_one(
+            {"user_id": user["id"]},
+            {"$set": {**values, "updated_at": now_iso()},
+             "$setOnInsert": {"id": new_id(), "status": "PENDING", "created_at": now_iso()}},
+            upsert=True,
+        )
+    current = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return await me(current)
 
 
 @router.get("/users")
