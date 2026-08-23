@@ -1,7 +1,7 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 """TREL API — application entry point.
 
@@ -32,6 +32,19 @@ logger = logging.getLogger("trel")
 
 app = FastAPI(title="TREL API")
 api = APIRouter(prefix="/api")
+
+
+@app.middleware("http")
+async def redirect_fly_production_hostname(request: Request, call_next):
+    """Keep trelpng.com as the only public production address."""
+    hostname = request.headers.get("host", "").split(":", 1)[0].lower()
+    if hostname == "trelweb.fly.dev":
+        target = f"https://trelpng.com{request.url.path}"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=target, status_code=308)
+    return await call_next(request)
+
 
 # Mount every route file's router onto the shared /api prefix
 for module in (
