@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Bed, Bath, Car, MapPin, ShieldCheck, BadgeCheck, ExternalLink, Info } from "lucide-react";
 import { money } from "@/lib/api";
-import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceCompareButton from "@/components/PriceCompareButton";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 
 const FALLBACK_IMG = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
@@ -78,27 +78,9 @@ export default function PropertyCard({ p }) {
             <span className="text-2xl font-semibold text-pine-500">{money(p.price, p.currency || "PGK")}</span>
             {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
-          <AIPriceAnalysis
-            property_id={p.id}
-            variant="compact"
-            buyerFacing
+          <PriceCompareButton
+            property={p}
             audience="buyer"
-            property_type={p.property_type}
-            listing_type={p.listing_type}
-            price={p.price}
-            province={p.province}
-            city={p.location}
-            suburb={p.suburb}
-            local_area={p.local_area}
-            bedrooms={p.bedrooms}
-            bathrooms={p.bathrooms}
-            parking={p.parking}
-            land_area_sqm={String(p.property_type || "").toLowerCase().includes("land") ? (p.total_area_ha ? Number(p.total_area_ha) * 10000 : p.area_sqm) : null}
-            building_area_sqm={/(commercial|industrial|office|warehouse|retail)/i.test(p.property_type || "") ? p.area_sqm : null}
-            property_condition={p.property_condition}
-            tenure_type={p.tenure_type}
-            street_name={p.street_name}
-            nearby_landmark={p.nearby_landmark}
             testIdPrefix={`card-ai-${p.id}`}
           />
         </div>
