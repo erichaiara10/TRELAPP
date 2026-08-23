@@ -58,6 +58,8 @@ export default function AddProperty() {
   }, [location.search]);
 
   const selectedService = { listing_type: listingType, service, relationship };
+  const queryParams = new URLSearchParams(location.search);
+  const dialogNext = queryParams.get("auth") ? (queryParams.get("next") || undefined) : "/advertiser";
   const canProceed = Boolean(listingType && service && relationship);
 
   const openPopup = useCallback((tab) => {
@@ -157,7 +159,7 @@ export default function AddProperty() {
       initialTab={dialogTab}
       onClose={() => setDialogOpen(false)}
       selectedService={selectedService}
-      next="/advertiser"
+      next={dialogNext}
     />
   </main>;
 }
