@@ -455,13 +455,21 @@ class RenameIn(BaseModel):
 
 # ---- AI ----
 class PriceAnalysisIn(BaseModel):
+    property_id: Optional[str] = None
     property_type: str
     listing_type: str
     price: float
     province: Optional[str] = None
     city: Optional[str] = None
     suburb: Optional[str] = None
+    local_area: Optional[str] = None
     bedrooms: Optional[int] = None
+    bathrooms: Optional[int] = None
+    parking: Optional[int] = None
+    land_area_sqm: Optional[float] = None
+    building_area_sqm: Optional[float] = None
+    property_condition: Optional[str] = None
+    tenure_type: Optional[str] = None
     street_name: Optional[str] = None
     nearby_landmark: Optional[str] = None
 
