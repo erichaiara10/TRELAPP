@@ -11,7 +11,7 @@ import CsvToolbar from "@/components/admin/CsvToolbar";
 
 const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"draft", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"", district:"", local_area:"", tenure_type:"", title_reference:"", property_type_id:"", province_id:"", city_id:"", suburb_id:"", district_id:"", local_area_id:"", street_id:"", owner_name:"", owner_email:"", owner_phone:"", owner_relationship:"OWNER", authority_status:"PENDING", documents:[], duplicate_override:false };
 
-export default function Properties() {
+export default function Properties({ scope = "all" } = {}) {
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -20,7 +20,11 @@ export default function Properties() {
 
   const validationError = () => validateProperty(modal, isPortionScheme(types, modal?.property_type));
 
-  const load = useCallback(() => api.get("/properties", { params: { status: "" } }).then((r) => setItems(r.data)), []);
+  const load = useCallback(() => {
+    const params = { status: "" };
+    if (scope === "mine") params.mine = true;
+    return api.get("/properties", { params }).then((r) => setItems(r.data));
+  }, [scope]);
   useEffect(() => { load(); }, [load]);
 
   const openNew = () => setModal({ ...EMPTY });

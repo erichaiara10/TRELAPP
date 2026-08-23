@@ -76,6 +76,17 @@ jobs:
           CI: "false"
         run: yarn build
 
+      - name: Install Playwright Chromium
+        working-directory: backend/frontend
+        run: yarn playwright install --with-deps chromium
+
+      - name: Verify H01 and Compare Price browser behaviour
+        working-directory: backend/frontend
+        run: >-
+          yarn playwright test
+          e2e/h01-authoritative.spec.js
+          e2e/compare-price-consistency.spec.js
+
       - name: Install Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master
 

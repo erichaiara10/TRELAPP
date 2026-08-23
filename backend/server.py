@@ -20,7 +20,8 @@ import logging
 from fastapi import APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from core.db import client
+from core.db import client, detect_topology, strict_transactions_required
+from core.login_guard import ensure_indexes as ensure_login_guard_indexes
 from routes import (
     ai, auth, content, csv_io, customers, files, inspections, leads, locations,
     market, matching, properties, property_types, public, referrals, reports, requirements, tasks,
@@ -51,6 +52,20 @@ async def root():
 async def on_startup():
     files.init_storage()
     await run_startup()
+    await ensure_login_guard_indexes()
+    topology = await detect_topology()
+    strict = strict_transactions_required()
+    mode = "TRANSACTIONAL" if topology.get("supports_transactions") else "NON_TRANSACTIONAL_FALLBACK"
+    logger.info(
+        "MongoDB topology=%s set_name=%s write_mode=%s strict=%s",
+        topology.get("kind"), topology.get("set_name"), mode, strict,
+    )
+    if not topology.get("supports_transactions") and strict:
+        raise RuntimeError(
+            f"TREL_MONGO_STRICT_TRANSACTIONS is on (or Atlas URI detected) but "
+            f"MongoDB topology is {topology.get('kind')}. Refusing to start with "
+            f"non-transactional fallback."
+        )
 
 
 @app.on_event("shutdown")
@@ -59,16 +74,33 @@ async def shutdown():
 
 
 app.include_router(api)
+
+
+def _resolved_origins() -> list[str]:
+    raw = os.getenv("TREL_ALLOWED_ORIGINS", "").strip()
+    if not raw:
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+_origins = _resolved_origins()
+_credentialed = _origins != ["*"]
+logger.info("CORS origins=%s allow_credentials=%s", _origins, _credentialed)
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=False,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=_credentialed,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- SERVE FRONTEND STATIC FILES (SAFE FALLBACK) ---
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
 
 if os.path.exists(frontend_path):
-    app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "static")), name="static")
+    _static_dir = os.path.join(frontend_path, "static")
+    if os.path.isdir(_static_dir):
+        app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):

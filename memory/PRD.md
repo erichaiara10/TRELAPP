@@ -305,15 +305,63 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Iteration 19 (Feb 21, 2026): Full regression on Unified AI Price Analysis — 6/6 new AI tests + 100% frontend flow coverage (Sell/Buy/Rent/Detail/Admin/Leads/Maps). No issues.
 
 ## Backlog (deferred to V2)
+- P1 — Backfill 9 legacy `properties` docs into P3 integrated graph (blocked by JSON-schema validator requiring `property_type_id` + `created_by`). Once done, Dashboard KPI and Admin/Public property lists will agree.
 - P1 — Real email provider (Resend/SendGrid) for confirmations
 - P1 — WhatsApp Business API integration (currently `wa.me` deep links)
 - P1 — Communication history — external channels (auto-log outbound email/SMS/WhatsApp once providers wired)
+- P1 — R2 storage env vars (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`) required for file/document uploads (currently blocks D3 upload flows in preview).
 - P2 — Advanced reporting (revenue, agent performance, conversion funnel)
 - P2 — Data export (CSV/Excel)
 - P2 — Audit log UI (records currently written to Mongo but no UI yet)
 - P2 — SEO metadata per property, search-friendly URLs
 - P2 — Mobile app, tenant/owner portals, online rent payment (explicitly out-of-scope in V1)
-- P2 — Test hygiene: update `/app/backend/tests/backend_test.py` stale admin creds (`admin@pngrealty.pg` → `admin@trel.com.pg`); make `test_lead_convert.py` / `test_locations.py` use `os.environ.get(...)` at import time; add `total_area_ha` to sale-property fixtures in `test_lead_convert.py`, `test_iter24_lock_and_legal.py`, `test_map_coords.py`
+- P2 — Login brute-force lockout (429/423 after 5 failures) + CORS explicit origins with `allow_credentials=True` for httpOnly cookie auth.
+- P2 — Compensating cleanup in `IntegratedPropertyService._txn()` non-transactional fallback (track inserted ids and rollback on partial failure).
+- P2 — Home Featured strip: distinguish "loading" vs "empty" states (currently shows `Loading properties…` forever when list is empty). Add empty-state banner to Admin Properties table.
+- P2 — Fix `<span>` inside `<option>` DOM nesting warning on `/admin/matching`.
+- P2 — Move Property Type management chips out of the "Add Property" modal (moving into Locations-style settings screen).
+- P2 — Namespace P3 `master_properties` writes vs the market pipeline's pre-existing 493 docs (schema collision).
+- P2 — Test hygiene: refactor 24 legacy pytest failures (test_lead_convert, test_locations, test_map_coords, test_iter24) to use the P3 canonical payload.
+
+## What's Been Implemented (Aug 21, 2026 — Advertiser Data Fix + Scoping + Legacy Backfill + Verified Badge)
+### 1. Account Category Backfill + Security Hardening (earlier this session)
+- **Security fallback** — `core/account_policy.account_category()` now returns a new `GUEST` category (workspace `/`) for users missing `account_category` instead of silently defaulting to `STAFF`. `workspace_path` gained a safe `GUEST → "/"` mapping and `require_property_writer` now emits an accurate 403 message for GUEST accounts. Verified 403 from `/api/users` for a guest-category account.
+- **Backfill migration** — new idempotent script `backend/migrations/backfill_account_categories.py`. First run: 34 users categorised, 35 statuses set, 29 profiles created. Re-runs are 0-change.
+- **Test account verified** — `advertiser.20260819.002523@example.com` (password `Password@123`) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document.
+
+### 2. Advertiser Workspace Scoping
+- Added `mine` filter to `PropertyFilters` and a new `get_optional_user` helper. `GET /api/properties?mine=true` now:
+  - 401 for anonymous callers
+  - Returns everything for STAFF (admins keep their existing view)
+  - Restricts to `master_properties.created_by == user.id` for Property Advertisers
+- Frontend: `Properties` component accepts a `scope` prop; `AdvertiserWorkspace` renders `<Properties scope="mine" />`.
+- Verified: admin sees 35, advertiser sees only their own creation (0 baseline, 1 after creating a listing).
+
+### 3. Matching Page DOM Fix
+- `pages/admin/Matching.jsx` — collapsed the mapped `<option>` children into a single interpolated string so React never fabricates multiple children (or a `<span>`) inside `<option>`.
+
+### 4. Legacy Property Backfill Applied
+- Executed `python -m migrations.legacy_backfill_v2 --mode apply --confirmation BACKFILL_P3_V2` — 8/9 legacy properties migrated into the P3 integrated graph (`master_properties`, `property_addresses`, `property_parcels`, `property_attributes`, `listings`, `listing_prices`). The 9th (`house`) is INCOMPLETE (`PRICE_INVALID`) and intentionally skipped. Re-runs are idempotent (still 8 MIGRATED, 1 INCOMPLETE).
+- Migration hardening:
+  - `_classify()` now defaults `UNKNOWN` → `URBAN_LOT_SECTION` (P3 enum-safe).
+  - New `_ensure_location_ids()` auto-provisions missing suburbs (or an `"Unknown suburb — <city>"` placeholder) so the address/parcel FKs are valid.
+  - `property_parcels` now populates the required `province_id` (plus city_id/suburb_id/district_id/street_id).
+  - `schema_migrations` writes now use `datetime` objects to satisfy the collection's JSON schema.
+- Public `/api/properties?status=` count went 27 → 35.
+
+### 5. Verified Owner Badge
+- Backend: `IntegratedPropertyService._project()` now computes an `owner_verified` boolean per listing — true when the submitting user has both `advertiser_profiles.status == VERIFIED` and at least one `identity_documents.status == VERIFIED`. Exposed on `GET /api/properties`.
+- Frontend: `PropertyCard.jsx` now shows a terracotta "Verified Owner" pill (`data-testid="property-owner-verified-<id>"`) next to the existing green "Verified" property badge, with tooltip explaining the difference.
+- Verified on preview: creating a property as the verified advertiser produces `owner_verified=true`, badge renders on `/buy`.
+
+
+### P3 Integration Hardening
+- **IntegratedPropertyService._txn() topology probe** — detects standalone/replica-set/sharded MongoDB via `hello` command; falls back to sequential non-transactional writes on standalone. Result logged at startup as `MongoDB topology: STANDALONE|REPLICA_SET|SHARDED`.
+- **PropertyCreate + Property `tenure_type` validator** — `@field_validator(mode='before')` coerces `""` → `None` so the admin Add Property modal's "Not specified" option no longer throws 422.
+- **Staff credentials reset** — director/sales/leasing/marketing @trel.com.pg all logging in with `Password@123` again.
+- **Frontend location** — React source moved to `/app/backend/frontend`; supervisor still serves via a symlink from `/app/frontend`.
+- **Playwright E2E suite** — 5/5 tests passing (`yarn test:e2e` with `PLAYWRIGHT_BASE_URL=<preview>`).
+- **Screen matrix (iter-29)** — 11/11 regression suite + 50/54 iter-28 replay (remaining 4 = 2 known backlog + 1 test artifact + legacy-count mismatch).
 
 ## Next Actions
 1. Provide branded logo/photography if not using placeholders

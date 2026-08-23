@@ -53,7 +53,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install migration test dependencies
-        run: python -m pip install --disable-pip-version-check pymongo==4.6.3 pytest==8.3.5 pytest-xdist==3.6.1
+        run: python -m pip install --disable-pip-version-check pymongo==4.6.3 pytest==8.3.5 pytest-xdist==3.6.1 requests==2.32.3
 
       - name: Validate migration and repository modules
         working-directory: backend
@@ -74,6 +74,7 @@ jobs:
           yarn build
 
       - name: Run protected P2 migration
+        if: github.event_name == 'workflow_dispatch'
         id: migration
         working-directory: backend
         shell: bash
@@ -89,6 +90,7 @@ jobs:
           python -m migrations.property_backfill             --mode "$MODE"             --confirmation "$CONFIRMATION"             --uri "$MONGO_URL"             --username "$MONGO_USERNAME"             --auth-database "$MONGO_AUTH_DATABASE"             --database "$DB_NAME" | tee p2-property-migration-result.json
 
       - name: Upload aggregate migration report
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: p2-property-migration-${{ github.run_id }}

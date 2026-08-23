@@ -9,6 +9,7 @@ from core.security import get_current_user
 STAFF = "STAFF"
 PROPERTY_ADVERTISER = "PROPERTY_ADVERTISER"
 REFERRAL_PARTNER = "REFERRAL_PARTNER"
+GUEST = "GUEST"
 
 ACCOUNT_CATEGORIES = {STAFF, PROPERTY_ADVERTISER, REFERRAL_PARTNER}
 ACTIVE_ACCOUNT_STATUSES = {"ACTIVE"}
@@ -19,9 +20,15 @@ GOVERNMENT_ID_TYPES = {"PASSPORT", "DRIVER_LICENCE", "NID_CARD"}
 
 
 def account_category(user: dict) -> str:
-    """Keep existing staff accounts compatible while categories are adopted."""
+    """Return the account's category.
+
+    Security: If a user has no explicit `account_category` set, DO NOT fall back
+    to STAFF (that would grant admin/back-office access by default). Return the
+    restricted GUEST category so the account only reaches public/guest views
+    until an administrator explicitly assigns a real category.
+    """
     category = str(user.get("account_category") or "").strip().upper()
-    return category if category in ACCOUNT_CATEGORIES else STAFF
+    return category if category in ACCOUNT_CATEGORIES else GUEST
 
 
 def workspace_path(user: dict) -> str:
@@ -29,7 +36,8 @@ def workspace_path(user: dict) -> str:
         STAFF: "/admin",
         PROPERTY_ADVERTISER: "/advertiser",
         REFERRAL_PARTNER: "/referral-partner",
-    }[account_category(user)]
+        GUEST: "/",
+    }.get(account_category(user), "/")
 
 
 async def require_staff(user: dict = Depends(get_current_user)) -> dict:
@@ -46,7 +54,9 @@ async def require_property_writer(user: dict = Depends(get_current_user)) -> dic
     if category == STAFF:
         return user
     if category != PROPERTY_ADVERTISER:
-        raise HTTPException(403, "Referral Partner Accounts cannot create or edit Property listings")
+        if category == REFERRAL_PARTNER:
+            raise HTTPException(403, "Referral Partner Accounts cannot create or edit Property listings")
+        raise HTTPException(403, "A verified Property Advertiser Account is required")
 
     profile = await db.advertiser_profiles.find_one({
         "user_id": user["id"],

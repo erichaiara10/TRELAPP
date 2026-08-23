@@ -90,7 +90,7 @@ PAGE_SLUGS = {"home", "about", "sell", "buy", "rent", "wanted", "management",
 DEFAULT_PAGE_CONTENT = {
     "home": {
         "hero": {
-            "image": "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1600&q=80",
+            "image": "/images/h01-authoritative-hero.png",
             "kicker": "PAPUA NEW GUINEA REAL ESTATE",
             "heading": "Find a place you're proud to call home.",
             "sub": "Verified listings, honest advice, and end-to-end support — from families to corporates across PNG.",

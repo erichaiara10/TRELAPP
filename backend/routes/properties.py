@@ -1,11 +1,11 @@
 """Properties CRUD backed by the controlled integrated Property gateway."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.account_policy import require_property_writer
+from core.account_policy import STAFF, account_category, require_property_writer
 from core.db import db, now_iso
-from core.integrated_property_service import DuplicatePropertyError
+from core.integrated_property_service import DuplicatePropertyError, PartialWriteError
 from core.property_repository import PropertyRepository
-from core.security import get_current_user
+from core.security import get_current_user, get_optional_user
 from models import Property, PropertyCreate, PropertyFilters
 
 router = APIRouter()
@@ -151,8 +151,20 @@ def _raise_duplicate(exc: DuplicatePropertyError):
 
 
 @router.get("/properties")
-async def list_properties(filters: PropertyFilters = Depends()):
-    query = build_property_query(filters.model_dump(exclude={"limit"}))
+async def list_properties(
+    filters: PropertyFilters = Depends(),
+    user=Depends(get_optional_user),
+):
+    query = build_property_query(filters.model_dump(exclude={"limit", "mine"}))
+    # Scope the response when the caller asks for `mine=true`. Staff see
+    # every property; non-staff (Property Advertisers etc.) only see the
+    # listings they themselves created. Anonymous callers get 401 — the
+    # advertiser workspace requires a session.
+    if filters.mine:
+        if not user:
+            raise HTTPException(401, "Authentication required for mine=true")
+        if account_category(user) != STAFF:
+            query["created_by"] = user["id"]
     return await repository.list(query, filters.limit)
 
 
@@ -185,6 +197,12 @@ async def create_property(
         return await repository.create(document, user)
     except DuplicatePropertyError as exc:
         _raise_duplicate(exc)
+    except PartialWriteError as exc:
+        raise HTTPException(500, {
+            "code": "PARTIAL_WRITE_FAILURE",
+            "message": "Property save failed partway. The change was rolled back — please retry.",
+            "failure_id": exc.failure_id,
+        })
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -207,6 +225,12 @@ async def update_property(
         result = await repository.update(pid, merged, user)
     except DuplicatePropertyError as exc:
         _raise_duplicate(exc)
+    except PartialWriteError as exc:
+        raise HTTPException(500, {
+            "code": "PARTIAL_WRITE_FAILURE",
+            "message": "Property update failed partway. The change was rolled back — please retry.",
+            "failure_id": exc.failure_id,
+        })
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     if not result:

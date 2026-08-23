@@ -1,8 +1,23 @@
 import React from "react";
-import { Edit2, Trash2 } from "lucide-react";
+import { Edit2, Trash2, Inbox } from "lucide-react";
 import { money } from "@/lib/api";
 
 export default function PropertiesTable({ items, onEdit, onDelete }) {
+  if (!items || items.length === 0) {
+    return (
+      <div
+        className="bg-white rounded-lg border border-dashed border-sand-200 py-16 text-center"
+        data-testid="properties-empty"
+      >
+        <Inbox className="w-8 h-8 mx-auto text-muted-foreground" />
+        <p className="mt-3 font-medium text-ink-700">No properties found</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Click <span className="font-medium">New</span> above to create your first listing,
+          or use <span className="font-medium">Import CSV</span> to load them in bulk.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="bg-white rounded-lg border border-border overflow-x-auto">
       <table className="w-full text-sm">

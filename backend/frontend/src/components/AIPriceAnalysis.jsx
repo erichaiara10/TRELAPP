@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Sparkles, ChevronDown, ChevronUp, TrendingUp, TrendingDown, CheckCircle2, Loader2, AlertCircle, X } from "lucide-react";
 import { api, formatError } from "@/lib/api";
 
@@ -10,6 +10,7 @@ const fmtK = (n) => {
 };
 
 const VERDICT_META = {
+  insufficient: { label: "Insufficient evidence", tone: "bg-slate-50 text-slate-700 border-slate-200", Icon: AlertCircle },
   fair: { label: "Fair price", tone: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: CheckCircle2 },
   overpriced: { label: "Overpriced", tone: "bg-terracotta-50 text-terracotta-600 border-terracotta-200", Icon: TrendingUp },
   underpriced: { label: "Underpriced", tone: "bg-amber-50 text-amber-700 border-amber-200", Icon: TrendingDown },
@@ -20,16 +21,19 @@ const VERDICT_META = {
 // tone stays consistent regardless of what Claude returns.
 const RECOMMENDATION_COPY = {
   buyer: {
+    insufficient: "There are not yet enough unique comparable properties for a formal TREL price range.",
     underpriced: "Based on similar listings, this appears to be a competitive offer.",
     overpriced:  "This price suggests it may be above the current area average.",
     fair:        "This price appears aligned with similar listings in the area.",
   },
   seller: {
+    insufficient: "There are not yet enough unique comparable properties for a formal TREL price range.",
     underpriced: "Your pricing appears competitive for the current market.",
     overpriced:  "Available data suggests this price may be higher than average for this location.",
     fair:        "Your pricing appears aligned with the current market for this area.",
   },
   admin: {
+    insufficient: "Fewer than three unique comparables are available; no formal range has been produced.",
     underpriced: "Current analysis suggests room for value capture — review market data.",
     overpriced:  "Pricing appears high compared to similar records — consider a strategy review.",
     fair:        "Pricing appears aligned with comparable records in the market.",
@@ -65,6 +69,7 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
   // Softened verdict wording per audience so the label doesn't read harshly.
   // Buyer & seller both see neutral language; admin keeps the raw analyst label.
   const softVerdict = (() => {
+    if (data.verdict === "insufficient") return "Insufficient evidence";
     if (audience === "seller") {
       return data.verdict === "overpriced" ? "Above market range"
            : data.verdict === "underpriced" ? "Below market range"
@@ -95,19 +100,25 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
       {/* Range + average */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="rounded-lg bg-sand-50 border border-border p-3">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Estimated range</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Indicative price range</div>
           <div className="text-sm font-semibold text-ink-900 mt-1" data-testid={`${testIdPrefix}-range`}>
-            {fmtK(data.range_min)} – {fmtK(data.range_max)}
+            {data.formal_range_available === false ? "Not available" : `${fmtK(data.range_min)} – ${fmtK(data.range_max)}`}
           </div>
         </div>
         <div className="rounded-lg bg-sand-50 border border-border p-3">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Area average</div>
-          <div className="text-sm font-semibold text-ink-900 mt-1" data-testid={`${testIdPrefix}-average`}>{fmtK(data.average)}</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Median comparable</div>
+          <div className="text-sm font-semibold text-ink-900 mt-1" data-testid={`${testIdPrefix}-average`}>{fmtK(data.median ?? data.average)}</div>
         </div>
         <div className="rounded-lg bg-sand-50 border border-border p-3 col-span-2 sm:col-span-1">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Comparables</div>
-          <div className="text-sm font-semibold text-ink-900 mt-1">{data.comparables?.length || 0} matched</div>
+          <div className="text-sm font-semibold text-ink-900 mt-1">{data.sample_size ?? data.comparables?.length ?? 0} unique</div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="rounded-lg border p-2"><span className="block text-muted-foreground">TREL Internal</span><b>{data.internal_count ?? 0}</b></div>
+        <div className="rounded-lg border p-2"><span className="block text-muted-foreground">External Market</span><b>{data.external_count ?? 0}</b></div>
+        <div className="rounded-lg border p-2"><span className="block text-muted-foreground">Evidence</span><b className="capitalize">{String(data.evidence_strength || "unknown").toLowerCase()}</b></div>
       </div>
 
       {/* Audience-aware Recommendation */}
@@ -152,12 +163,17 @@ function AnalysisBody({ data, loading, error, onClose, testIdPrefix, buyerFacing
  * The button is only shown when both `property_type` AND (city or suburb) are set.
  */
 export default function AIPriceAnalysis({
-  property_type, listing_type = "sale", price, province, city, suburb, bedrooms,
+  property_id, property_type, listing_type = "sale", price, province, city, suburb, local_area, bedrooms,
+  bathrooms, parking, land_area_sqm, building_area_sqm, property_condition, tenure_type,
   street_name, nearby_landmark,
-  variant = "inline",
+  variant = "compact",
   buyerFacing = false,
   audience = "buyer",
   testIdPrefix = "ai-price",
+  autoRun = false,
+  buttonClassName,
+  buttonStyle,
+  showIcon = true,
 }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
@@ -174,9 +190,14 @@ export default function AIPriceAnalysis({
     setError("");
     try {
       const { data: resp } = await api.post("/ai/price-analysis", {
-        property_type, listing_type, price: Number(price) || 0,
-        province: province || null, city: city || null, suburb: suburb || null,
+        property_id: property_id || null, property_type, listing_type, price: Number(price) || 0,
+        province: province || null, city: city || null, suburb: suburb || null, local_area: local_area || null,
         bedrooms: Number(bedrooms) || null,
+        bathrooms: bathrooms == null ? null : Number(bathrooms),
+        parking: parking == null ? null : Number(parking),
+        land_area_sqm: Number(land_area_sqm) || null,
+        building_area_sqm: Number(building_area_sqm) || null,
+        property_condition: property_condition || null, tenure_type: tenure_type || null,
         street_name: street_name || null, nearby_landmark: nearby_landmark || null,
       });
       setData(resp);
@@ -185,9 +206,24 @@ export default function AIPriceAnalysis({
     } finally { setLoading(false); }
   };
 
+  useEffect(() => {
+    if (autoRun && canRun && !open && !data && !loading) run();
+    // Auto-run is intentionally evaluated only when the deep-linked comparison becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, canRun]);
+
+  useEffect(() => {
+    if (!open || variant !== "compact") return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open, variant]);
+
   if (!canRun) return null;
 
-  const btnLabel = buyerFacing ? "AI Price Comparison" : "AI Price Estimate";
+  const btnLabel = "Compare Price";
   const testId = `${testIdPrefix}-btn`;
 
   if (variant === "compact") {
@@ -196,19 +232,26 @@ export default function AIPriceAnalysis({
         <button
           type="button"
           onClick={run}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-[11px] font-medium shadow-sm hover:shadow-md transition-all"
-          style={{ backgroundColor: BRAND_BLUE }}
+          className={buttonClassName || "inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-[11px] font-medium shadow-sm hover:shadow-md transition-all"}
+          style={buttonStyle || { backgroundColor: BRAND_BLUE }}
           title={btnLabel}
           data-testid={testId}
         >
-          <Sparkles className="w-3 h-3" /> AI
+          {showIcon && <Sparkles className="w-3 h-3" />} {btnLabel}
         </button>
         {open && (
-          <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => setOpen(false)}>
+          <div
+            className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4"
+            onClick={() => setOpen(false)}
+            data-testid={`${testIdPrefix}-overlay`}
+          >
             <div
               className="relative bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl"
               onClick={(e) => e.stopPropagation()}
               data-testid={`${testIdPrefix}-modal`}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Compare Price"
             >
               <div className="px-5 pt-5 pb-2 flex items-center gap-2">
                 <Sparkles className="w-4 h-4" style={{ color: BRAND_BLUE }} />

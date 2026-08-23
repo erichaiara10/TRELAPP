@@ -1,8 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Bed, Bath, Car, MapPin, ShieldCheck, ExternalLink, Info } from "lucide-react";
+import { Bed, Bath, Car, MapPin, ShieldCheck, BadgeCheck, ExternalLink, Info } from "lucide-react";
 import { money } from "@/lib/api";
-import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceCompareButton from "@/components/PriceCompareButton";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
 
 const FALLBACK_IMG = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
@@ -39,11 +39,26 @@ export default function PropertyCard({ p }) {
         <div className="relative aspect-[4/3] overflow-hidden bg-sand-100">
           <img src={p.images?.[0] || FALLBACK_IMG} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           <PropertyBadges p={p} />
-          {p.verified && (
-            <div className="absolute bottom-3 left-3 flex items-center gap-1 px-2 py-1 rounded-full bg-pine-500/95 text-white text-[11px]">
-              <ShieldCheck className="w-3 h-3" /> Verified
-            </div>
-          )}
+          <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
+            {p.verified && (
+              <div
+                data-testid={`property-verified-${p.id}`}
+                title="Property details verified by TREL"
+                className="flex items-center gap-1 px-2 py-1 rounded-full bg-pine-500/95 text-white text-[11px]"
+              >
+                <ShieldCheck className="w-3 h-3" /> Verified
+              </div>
+            )}
+            {p.owner_verified && (
+              <div
+                data-testid={`property-owner-verified-${p.id}`}
+                title="Advertiser profile and government ID verified"
+                className="flex items-center gap-1 px-2 py-1 rounded-full bg-terracotta-500/95 text-white text-[11px]"
+              >
+                <BadgeCheck className="w-3 h-3" /> Verified Owner
+              </div>
+            )}
+          </div>
         </div>
         <div className="px-5 pt-5 pb-2">
           <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
@@ -63,19 +78,9 @@ export default function PropertyCard({ p }) {
             <span className="text-2xl font-semibold text-pine-500">{money(p.price, p.currency || "PGK")}</span>
             {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
-          <AIPriceAnalysis
-            variant="compact"
-            buyerFacing
+          <PriceCompareButton
+            property={p}
             audience="buyer"
-            property_type={p.property_type}
-            listing_type={p.listing_type}
-            price={p.price}
-            province={p.province}
-            city={p.location}
-            suburb={p.suburb}
-            bedrooms={p.bedrooms}
-            street_name={p.street_name}
-            nearby_landmark={p.nearby_landmark}
             testIdPrefix={`card-ai-${p.id}`}
           />
         </div>

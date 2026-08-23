@@ -1,0 +1,22 @@
+TRELPNG H01 authoritative implementation package
+
+1. Extract this ZIP into the repository root. Confirm these files exist:
+   - H01_AUTHORITATIVE_IMPLEMENTATION.patch
+   - backend/frontend/public/images/h01-authoritative-hero.png
+
+2. From the repository root, run:
+   git apply --check H01_AUTHORITATIVE_IMPLEMENTATION.patch
+   git apply H01_AUTHORITATIVE_IMPLEMENTATION.patch
+
+3. Do not reinterpret, redesign, or restore the retired public homepage.
+
+4. Verify:
+   cd backend/frontend
+   npm run build
+   npx playwright test e2e/h01-authoritative.spec.js
+
+5. Return the desktop and mobile screenshots, test results, route/API wiring
+   matrix, and preview URL for approval before commit, merge, or deployment.
+
+The patch deliberately excludes the PNG binary. The ZIP carries the hero image
+at its final repository path so git apply can remain a portable text operation.

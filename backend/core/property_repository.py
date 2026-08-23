@@ -28,8 +28,10 @@ class PropertyRepository:
     async def list(self, query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
         if self.storage_mode == MODE_INTEGRATED:
             return await self.integrated.list(query, limit)
+        legacy_query = dict(query)
+        # Legacy properties collection stores `created_by` directly on the doc.
         return await self.db.properties.find(
-            query, {"_id": 0}
+            legacy_query, {"_id": 0}
         ).sort("created_at", -1).to_list(limit)
 
     async def get(self, property_id: str) -> Optional[Dict[str, Any]]:

@@ -54,6 +54,18 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+async def get_optional_user(request: Request):
+    """Return the current user when a valid token is presented, else None.
+
+    Used by endpoints that are public by default but adapt their response when
+    the caller is authenticated (e.g. `GET /properties?mine=true`).
+    """
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
+
+
 def require_roles(*roles: str):
     async def _dep(user: dict = Depends(get_current_user)):
         if user["role"] != "system_admin" and user["role"] not in roles:

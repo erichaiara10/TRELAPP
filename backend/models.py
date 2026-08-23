@@ -1,7 +1,7 @@
 """All Pydantic domain models — single-file for simplicity."""
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from core.db import new_id, now_iso
 
@@ -10,6 +10,7 @@ from core.db import new_id, now_iso
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+    turnstile_token: Optional[str] = None
 
 
 class UserCreate(BaseModel):
@@ -124,6 +125,13 @@ class Property(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
+    @field_validator("tenure_type", mode="before")
+    @classmethod
+    def _empty_tenure_to_none(cls, value):
+        if value == "":
+            return None
+        return value
+
 
 class PropertyCreate(BaseModel):
     title: str
@@ -173,6 +181,13 @@ class PropertyCreate(BaseModel):
     documents: List[PropertyDocumentRef] = Field(default_factory=list)
     duplicate_override: bool = False
 
+    @field_validator("tenure_type", mode="before")
+    @classmethod
+    def _empty_tenure_to_none(cls, value):
+        if value == "":
+            return None
+        return value
+
 
 class PropertyReferralCreate(BaseModel):
     property_id: Optional[str] = None
@@ -194,6 +209,7 @@ class PropertyFilters(BaseModel):
     featured: Optional[bool] = None
     status: Optional[str] = "active"
     q: Optional[str] = None
+    mine: Optional[bool] = None
     limit: int = 60
 
 
@@ -439,13 +455,21 @@ class RenameIn(BaseModel):
 
 # ---- AI ----
 class PriceAnalysisIn(BaseModel):
+    property_id: Optional[str] = None
     property_type: str
     listing_type: str
     price: float
     province: Optional[str] = None
     city: Optional[str] = None
     suburb: Optional[str] = None
+    local_area: Optional[str] = None
     bedrooms: Optional[int] = None
+    bathrooms: Optional[int] = None
+    parking: Optional[int] = None
+    land_area_sqm: Optional[float] = None
+    building_area_sqm: Optional[float] = None
+    property_condition: Optional[str] = None
+    tenure_type: Optional[str] = None
     street_name: Optional[str] = None
     nearby_landmark: Optional[str] = None
 

@@ -5,7 +5,7 @@ import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, Ch
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
-import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceCompareButton from "@/components/PriceCompareButton";
 import NearbyAmenities from "@/components/NearbyAmenities";
 import NameInput from "@/components/NameInput";
 import PhoneInput from "@/components/PhoneInput";
@@ -26,6 +26,12 @@ export default function PropertyDetail() {
     api.get(`/properties/${id}`).then((r) => setP(r.data)).catch(() => setP(false));
     api.get("/content/site").then((r) => r.data?.value && setSite((s) => ({ ...s, ...r.data.value })));
   }, [id]);
+
+  useEffect(() => {
+    if (p && window.location.hash === "#price-guidance") {
+      requestAnimationFrame(() => document.getElementById("price-guidance")?.scrollIntoView({ block: "center" }));
+    }
+  }, [p]);
 
   if (p === null) return <div className="container-tight py-10 text-muted-foreground">Loading…</div>;
   if (p === false) return <div className="container-tight py-10">Property not found. <Link to="/buy" className="text-pine-500 underline">Back to search</Link></div>;
@@ -103,22 +109,13 @@ export default function PropertyDetail() {
               </span>
             )}
           </div>
-          <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+          <div id="price-guidance" className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap scroll-mt-24">
             <div className="text-3xl font-semibold text-pine-500">
               {money(p.price, p.currency || "PGK")}{p.listing_type === "rent" && <span className="text-base text-muted-foreground"> / month</span>}
             </div>
-            <AIPriceAnalysis
-              buyerFacing
+            <PriceCompareButton
+              property={p}
               audience="buyer"
-              property_type={p.property_type}
-              listing_type={p.listing_type}
-              price={p.price}
-              province={p.province}
-              city={p.location}
-              suburb={p.suburb}
-              bedrooms={p.bedrooms}
-              street_name={p.street_name}
-              nearby_landmark={p.nearby_landmark}
               testIdPrefix="detail-ai-price"
             />
           </div>

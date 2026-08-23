@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -33,11 +33,18 @@ import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
 import MarketEvidence from "@/pages/admin/market/Evidence";
 import { AdvertiserWorkspace, ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
+import Register from "@/pages/account/Register";
+import AddProperty from "@/pages/public/AddProperty";
 
 function Protected({ children, categories }) {
   const { user } = useAuth();
+  const location = useLocation();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
-  if (!user) return <Navigate to="/admin/login" replace />;
+  if (!user) {
+    // Preserve the intended destination so the popup can complete the journey.
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/add-property?auth=login&next=${next}`} replace />;
+  }
   if (categories && !categories.includes(user.account_category || "STAFF")) {
     return <Navigate to={user.workspace_path || "/"} replace />;
   }
@@ -62,9 +69,11 @@ export default function App() {
             <Route path="/contact" element={<Contact />} />
             <Route path="/privacy" element={<Legal kind="privacy" />} />
             <Route path="/terms" element={<Legal kind="terms" />} />
+            <Route path="/add-property" element={<AddProperty />} />
           </Route>
 
           <Route path="/admin/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/admin" element={<Protected categories={["STAFF"]}><AdminLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="properties" element={<Properties />} />
@@ -81,7 +90,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
           </Route>
-          <Route path="/advertiser" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
+          <Route path="/advertiser" element={<Protected><AdvertiserWorkspace /></Protected>} />
           <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

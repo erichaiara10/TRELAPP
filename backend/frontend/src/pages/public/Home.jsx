@@ -1,185 +1,157 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, ArrowRight, ShieldCheck, MapPin, Briefcase, Users, Home as HomeIcon, Building2, Wallet, Wrench, ClipboardCheck, Plane, BarChart3 } from "lucide-react";
-import { api } from "@/lib/api";
-import { usePage } from "@/lib/usePage";
-import PropertyCard from "@/components/PropertyCard";
+import { Search, MapPin, Home as HomeIcon, Bed, Bath, Car, Ruler, Users, ArrowRight, RefreshCw } from "lucide-react";
+import { api, money } from "@/lib/api";
+import PriceCompareButton from "@/components/PriceCompareButton";
 
-const ICONS = { ShieldCheck, MapPin, Briefcase, Users, HomeIcon, Building2, Wallet, Wrench, ClipboardCheck, Plane, BarChart3, Home: HomeIcon };
-function Icon({ name, ...props }) {
-  const Cmp = ICONS[name] || ShieldCheck;
-  return <Cmp {...props} />;
+const H01_HERO = "/images/h01-authoritative-hero.png";
+const FALLBACK_PROPERTY = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
+
+function ListingCard({ property }) {
+  const rent = property.listing_type === "rent";
+  return <article className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden" data-testid={`featured-property-${property.id}`}>
+    <Link to={`/property/${property.id}`} className="block group">
+      <div className="relative aspect-[16/8.5] overflow-hidden bg-slate-100">
+        <img src={property.images?.[0] || FALLBACK_PROPERTY} alt={property.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+        <span className="absolute top-3 left-3 rounded-lg bg-white/95 px-2.5 py-1 text-xs text-[#075C36] font-semibold">{rent ? "For Rent" : "For Sale"}</span>
+      </div>
+      <div className="p-4">
+        <div className="flex items-center gap-1 text-xs text-slate-600"><MapPin className="w-3.5 h-3.5" />{[property.suburb, property.location].filter(Boolean).join(", ")}</div>
+        <h3 className="mt-2 text-lg font-semibold leading-snug line-clamp-1">{property.title}</h3>
+        <div className="mt-1 text-lg font-bold text-[#075C36]">{money(property.price, property.currency || "PGK")}{rent ? " / month" : ""}</div>
+        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
+          <span className="flex gap-1"><Bed className="w-4 h-4" />{property.bedrooms ? `${property.bedrooms} Bedrooms` : "-"}</span><span className="flex gap-1"><Bath className="w-4 h-4" />{property.bathrooms ? `${property.bathrooms} Bathrooms` : "-"}</span>
+          <span className="flex gap-1"><Car className="w-4 h-4" />{property.parking ? `${property.parking} Parking` : "-"}</span><span className="flex gap-1"><Ruler className="w-4 h-4" />{property.area_sqm ? `${property.area_sqm} m²` : "-"}</span>
+        </div>
+      </div>
+    </Link>
+    <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+      <Link to={`/property/${property.id}`} className="rounded-lg border border-[#075C36] py-2 text-center text-sm text-[#075C36] font-medium">View Details</Link>
+      <PriceCompareButton
+        property={property}
+        audience="buyer"
+        testIdPrefix={`home-ai-${property.id}`}
+        showIcon={false}
+        buttonClassName="w-full inline-flex items-center justify-center rounded-lg py-2 text-center text-sm text-[#075C36] font-medium hover:bg-emerald-50 transition-colors"
+        buttonStyle={{ backgroundColor: "transparent" }}
+      />
+    </div>
+  </article>;
 }
 
 export default function Home() {
-  const { sections } = usePage("home");
-  const hero = sections.hero || {};
-  const featIntro = sections.featured_intro || {};
-  const whyUs = sections.why_us || {};
-  const wantedT = sections.wanted_preview || {};
-  const ctaBand = sections.cta_band || {};
-
+  const navigate = useNavigate();
+  const [intent, setIntent] = useState("sale");
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState({ locations: [], types: [], listings: [] });
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [featured, setFeatured] = useState([]);
-  const [wanted, setWanted] = useState([]);
-  const [q, setQ] = useState("");
-  const [type, setType] = useState("sale");
-  const nav = useNavigate();
+  const [featuredIntent, setFeaturedIntent] = useState("sale");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestRef = useRef(0);
+
+  const loadFeatured = useCallback(async (mode = featuredIntent) => {
+    setLoading(true); setError("");
+    try {
+      const { data } = await api.get("/properties", { params: { listing_type: mode, status: "active", featured: true, limit: 12 } });
+      setFeatured(Array.isArray(data) ? data.slice(0, 12) : []);
+    } catch (_) { setError("Featured properties are temporarily unavailable."); }
+    finally { setLoading(false); }
+  }, [featuredIntent]);
+  useEffect(() => { loadFeatured(featuredIntent); }, [featuredIntent, loadFeatured]);
 
   useEffect(() => {
-    api.get("/properties", { params: { featured: true, limit: 6 } }).then((r) => setFeatured(r.data)).catch(() => {});
-    api.get("/requirements/public").then((r) => setWanted(r.data)).catch(() => {});
-  }, []);
+    const text = query.trim();
+    if (text.length < 2) { setSuggestions({ locations: [], types: [], listings: [] }); setSuggestOpen(false); return; }
+    const requestId = ++requestRef.current;
+    const timer = setTimeout(async () => {
+      try {
+        const [cities, suburbs, types, listings] = await Promise.all([
+          api.get("/locations/cities"), api.get("/locations/suburbs"), api.get("/property-types"),
+          api.get("/properties", { params: { q: text, listing_type: intent, status: "active", limit: 5 } }),
+        ]);
+        if (requestId !== requestRef.current) return;
+        const match = (x) => String(x.name || "").toLowerCase().includes(text.toLowerCase());
+        const locations = [...(suburbs.data || []).filter(match), ...(cities.data || []).filter(match)].slice(0, 5);
+        setSuggestions({ locations, types: (types.data || []).filter(match).slice(0, 5), listings: (listings.data || []).slice(0, 5) });
+        setSuggestOpen(true); setActiveSuggestion(-1);
+      } catch (_) { if (requestId === requestRef.current) setSuggestOpen(false); }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, intent]);
 
-  const doSearch = (e) => {
-    e.preventDefault();
-    nav(`/${type === "sale" ? "buy" : "rent"}?q=${encodeURIComponent(q)}`);
+  const flatSuggestions = useMemo(() => [
+    ...suggestions.locations.map((item) => ({ kind: "location", item, label: item.name })),
+    ...suggestions.types.map((item) => ({ kind: "property_type", item, label: item.name })),
+    ...suggestions.listings.map((item) => ({ kind: "listing", item, label: item.title })),
+  ], [suggestions]);
+
+  const selectSuggestion = (suggestion) => {
+    if (suggestion.kind === "listing") { navigate(`/property/${suggestion.item.id}`); return; }
+    setQuery(suggestion.label); setSuggestOpen(false);
+    const key = suggestion.kind === "location" ? "q" : "property_type";
+    navigate(`/${intent === "sale" ? "buy" : "rent"}?${key}=${encodeURIComponent(suggestion.label)}`);
+  };
+  const submitSearch = (e) => { e.preventDefault(); navigate(`/${intent === "sale" ? "buy" : "rent"}?q=${encodeURIComponent(query.trim())}`); };
+  const onSearchKeyDown = (e) => {
+    if (!suggestOpen || !flatSuggestions.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSuggestion((v) => Math.min(v + 1, flatSuggestions.length - 1)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setActiveSuggestion((v) => Math.max(v - 1, 0)); }
+    if (e.key === "Enter" && activeSuggestion >= 0) { e.preventDefault(); selectSuggestion(flatSuggestions[activeSuggestion]); }
+    if (e.key === "Escape") setSuggestOpen(false);
   };
 
-  return (
-    <div>
-      {/* HERO */}
-      <section className="relative min-h-[560px] flex items-end overflow-hidden">
-        {hero.image && (
-          <img src={hero.image} alt="" className="absolute inset-0 w-full h-full object-cover" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/40 to-black/20" />
-        <div className="relative container-tight w-full pb-16 pt-20 text-white animate-fade-up">
-          <div className="text-xs uppercase tracking-[0.3em] text-sand-100/80" data-testid="home-hero-kicker">{hero.kicker}</div>
-          <h1 className="font-serif text-5xl sm:text-6xl lg:text-7xl leading-[1.05] mt-4 max-w-3xl" data-testid="home-hero-heading">
-            {hero.heading}
-          </h1>
-          {hero.sub && <p className="mt-4 max-w-xl text-sand-100/90 text-base sm:text-lg whitespace-pre-line" data-testid="home-hero-sub">{hero.sub}</p>}
+  let suggestionIndex = -1;
+  const group = (label, items, kind, Icon) => items.length ? <div>
+    {items.map((item) => { suggestionIndex += 1; const index = suggestionIndex; return <button type="button" key={`${kind}-${item.id || item.name}`} role="option" aria-selected={activeSuggestion === index} onClick={() => selectSuggestion({ kind, item, label: item.name || item.title })} className={`w-full px-4 py-3 flex items-center gap-3 text-left border-b ${activeSuggestion === index ? "bg-emerald-50" : "bg-white hover:bg-slate-50"}`}>
+      <Icon className="w-5 h-5 text-[#075C36]" /><span className="w-24 text-sm text-[#075C36]">{label}</span><span className="text-sm font-medium">{item.name || item.title}</span>
+    </button>; })}
+  </div> : null;
 
-          <form onSubmit={doSearch} className="mt-8 bg-white rounded-2xl p-2 sm:p-3 flex flex-col sm:flex-row gap-2 shadow-2xl max-w-3xl">
-            <div className="flex rounded-full bg-sand-100 p-1 shrink-0">
-              {["sale","rent"].map((t) => (
-                <button type="button" key={t} onClick={() => setType(t)} data-testid={`hero-tab-${t}`}
-                  className={`px-4 py-2 rounded-full text-sm font-medium ${type===t?"bg-pine-500 text-white":"text-ink-700"}`}>
-                  {t==="sale"?"Buy":"Rent"}
-                </button>
-              ))}
-            </div>
-            <div className="flex-1 flex items-center gap-2 px-3">
-              <Search className="w-5 h-5 text-muted-foreground" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} data-testid="hero-search-input"
-                placeholder="Search suburb, city or keyword"
-                className="w-full py-2.5 outline-none text-ink-900 placeholder:text-muted-foreground bg-transparent" />
-            </div>
-            <button type="submit" data-testid="hero-search-btn"
-              className="px-6 py-3 rounded-full bg-pine-500 hover:bg-pine-600 text-white font-medium flex items-center justify-center gap-2">
-              Search <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          {(hero.cta_primary?.label || hero.cta_secondary?.label) && (
-            <div className="mt-6 flex flex-wrap gap-3 text-sm">
-              {hero.cta_primary?.label && (
-                <Link to={hero.cta_primary.href || "/buy"} data-testid="home-cta-primary"
-                  className="px-5 py-2 rounded-full bg-white text-ink-900 hover:bg-sand-50 font-medium">
-                  {hero.cta_primary.label}
-                </Link>
-              )}
-              {hero.cta_secondary?.label && (
-                <Link to={hero.cta_secondary.href || "/rent"} data-testid="home-cta-secondary"
-                  className="px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium border border-white/30">
-                  {hero.cta_secondary.label}
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* FEATURED */}
-      <section className="container-tight py-16">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">{featIntro.kicker}</div>
-            <h2 className="font-serif text-3xl sm:text-4xl mt-2">{featIntro.heading}</h2>
-            {featIntro.sub && <p className="mt-2 text-ink-700 max-w-2xl text-sm">{featIntro.sub}</p>}
+  return <div className="bg-white">
+    <section className="relative min-h-[390px] md:min-h-[430px] flex items-center justify-center overflow-hidden">
+      <img src={H01_HERO} alt="Papua New Guinea residential property" className="absolute inset-0 w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-black/30" />
+      <div className="relative z-10 w-full max-w-3xl px-5 text-white text-center">
+        <h1 className="text-4xl md:text-5xl font-semibold leading-tight">Find a place you’re<br />proud to call home.</h1>
+        <p className="mt-3 text-base">Browse quality properties for sale and rent across Papua New Guinea.</p>
+        <form onSubmit={submitSearch} className="mt-4" data-testid="home-search-form">
+          <div className="flex justify-center"><div className="bg-white rounded-full p-1 flex text-sm text-slate-900">
+            <button type="button" onClick={() => setIntent("sale")} className={`px-5 py-2 rounded-full ${intent === "sale" ? "bg-[#075C36] text-white" : ""}`}>Buy</button>
+            <button type="button" onClick={() => setIntent("rent")} className={`px-5 py-2 rounded-full ${intent === "rent" ? "bg-[#075C36] text-white" : ""}`}>Rent</button>
+          </div></div>
+          <div className="mt-2 relative text-slate-900">
+            <div className="bg-white rounded-xl p-1.5 flex shadow-xl"><input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onSearchKeyDown} onFocus={() => query.length >= 2 && setSuggestOpen(true)} aria-autocomplete="list" aria-expanded={suggestOpen} placeholder="Search suburb, city or property type" className="flex-1 px-4 py-2.5 outline-none rounded-lg" data-testid="hero-search-input" /><button className="bg-[#075C36] text-white rounded-lg px-8 font-semibold" data-testid="hero-search-btn">Search</button></div>
+            {suggestOpen && flatSuggestions.length > 0 && <div role="listbox" className="absolute z-20 mt-1 w-full rounded-xl overflow-hidden bg-white shadow-2xl border text-left">
+              {group("Location", suggestions.locations, "location", MapPin)}{group("Property type", suggestions.types, "property_type", HomeIcon)}{group("Current listing", suggestions.listings, "listing", HomeIcon)}
+              <div className="px-4 py-2 text-xs text-slate-500">Suggestions from current TRELPNG listings</div>
+            </div>}
           </div>
-          <Link to="/buy" className="text-sm text-pine-500 hover:text-pine-600 flex items-center gap-1" data-testid="view-all-featured">
-            View all <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {featured.map((p) => <PropertyCard key={p.id} p={p} />)}
-          {featured.length === 0 && <div className="text-sm text-muted-foreground">Loading properties…</div>}
-        </div>
-      </section>
+        </form>
+      </div>
+    </section>
 
-      {/* Why us */}
-      {(whyUs.items?.length || 0) > 0 && (
-        <section className="bg-pine-500 text-white py-16" data-testid="home-why-us">
-          <div className="container-tight">
-            <div className="max-w-2xl">
-              <h2 className="font-serif text-3xl sm:text-4xl mt-2">{whyUs.heading}</h2>
-            </div>
-            <div className="mt-10 grid md:grid-cols-3 gap-6">
-              {whyUs.items.map((it, i) => (
-                <div key={i} className="rounded-2xl bg-white/5 backdrop-blur p-6 border border-white/10" data-testid={`home-why-us-${i}`}>
-                  <Icon name={it.icon} className="w-6 h-6 mb-3" />
-                  <div className="font-serif text-xl">{it.title}</div>
-                  <p className="text-sm text-sand-100/80 mt-2 whitespace-pre-line">{it.body}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+    <section className="container-tight py-5" data-testid="featured-properties">
+      <div className="flex flex-wrap items-end gap-8 mb-4"><h2 className="text-3xl font-semibold">Featured Properties</h2>
+        <button onClick={() => setFeaturedIntent("sale")} className={`pb-1 ${featuredIntent === "sale" ? "text-[#075C36] border-b-2 border-[#075C36]" : ""}`}>For Sale</button>
+        <button onClick={() => setFeaturedIntent("rent")} className={`pb-1 ${featuredIntent === "rent" ? "text-[#075C36] border-b-2 border-[#075C36]" : ""}`}>For Rent</button>
+        <Link to={featuredIntent === "sale" ? "/buy" : "/rent"} className="ml-auto text-sm text-[#075C36] flex items-center gap-1">View all properties <ArrowRight className="w-4 h-4" /></Link>
+      </div>
+      {loading && <div className="grid md:grid-cols-3 gap-5" aria-label="Loading featured properties">{[1,2,3].map((i) => <div key={i} className="h-72 rounded-2xl bg-slate-100 animate-pulse" />)}</div>}
+      {!loading && error && <div className="rounded-xl bg-red-50 p-5 text-red-800 flex justify-between">{error}<button onClick={() => loadFeatured()} className="inline-flex gap-1"><RefreshCw className="w-4 h-4" />Retry</button></div>}
+      {!loading && !error && featured.length === 0 && <div className="rounded-xl bg-slate-50 p-8 text-center text-slate-600">No featured properties are available right now. Please view all properties or check again soon.</div>}
+      {!loading && !error && <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">{featured.map((property) => <ListingCard key={property.id} property={property} />)}</div>}
+    </section>
 
-      {/* Property Wanted */}
-      <section className="container-tight py-16">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">{wantedT.kicker}</div>
-            <h2 className="font-serif text-3xl sm:text-4xl mt-2">{wantedT.heading}</h2>
-            {wantedT.sub && <p className="mt-2 text-ink-700 max-w-2xl text-sm">{wantedT.sub}</p>}
-          </div>
-          <Link to="/wanted" className="text-sm text-pine-500 hover:text-pine-600 flex items-center gap-1" data-testid="view-all-wanted">
-            Submit your requirement <ArrowRight className="w-4 h-4" />
-          </Link>
+    <section className="container-tight pb-6">
+      <div className="relative border rounded-2xl pt-5">
+        <h2 className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xl font-semibold whitespace-nowrap">How TRELPNG Helps</h2>
+        <div className="grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x">
+          {[{ icon: Search, title: "Search Properties", body: "Find the right property for sale or rent across PNG with ease.", to: "/buy" }, { icon: HomeIcon, title: "Add Property", body: "List your property quickly and reach thousands of buyers or tenants.", to: "/advertiser" }, { icon: Users, title: "Connect with Buyers/Tenants", body: "Connect directly with interested buyers or tenants you can trust.", to: "/contact" }].map(({icon: Icon, title, body, to}) => <Link key={title} to={to} className="p-5 flex items-center gap-5"><span className="w-14 h-14 rounded-full bg-blue-100 text-[#168CF5] grid place-items-center"><Icon className="w-7 h-7" /></span><span><strong className="block text-lg">{title}</strong><span className="text-sm text-slate-600">{body}</span></span></Link>)}
         </div>
-        <div className="grid md:grid-cols-2 gap-6">
-          {wanted.slice(0, 4).map((w, i) => (
-            <div key={i} className="bg-white rounded-2xl p-6 border border-border" data-testid={`wanted-card-${i}`}>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 text-xs rounded-full bg-terracotta-50 text-terracotta-600 capitalize">{w.intent}</span>
-                <span className="px-2 py-0.5 text-xs rounded-full bg-sand-100 text-ink-700 capitalize">{w.property_type || "any"}</span>
-                {w.is_corporate && <span className="px-2 py-0.5 text-xs rounded-full bg-pine-500 text-white">Corporate</span>}
-              </div>
-              <h3 className="font-serif text-xl mt-3">
-                {w.intent === "buy" ? "Looking to buy" : "Looking to rent"} up to {(w.max_price || 0).toLocaleString()} PGK
-              </h3>
-              <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{w.notes}</p>
-              <div className="mt-3 text-xs text-muted-foreground">
-                {(w.locations || []).join(", ") || "Any location"} · {w.min_bedrooms}+ beds
-              </div>
-            </div>
-          ))}
-          {wanted.length === 0 && <div className="text-sm text-muted-foreground">No active requirements listed.</div>}
-        </div>
-      </section>
-
-      {/* CTA */}
-      {(ctaBand.heading || ctaBand.sub) && (
-        <section className="container-tight pb-20">
-          <div className="rounded-3xl bg-ink-900 text-white p-10 md:p-14 relative overflow-hidden">
-            <div className="max-w-2xl">
-              <h2 className="font-serif text-3xl sm:text-4xl">{ctaBand.heading}</h2>
-              {ctaBand.sub && <p className="text-sand-100/80 mt-3 whitespace-pre-line">{ctaBand.sub}</p>}
-              <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                <Link to="/contact" data-testid="home-cta-band-btn" className="px-6 py-3 rounded-full bg-terracotta-500 hover:bg-terracotta-600 text-white font-medium text-center">
-                  {ctaBand.button_label || "Get in touch"}
-                </Link>
-                <Link to="/sell" data-testid="cta-sell" className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium text-center">
-                  Submit your property
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-    </div>
-  );
+      </div>
+    </section>
+  </div>;
 }
