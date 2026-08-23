@@ -74,6 +74,7 @@ jobs:
           yarn build
 
       - name: Run protected P2 migration
+        if: github.event_name == 'workflow_dispatch'
         id: migration
         working-directory: backend
         shell: bash
@@ -89,6 +90,7 @@ jobs:
           python -m migrations.property_backfill             --mode "$MODE"             --confirmation "$CONFIRMATION"             --uri "$MONGO_URL"             --username "$MONGO_USERNAME"             --auth-database "$MONGO_AUTH_DATABASE"             --database "$DB_NAME" | tee p2-property-migration-result.json
 
       - name: Upload aggregate migration report
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: p2-property-migration-${{ github.run_id }}
