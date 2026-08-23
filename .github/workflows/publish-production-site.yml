@@ -1,0 +1,99 @@
+name: Publish Production Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Enter PUBLISH_TRELWEB
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trelweb-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate-deploy:
+    name: Validate and publish trelweb
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      PROD_APP_NAME: trelweb
+      PROD_URL: https://trelweb.fly.dev
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+
+    steps:
+      - name: Check confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_CONFIRMATION" != "PUBLISH_TRELWEB" ]; then
+            echo "Production deployment blocked: confirmation text did not match." >&2
+            exit 1
+          fi
+
+      - name: Check out selected workflow branch
+        uses: actions/checkout@v4
+
+      - name: Guard production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = "main"
+          test -f fly.toml
+          grep -Eq "^app = 'trelweb'$" fly.toml
+          if grep -Eq "trelweb-test|fly\.test\.toml" fly.toml; then
+            echo "Production deployment blocked: test target detected." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile backend
+        working-directory: backend
+        run: python -m compileall -q .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        working-directory: backend/frontend
+        env:
+          CI: "false"
+        run: |
+          corepack enable
+          yarn install --non-interactive
+          yarn build
+
+      - name: Install Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Publish production site
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: >-
+          flyctl deploy
+          --config fly.toml
+          --app "$PROD_APP_NAME"
+          --remote-only
+          --ha=false
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error "$PROD_URL/api/" | grep -q '"ok":true'; then
+              curl --fail --silent --show-error --output /dev/null "$PROD_URL/"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production site did not become healthy in time." >&2
+          exit 1
