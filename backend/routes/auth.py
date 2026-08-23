@@ -44,6 +44,17 @@ class ResetPasswordIn(BaseModel):
     token: str = Field(min_length=20, max_length=256)
     password: str = Field(min_length=8, max_length=128)
 
+
+class GoogleAuthIn(BaseModel):
+    access_token: str = Field(min_length=20, max_length=4096)
+    mode: Literal["login", "register"]
+    phone: Optional[str] = Field(default=None, min_length=5, max_length=40)
+    advertiser_relationship_type: Optional[Literal[
+        "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
+    ]] = None
+    terms_accepted: bool = False
+
+
 STAFF_ROLES = {
     "system_admin", "managing_director", "sales_manager", "sales_agent",
     "leasing_agent", "property_manager", "marketing_officer",
@@ -65,6 +76,46 @@ def _validate_advertiser_relationship(category: str, relationship: str | None) -
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE",
     }:
         raise HTTPException(400, "Property Advertiser relationship type is required")
+
+
+async def _verified_google_identity(access_token: str) -> dict:
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(503, "Google authentication is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_response = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"access_token": access_token},
+            )
+            token_response.raise_for_status()
+            token_data = token_response.json()
+            if token_data.get("aud") != client_id:
+                raise HTTPException(401, "Google authentication failed")
+            profile_response = await client.get(
+                "https://openidconnect.googleapis.com/v1/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            profile_response.raise_for_status()
+            profile = profile_response.json()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(401, "Google authentication failed")
+    if not profile.get("sub") or not profile.get("email") or not profile.get("email_verified"):
+        raise HTTPException(401, "Google account email is not verified")
+    return profile
+
+
+def _google_session(user: dict, response: Response) -> dict:
+    token = create_access_token(user["id"], user["email"], user["role"])
+    response.set_cookie("access_token", token, httponly=True, secure=False,
+                        samesite="lax", max_age=43200, path="/")
+    return {
+        "id": user["id"], "email": user["email"], "name": user["name"],
+        "role": user["role"], "account_category": account_category(user),
+        "workspace_path": workspace_path(user), "token": token,
+    }
 
 
 @router.post("/auth/login")
@@ -96,6 +147,59 @@ async def login(payload: LoginIn, request: Request, response: Response):
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+@router.get("/auth/google/config")
+async def google_config():
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    return {"enabled": bool(client_id), "client_id": client_id}
+
+
+@router.post("/auth/google")
+async def google_auth(payload: GoogleAuthIn, response: Response):
+    identity = await _verified_google_identity(payload.access_token)
+    email = identity["email"].lower().strip()
+    google_sub = identity["sub"]
+    user = await db.users.find_one({"$or": [{"google_sub": google_sub}, {"email": email}]})
+
+    if user:
+        if user.get("google_sub") not in {None, google_sub}:
+            raise HTTPException(409, "This email is linked to another Google account")
+        if user.get("status", "ACTIVE") != "ACTIVE":
+            raise HTTPException(403, "Account is not active")
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {
+                "google_sub": google_sub,
+                "google_email_verified": True,
+                "google_linked_at": now_iso(),
+            }},
+        )
+        return _google_session(user, response)
+
+    if payload.mode != "register":
+        raise HTTPException(404, "No TRELPNG account was found. Use Create Account first.")
+    if not payload.phone or len(payload.phone.strip()) < 5:
+        raise HTTPException(400, "Mobile number is required")
+    if not payload.terms_accepted:
+        raise HTTPException(400, "Accept the Terms of Use and Privacy Policy")
+    _validate_advertiser_relationship("PROPERTY_ADVERTISER", payload.advertiser_relationship_type)
+
+    user = {
+        "id": new_id(), "email": email,
+        "name": (identity.get("name") or email.split("@")[0]).strip(),
+        "phone": (payload.phone or "").strip(),
+        "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
+        "status": "ACTIVE", "auth_provider": "google", "google_sub": google_sub,
+        "google_email_verified": True, "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    await db.advertiser_profiles.insert_one({
+        "id": new_id(), "user_id": user["id"],
+        "relationship_type": payload.advertiser_relationship_type,
+        "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    return _google_session(user, response)
 
 
 @router.post("/auth/register", status_code=201)
