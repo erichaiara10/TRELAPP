@@ -63,13 +63,11 @@ test("H01 header and footer preserve the authoritative order, wording and live d
   const header = page.getByTestId("public-header");
   await expect(header.getByRole("link", { name: "TRELPNG Home" })).toHaveAttribute("href", "/");
   for (const [label, href] of [
-    ["Corporate Services", "/corporate"], ["Add Property", "/add-property"],
-    ["Log In", "/add-property?auth=login"], ["Register", "/add-property?auth=register"],
+    ["Home", "/"], ["Buy", "/buy"], ["Rent", "/rent"], ["Property Wanted", "/wanted"],
+    ["Property Management", "/management"], ["Corporate Services", "/corporate"],
+    ["Add Property", "/add-property"], ["Log In", "/add-property?auth=login"], ["Register", "/add-property?auth=register"],
     ["About", "/about"], ["Contact", "/contact"],
   ]) await expect(header.getByRole("link", { name: label, exact: true })).toHaveAttribute("href", href);
-  for (const legacyLabel of ["Home", "Buy", "Rent", "Property Wanted", "Property Management"]) {
-    await expect(header.getByRole("link", { name: legacyLabel, exact: true })).toHaveCount(0);
-  }
   await expect(page.getByTestId("header-phone")).toHaveAttribute("href", "tel:+67576281552");
   await expect(page.getByTestId("header-whatsapp")).toHaveAttribute("href", "https://wa.me/67581383302");
 
@@ -98,5 +96,6 @@ test("H01 live property area expands to twelve listings and all principal action
   await page.goto("/");
   await page.getByTestId("nav-add-property").click();
   await expect(page).toHaveURL(/\/add-property/);
+  // + Add Property now lands on the P01 selector (Sell/Rent → Service → Relationship).
   await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
 });
