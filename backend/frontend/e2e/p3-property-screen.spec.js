@@ -125,6 +125,16 @@ test("Market Evidence shows the link to the advertised Master Property", async (
 });
 
 test("common login routes a Referral Partner to the referral workspace", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.turnstile = {
+      render: (_element, options) => {
+        options.callback("e2e-turnstile-token");
+        return "e2e-widget";
+      },
+      reset: () => {},
+      remove: () => {},
+    };
+  });
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -133,9 +143,10 @@ test("common login routes a Referral Partner to the referral workspace", async (
     return json(route, []);
   });
   await page.goto("/admin/login");
-  await page.getByTestId("login-email").fill("ref@trel.test");
-  await page.getByTestId("login-password").fill("Password@123");
-  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("account-access-dialog")).toBeVisible();
+  await page.getByTestId("account-access-login-email").fill("ref@trel.test");
+  await page.getByTestId("account-access-login-password").fill("Password@123");
+  await page.getByTestId("account-access-login-submit").click();
   await expect(page).toHaveURL(/\/referral-partner$/);
   await expect(page.getByRole("heading", { name:"Referral Partner Workspace" })).toBeVisible();
 });
