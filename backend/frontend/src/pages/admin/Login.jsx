@@ -8,6 +8,5 @@ export default function Login() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   params.set("auth", "login");
-  if (!params.get("next")) params.set("next", "/admin");
   return <Navigate to={`/add-property?${params.toString()}`} replace />;
 }
