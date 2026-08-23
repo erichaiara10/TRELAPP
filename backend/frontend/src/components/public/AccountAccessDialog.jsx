@@ -106,6 +106,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [googleClientId, setGoogleClientId] = useState("");
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleToken, setGoogleToken] = useState("");
+  const [relationship, setRelationship] = useState(selectedService?.relationship || "");
   const { login, googleLogin } = useAuth();
   const navigate = useNavigate();
 
@@ -116,7 +118,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
-  useEffect(() => { setError(""); setNotice(""); setTurnstileToken(""); setResetSignal((n) => n + 1); }, [tab, open]);
+  useEffect(() => { setError(""); setNotice(""); setGoogleToken(""); setGoogleBusy(false); setTurnstileToken(""); setResetSignal((n) => n + 1); }, [tab, open]);
+  useEffect(() => { setRelationship(selectedService?.relationship || ""); }, [selectedService?.relationship, open]);
   useEffect(() => {
     if (!open || !["login", "register"].includes(tab)) return;
     Promise.all([loadGoogleScript(), api.get("/auth/google/config")])
@@ -127,16 +130,30 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
 
   const handleTurnstile = (token) => setTurnstileToken(token || "");
 
+  const completeGoogleRegistration = async (accessToken) => {
+    if (mobile.trim().length < 5) { setError("Enter your mobile number to create your account."); return; }
+    if (!relationship) { setError("Select your relationship to the property."); return; }
+    if (!termsAccepted) { setError("Accept the Terms of Use and Privacy Policy before creating your account."); return; }
+    setGoogleBusy(true);
+    const result = await googleLogin({
+      access_token: accessToken,
+      mode: "register",
+      phone: mobile.trim(),
+      advertiser_relationship_type: relationship,
+      terms_accepted: true,
+    });
+    setGoogleBusy(false);
+    if (!result.ok) { setError(result.error || "Google account creation failed"); return; }
+    onClose();
+    navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
+  };
+
   const handleGoogle = () => {
     setError(""); setNotice("");
     if (!googleClientId || !window.google?.accounts?.oauth2) {
       setError("Google authentication is temporarily unavailable."); return;
     }
-    if (tab === "register") {
-      if (mobile.trim().length < 5) { setError("Enter your mobile number before continuing with Google."); return; }
-      if (!selectedService?.relationship) { setError("Complete the three Add Property questions before creating an account."); return; }
-      if (!termsAccepted) { setError("Accept the Terms of Use and Privacy Policy before continuing."); return; }
-    }
+    if (tab === "register" && googleToken) { completeGoogleRegistration(googleToken); return; }
     setGoogleBusy(true);
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: googleClientId,
@@ -145,13 +162,22 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
         if (!tokenResponse?.access_token) {
           setGoogleBusy(false); setError("Google authentication was cancelled or failed."); return;
         }
-        const result = await googleLogin({
-          access_token: tokenResponse.access_token,
-          mode: tab,
-          phone: tab === "register" ? mobile.trim() : undefined,
-          advertiser_relationship_type: tab === "register" ? selectedService?.relationship : undefined,
-          terms_accepted: tab === "register" ? termsAccepted : false,
-        });
+        if (tab === "register") {
+          const existing = await googleLogin({ access_token: tokenResponse.access_token, mode: "login" });
+          setGoogleBusy(false);
+          if (existing.ok) {
+            onClose();
+            navigate(destinationFor(existing.user, next), { replace: true, state: { selectedService } });
+            return;
+          }
+          if (!String(existing.error || "").includes("No TRELPNG account was found")) {
+            setError(existing.error || "Google authentication failed"); return;
+          }
+          setGoogleToken(tokenResponse.access_token);
+          setNotice("Google account verified. Complete the details below to create your advertiser account.");
+          return;
+        }
+        const result = await googleLogin({ access_token: tokenResponse.access_token, mode: "login" });
         setGoogleBusy(false);
         if (!result.ok) { setError(result.error || "Google authentication failed"); return; }
         onClose();
@@ -233,7 +259,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       <div className="text-center"><Home className="mx-auto h-14 w-14 fill-[#0398FC] text-[#0398FC]" /><div className="mt-1 text-xl font-bold tracking-wide text-sky-700">TRELPNG</div><h2 className="mt-4 text-3xl font-bold text-slate-900" data-testid="account-access-title">{tab === "login" ? "Welcome Back" : tab === "register" ? "Create Your Account" : tab === "forgot" ? "Forgot Password" : "Reset Password"}</h2></div>
       <div className="mt-5 grid grid-cols-2 rounded-lg border border-sky-300 bg-sky-50 p-1" role="tablist"><button type="button" role="tab" aria-selected={tab === "login"} data-testid="account-access-tab-login" onClick={() => setTab("login")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "login" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Log In</button><button type="button" role="tab" aria-selected={tab === "register"} data-testid="account-access-tab-register" onClick={() => setTab("register")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "register" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Create Account</button></div>
       <form onSubmit={submit} className="mt-5 space-y-3">
-        {(tab === "login" || tab === "register") && <><button type="button" onClick={handleGoogle} disabled={!googleClientId || googleBusy} data-testid="account-access-google" className="flex h-14 w-full items-center justify-center gap-4 rounded-full border border-sky-200 bg-white text-base font-semibold text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"><span className="text-xl font-bold text-blue-500">G</span> {googleBusy ? "Connecting…" : "Continue with Google"}</button><div className="flex items-center gap-4 py-1 text-sm text-slate-500"><span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" /></div></>}
+        {(tab === "login" || tab === "register") && <><button type="button" onClick={handleGoogle} disabled={!googleClientId || googleBusy} data-testid="account-access-google" className="flex h-14 w-full items-center justify-center gap-4 rounded-full border border-sky-200 bg-white text-base font-semibold text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"><span className="text-xl font-bold text-blue-500">G</span> {googleBusy ? "Connecting…" : tab === "register" && googleToken ? "Create account with Google" : "Continue with Google"}</button>{!googleToken && <div className="flex items-center gap-4 py-1 text-sm text-slate-500"><span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" /></div>}</>}
         {tab === "login" ? <>
           <input required type="email" placeholder="Email address" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="account-access-login-email" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
           <PasswordInput placeholder="Password" value={password} onChange={setPassword} testId="account-access-login-password" />
@@ -258,6 +284,16 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
           <PasswordInput placeholder="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} testId="account-access-reset-confirm" />
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="account-access-error">{error}</p>}
           <button type="submit" disabled={cannotSubmit} className="h-14 w-full rounded-full bg-[#0398FC] text-base font-semibold text-black disabled:opacity-60 disabled:cursor-not-allowed">{submitting ? "Updating…" : "Update Password"}</button>
+        </> : googleToken ? <>
+          {notice && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status" data-testid="account-access-notice">{notice}</p>}
+          <input required type="tel" placeholder="Mobile number +675" value={mobile} onChange={(event) => setMobile(event.target.value)} data-testid="account-access-register-mobile" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
+          <select required value={relationship} onChange={(event) => setRelationship(event.target.value)} data-testid="account-access-register-relationship" aria-label="Relationship to the property" className="h-14 w-full rounded-lg border border-sky-200 bg-white px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100">
+            <option value="">Select your relationship to the property</option>
+            <option value="OWNER">Owner</option><option value="JOINT_OWNER">Joint owner</option><option value="AUTHORISED_AGENT">Authorized agent</option><option value="AUTHORISED_REPRESENTATIVE">Authorized representative</option>
+          </select>
+          <label className="flex items-start gap-3 py-1 text-xs text-slate-600"><input required type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-0.5 h-4 w-4" data-testid="account-access-register-terms" /><span>I accept the <Link to="/terms" className="text-sky-700">Terms of Use</Link> and <Link to="/privacy" className="text-sky-700">Privacy Policy</Link>.</span></label>
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="account-access-error">{error}</p>}
+          <p className="pt-2 text-center text-sm font-semibold text-sky-700">Already have an account? <button type="button" onClick={() => setTab("login")}>Log In</button></p>
         </> : <>
           <input required type="email" placeholder="Email address" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="account-access-register-email" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
           <input required type="tel" placeholder="Mobile number +675" value={mobile} onChange={(event) => setMobile(event.target.value)} data-testid="account-access-register-mobile" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
