@@ -14,15 +14,26 @@ export function AuthProvider({ children }) {
       .catch(() => { localStorage.removeItem("png_token"); setUser(false); });
   }, []);
 
+  const acceptSession = useCallback((data) => {
+    localStorage.setItem("png_token", data.token);
+    const authenticatedUser = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path };
+    setUser(authenticatedUser);
+    return { ok: true, user: authenticatedUser, workspacePath: data.workspace_path };
+  }, []);
+
   const login = useCallback(async (email, password, turnstile_token) => {
     try {
       const { data } = await api.post("/auth/login", { email, password, turnstile_token });
-      localStorage.setItem("png_token", data.token);
-      const user = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path };
-      setUser(user);
-      return { ok: true, user, workspacePath: data.workspace_path };
+      return acceptSession(data);
     } catch (e) { return { ok: false, error: formatError(e) }; }
-  }, []);
+  }, [acceptSession]);
+
+  const googleLogin = useCallback(async (payload) => {
+    try {
+      const { data } = await api.post("/auth/google", payload);
+      return acceptSession(data);
+    } catch (e) { return { ok: false, error: formatError(e) }; }
+  }, [acceptSession]);
 
   const logout = useCallback(async () => {
     localStorage.removeItem("png_token");
@@ -33,7 +44,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ user, login, logout }), [user, login, logout]);
+  const value = useMemo(() => ({ user, login, googleLogin, logout }), [user, login, googleLogin, logout]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
