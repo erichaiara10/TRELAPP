@@ -225,7 +225,7 @@ export default function AIPriceAnalysis({
           title={btnLabel}
           data-testid={testId}
         >
-          <Sparkles className="w-3 h-3" /> AI
+          <Sparkles className="w-3 h-3" /> {btnLabel}
         </button>
         {open && (
           <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => setOpen(false)}>
