@@ -1,57 +1,84 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Phone, MessageCircle, PlusCircle } from "lucide-react";
+import { Menu, X, Plus } from "lucide-react";
 
-const DEFAULT_PHONE = "+675 76281552";
-const DEFAULT_WHATSAPP = "+675 8138 3302";
-
-function contactLinks(site) {
-  const phone = String(site?.phone || DEFAULT_PHONE).trim();
-  const whatsapp = String(site?.whatsapp || DEFAULT_WHATSAPP).replace(/\D/g, "");
-  return {
-    phone,
-    phoneHref: `tel:${phone.replace(/[^\d+]/g, "")}`,
-    whatsappHref: `https://wa.me/${whatsapp}`,
-  };
-}
+const NAV = [
+  { to: "/", label: "Home" },
+  { to: "/buy", label: "Buy" },
+  { to: "/rent", label: "Rent" },
+  { to: "/wanted", label: "Property Wanted" },
+  { to: "/management", label: "Property Management" },
+  { to: "/corporate", label: "Corporate Services" },
+  { to: "/about", label: "About" },
+  { to: "/contact", label: "Contact" },
+];
 
 function BrandLogo({ site }) {
-  return <Link to="/" className="flex items-center gap-2 shrink-0" data-testid="brand-home-link" aria-label="TRELPNG Home">
-    <img src={site.logo_url} alt="TREL logo" className="h-10 w-14 object-contain" />
-    <span className="text-xl xl:text-2xl font-bold tracking-tight text-[#1597E5]">TRELPNG</span>
-  </Link>;
+  const short = site.short_name || "TREL";
+  if (site.logo_url) {
+    return (
+      <Link to="/" className="flex items-center gap-3 group shrink-0" data-testid="brand-home-link" aria-label={site.agency_name}>
+        <img src={site.logo_url} alt={site.agency_name}
+          className="h-12 w-auto object-contain" />
+        <div className="hidden sm:block leading-tight">
+          <div className="font-serif text-base text-ink-900">{site.agency_name}</div>
+          <div className="text-[10px] tracking-[0.2em] uppercase text-muted-foreground italic">{site.tagline || "We Care To Share"}</div>
+        </div>
+      </Link>
+    );
+  }
+  return (
+    <Link to="/" className="flex items-center gap-2 group" data-testid="brand-home-link">
+      <div className="w-9 h-9 rounded-full bg-pine-500 text-white grid place-items-center font-serif text-lg">
+        {short.slice(0, 1)}
+      </div>
+      <div>
+        <div className="font-serif text-lg leading-none">{site.agency_name}</div>
+        <div className="text-[10px] tracking-[0.25em] uppercase text-muted-foreground">Papua New Guinea</div>
+      </div>
+    </Link>
+  );
 }
 
 export default function PublicHeader({ site }) {
   const [open, setOpen] = useState(false);
   const loc = useLocation();
-  const { phone, phoneHref, whatsappHref } = contactLinks(site);
   useEffect(() => { setOpen(false); window.scrollTo({ top: 0 }); }, [loc.pathname]);
 
-  return <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm" data-testid="public-header">
-    <div className="max-w-[1500px] mx-auto px-4 flex items-center h-16 gap-3 xl:gap-5">
-      <BrandLogo site={site} />
-      <nav className="hidden lg:flex ml-auto items-center gap-2 xl:gap-3 shrink-0 text-[12px] xl:text-[13px]" aria-label="Primary navigation">
-        <Link to="/corporate" data-testid="nav-corporate" className="font-medium whitespace-nowrap">Corporate Services</Link>
-        <Link to="/add-property" data-testid="nav-add-property" className="inline-flex items-center gap-1.5 rounded-lg bg-[#168CF5] px-3 py-2.5 text-white font-semibold hover:bg-[#0878D8] whitespace-nowrap"><PlusCircle className="w-4 h-4" /> Add Property</Link>
-        <Link to="/add-property?auth=login" data-testid="nav-login" className="font-medium whitespace-nowrap">Log In</Link>
-        <Link to="/add-property?auth=register" data-testid="nav-register" className="font-medium whitespace-nowrap">Register</Link>
-        <Link to="/about" data-testid="nav-about" className="font-medium whitespace-nowrap">About</Link>
-        <Link to="/contact" data-testid="nav-contact" className="font-medium whitespace-nowrap">Contact</Link>
-        <a href={phoneHref} className="inline-flex items-center gap-1 whitespace-nowrap" data-testid="header-phone"><Phone className="w-3.5 h-3.5" />{phone}</a>
-        <a href={whatsappHref} target="_blank" rel="noopener noreferrer" data-testid="header-whatsapp" className="inline-flex items-center gap-1.5 rounded-full bg-[#176B4A] px-3 py-2 text-white font-semibold hover:bg-[#0D5639] whitespace-nowrap"><MessageCircle className="w-4 h-4" /> WhatsApp</a>
-      </nav>
-      <button type="button" className="lg:hidden ml-auto p-2" onClick={() => setOpen((v) => !v)} data-testid="mobile-menu-toggle" aria-expanded={open} aria-controls="mobile-navigation" aria-label={open ? "Close menu" : "Open menu"}>{open ? <X /> : <Menu />}</button>
-    </div>
-    {open && <nav id="mobile-navigation" className="lg:hidden bg-white border-t px-5 pb-5 flex flex-col" aria-label="Mobile navigation">
-      <Link to="/corporate" data-testid="mnav-corporate" className="py-2.5 border-b">Corporate Services</Link>
-      <Link to="/add-property" data-testid="mnav-add-property" className="mt-3 py-2.5 px-3 rounded-lg bg-[#168CF5] text-white font-semibold inline-flex items-center gap-2"><PlusCircle className="w-4 h-4" />Add Property</Link>
-      <Link to="/add-property?auth=login" data-testid="mnav-login" className="py-2.5 border-b">Log In</Link>
-      <Link to="/add-property?auth=register" data-testid="mnav-register" className="py-2.5 border-b">Register</Link>
-      <Link to="/about" data-testid="mnav-about" className="py-2.5 border-b">About</Link>
-      <Link to="/contact" data-testid="mnav-contact" className="py-2.5 border-b">Contact</Link>
-      <a href={phoneHref} data-testid="mnav-phone" className="py-2.5 inline-flex items-center gap-2"><Phone className="w-4 h-4" />{phone}</a>
-      <a href={whatsappHref} data-testid="mnav-whatsapp" target="_blank" rel="noopener noreferrer" className="py-2.5 inline-flex items-center gap-2 text-[#075C36]"><MessageCircle className="w-4 h-4" />WhatsApp</a>
-    </nav>}
-  </header>;
+  return (
+    <header className="sticky top-0 z-40 glass border-b border-border" data-testid="public-header">
+      <div className="container-tight flex items-center justify-between h-16 gap-4">
+        <BrandLogo site={site} />
+        <nav className="hidden lg:flex items-center gap-4 text-sm">
+          {NAV.map((n) => (
+            <Link key={n.to} to={n.to} data-testid={`nav-${n.to.slice(1)}`} className={`border-b-2 py-5 text-xs text-ink-700 hover:text-sky-600 ${loc.pathname === n.to ? "border-[#0398FC]" : "border-transparent"}`}>
+              {n.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="hidden md:flex items-center gap-3 shrink-0">
+          <Link to="/add-property?auth=login" className="text-sm font-medium text-ink-700 hover:text-sky-600" data-testid="header-login">Log In</Link>
+          <Link to="/add-property?auth=register" className="text-sm font-medium text-ink-700 hover:text-sky-600" data-testid="header-register">Register</Link>
+          <Link to="/add-property" className="flex items-center gap-2 rounded-lg bg-[#0398FC] px-4 py-2.5 text-sm font-semibold text-black hover:brightness-95" data-testid="header-add-property"><Plus className="h-4 w-4" /> Add Property</Link>
+        </div>
+        <button className="lg:hidden p-2" onClick={() => setOpen(!open)} data-testid="mobile-menu-toggle" aria-label="Menu">
+          {open ? <X /> : <Menu />}
+        </button>
+      </div>
+      {open && (
+        <div className="lg:hidden border-t border-border bg-white">
+          <div className="container-tight py-3 flex flex-col gap-1">
+            {NAV.map((n) => (
+              <Link key={n.to} to={n.to} data-testid={`mnav-${n.to.slice(1)}`} className="py-2 text-ink-700">
+                {n.label}
+              </Link>
+            ))}
+            <Link to="/add-property?auth=login" className="py-2 text-ink-700">Log In</Link>
+            <Link to="/add-property?auth=register" className="py-2 text-ink-700">Register</Link>
+            <Link to="/add-property" className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-[#0398FC] px-4 py-3 font-semibold text-black"><Plus className="h-4 w-4" /> Add Property</Link>
+          </div>
+        </div>
+      )}
+    </header>
+  );
 }
