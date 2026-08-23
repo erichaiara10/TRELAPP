@@ -166,11 +166,14 @@ export default function AIPriceAnalysis({
   property_id, property_type, listing_type = "sale", price, province, city, suburb, local_area, bedrooms,
   bathrooms, parking, land_area_sqm, building_area_sqm, property_condition, tenure_type,
   street_name, nearby_landmark,
-  variant = "inline",
+  variant = "compact",
   buyerFacing = false,
   audience = "buyer",
   testIdPrefix = "ai-price",
   autoRun = false,
+  buttonClassName,
+  buttonStyle,
+  showIcon = true,
 }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
@@ -209,6 +212,15 @@ export default function AIPriceAnalysis({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, canRun]);
 
+  useEffect(() => {
+    if (!open || variant !== "compact") return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open, variant]);
+
   if (!canRun) return null;
 
   const btnLabel = "Compare Price";
@@ -220,19 +232,26 @@ export default function AIPriceAnalysis({
         <button
           type="button"
           onClick={run}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-[11px] font-medium shadow-sm hover:shadow-md transition-all"
-          style={{ backgroundColor: BRAND_BLUE }}
+          className={buttonClassName || "inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-[11px] font-medium shadow-sm hover:shadow-md transition-all"}
+          style={buttonStyle || { backgroundColor: BRAND_BLUE }}
           title={btnLabel}
           data-testid={testId}
         >
-          <Sparkles className="w-3 h-3" /> {btnLabel}
+          {showIcon && <Sparkles className="w-3 h-3" />} {btnLabel}
         </button>
         {open && (
-          <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => setOpen(false)}>
+          <div
+            className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4"
+            onClick={() => setOpen(false)}
+            data-testid={`${testIdPrefix}-overlay`}
+          >
             <div
               className="relative bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl"
               onClick={(e) => e.stopPropagation()}
               data-testid={`${testIdPrefix}-modal`}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Compare Price"
             >
               <div className="px-5 pt-5 pb-2 flex items-center gap-2">
                 <Sparkles className="w-4 h-4" style={{ color: BRAND_BLUE }} />
