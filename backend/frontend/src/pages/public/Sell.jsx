@@ -4,7 +4,7 @@ import LeadFormPage, { RequiredMark } from "./LeadFormPage";
 import PhotoUploader from "@/components/PhotoUploader";
 import MapCoordsField from "@/components/MapCoordsField";
 import LocationPicker from "@/components/LocationPicker";
-import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceCompareButton from "@/components/PriceCompareButton";
 import PriceInput from "@/components/PriceInput";
 import PropertyTypeSelect from "@/components/PropertyTypeSelect";
 import FormSection from "@/components/FormSection";
@@ -119,16 +119,9 @@ export default function Sell() {
               <PriceInput value={prop.price} onChange={(v) => setProp({ ...prop, price: v })} testId="sell_form-price" />
             </div>
             <div className="w-full sm:w-auto">
-              <AIPriceAnalysis
+              <PriceCompareButton
                 audience="seller"
-                property_type={prop.property_type}
-                listing_type="sale"
-                price={prop.price}
-                province={prop.province}
-                city={prop.location}
-                suburb={prop.suburb}
-                street_name={prop.street_name}
-                nearby_landmark={prop.nearby_landmark}
+                property={{ ...prop, listing_type: "sale" }}
                 testIdPrefix="sell-ai-price"
               />
             </div>
