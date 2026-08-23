@@ -106,8 +106,19 @@ test("Home, Buy, Rent and Property Details use the same Compare Price popup", as
     await expect(page.getByRole("dialog", { name: "Compare Price" })).toHaveCount(0);
   }
 
-  expect(payloads).toHaveLength(5);
-  for (const payload of payloads) {
+  await page.goto("/sell");
+  await page.getByTestId("sell_form-type").selectOption("House");
+  await page.getByTestId("sell_form-location-province").selectOption("ncd");
+  await page.getByTestId("sell_form-location-city").selectOption("pom");
+  await page.getByTestId("sell_form-location-suburb").selectOption("boroko");
+  await page.getByTestId("sell_form-street-name").fill("Angau Drive");
+  await page.getByTestId("sell_form-price-input").fill("780000");
+  await page.getByRole("button", { name: "Compare Price", exact: true }).click();
+  await expectApprovedPopup(page, /\/sell$/);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  expect(payloads).toHaveLength(6);
+  for (const payload of payloads.slice(0, 5)) {
     expect(payload).toMatchObject({
       property_type: "House",
       province: "National Capital District",
@@ -123,7 +134,16 @@ test("Home, Buy, Rent and Property Details use the same Compare Price popup", as
       nearby_landmark: "Boroko Foodworld",
     });
   }
-  expect(payloads.map((p) => p.listing_type)).toEqual(["sale", "sale", "rent", "sale", "rent"]);
+  expect(payloads[5]).toMatchObject({
+    property_type: "House",
+    listing_type: "sale",
+    price: 780000,
+    province: "National Capital District",
+    city: "Port Moresby",
+    suburb: "Boroko",
+    street_name: "Angau Drive",
+  });
+  expect(payloads.map((p) => p.listing_type)).toEqual(["sale", "sale", "rent", "sale", "rent", "sale"]);
 });
 
 test("popup closes using X, backdrop and Escape on desktop and mobile", async ({ page }) => {
@@ -146,4 +166,3 @@ test("popup closes using X, backdrop and Escape on desktop and mobile", async ({
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Compare Price" })).toHaveCount(0);
 });
-
