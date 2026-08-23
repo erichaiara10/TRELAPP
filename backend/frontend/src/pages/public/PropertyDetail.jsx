@@ -5,7 +5,7 @@ import { Bed, Bath, Car, MapPin, Phone, MessageCircle, ShieldCheck, Calendar, Ch
 import { toast } from "sonner";
 import HumanVerification from "@/components/HumanVerification";
 import { mapsUrlFromCoords } from "@/components/MapCoordsField";
-import AIPriceAnalysis from "@/components/AIPriceAnalysis";
+import PriceCompareButton from "@/components/PriceCompareButton";
 import NearbyAmenities from "@/components/NearbyAmenities";
 import NameInput from "@/components/NameInput";
 import PhoneInput from "@/components/PhoneInput";
@@ -113,28 +113,10 @@ export default function PropertyDetail() {
             <div className="text-3xl font-semibold text-pine-500">
               {money(p.price, p.currency || "PGK")}{p.listing_type === "rent" && <span className="text-base text-muted-foreground"> / month</span>}
             </div>
-            <AIPriceAnalysis
-              property_id={p.id}
-              buyerFacing
+            <PriceCompareButton
+              property={p}
               audience="buyer"
-              property_type={p.property_type}
-              listing_type={p.listing_type}
-              price={p.price}
-              province={p.province}
-              city={p.location}
-              suburb={p.suburb}
-              local_area={p.local_area}
-              bedrooms={p.bedrooms}
-              bathrooms={p.bathrooms}
-              parking={p.parking}
-              land_area_sqm={String(p.property_type || "").toLowerCase().includes("land") ? (p.total_area_ha ? Number(p.total_area_ha) * 10000 : p.area_sqm) : null}
-              building_area_sqm={/(commercial|industrial|office|warehouse|retail)/i.test(p.property_type || "") ? p.area_sqm : null}
-              property_condition={p.property_condition}
-              tenure_type={p.tenure_type}
-              street_name={p.street_name}
-              nearby_landmark={p.nearby_landmark}
               testIdPrefix="detail-ai-price"
-              autoRun={window.location.hash === "#price-guidance"}
             />
           </div>
           <div className="mt-6 flex flex-wrap gap-6 text-sm text-ink-700 border-y border-border py-4">
