@@ -77,8 +77,9 @@ function DraftProvider({ children }) {
         api.get("/property-advertising/advertiser/submissions"),
       ]);
       if (saved?.data) setDraft({ ...DEFAULT_DRAFT, ...saved.data });
-      setSubmissions(Array.isArray(submitted) ? submitted : []);
-      syncSubmissionProperties(submitted);
+      const submittedItems = Array.isArray(submitted) ? submitted : [];
+      setSubmissions(submittedItems);
+      syncSubmissionProperties(submittedItems);
     } catch (err) { toast.error(formatError(err)); }
   };
   useEffect(() => { load(); }, []);
