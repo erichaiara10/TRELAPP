@@ -32,7 +32,8 @@ import Content from "@/pages/admin/Content";
 import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
 import MarketEvidence from "@/pages/admin/market/Evidence";
-import { AdvertiserWorkspace, ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
+import { ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
+import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 import Register from "@/pages/account/Register";
 import AddProperty from "@/pages/public/AddProperty";
 
@@ -90,7 +91,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
           </Route>
-          <Route path="/advertiser" element={<Protected><AdvertiserWorkspace /></Protected>} />
+          <Route path="/advertiser/*" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
           <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

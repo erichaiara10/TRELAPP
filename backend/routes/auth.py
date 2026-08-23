@@ -1,12 +1,18 @@
-"""Auth (login/logout/me/registration) + Users CRUD."""
+"""Auth (login/logout/me/registration/password reset) + Users CRUD."""
+import hashlib
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 
 from core.account_policy import account_category, require_staff, workspace_path
 from core.db import db, new_id, now_iso
 from core.login_guard import is_locked, record_failure, reset as reset_login_failures
+from core.notify import notify
 from core.security import (
     create_access_token, get_current_user, hash_password,
     require_roles, verify_password,
@@ -27,6 +33,16 @@ class PublicRegisterIn(BaseModel):
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]] = None
     turnstile_token: Optional[str] = None
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+    turnstile_token: Optional[str] = None
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    password: str = Field(min_length=8, max_length=128)
 
 STAFF_ROLES = {
     "system_admin", "managing_director", "sales_manager", "sales_agent",
@@ -112,6 +128,82 @@ async def public_register(payload: PublicRegisterIn, request: Request):
             "created_at": now_iso(), "updated_at": now_iso(),
         })
     return {"ok": True, "account_category": payload.account_category, "login_path": "/add-property?auth=login"}
+
+
+async def _send_password_reset_email(email: str, reset_url: str) -> None:
+    subject = "Reset your TRELPNG password"
+    body = (
+        "A password reset was requested for your TRELPNG account. "
+        f"Use this secure link within 30 minutes: {reset_url}"
+    )
+    await notify(subject, body, email)
+    api_key = os.environ.get("RESEND_API_KEY")
+    sender = os.environ.get("RESEND_FROM_EMAIL", "TRELPNG <noreply@trelpng.com>")
+    if not api_key:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "from": sender,
+                    "to": [email],
+                    "subject": subject,
+                    "html": (
+                        "<p>A password reset was requested for your TRELPNG account.</p>"
+                        f'<p><a href="{reset_url}">Reset your password</a></p>'
+                        "<p>This secure link expires in 30 minutes.</p>"
+                    ),
+                },
+            )
+            response.raise_for_status()
+    except Exception:
+        # Keep the public response account-neutral; the in-app notification log
+        # preserves the reset link for test-environment verification.
+        return
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordIn, request: Request):
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
+    if not await verify_turnstile(payload.turnstile_token, ip):
+        raise HTTPException(400, "Human verification failed. Please retry the check.")
+    email = payload.email.lower().strip()
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1})
+    if user:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        await db.password_reset_tokens.delete_many({"user_id": user["id"]})
+        await db.password_reset_tokens.insert_one({
+            "id": new_id(),
+            "user_id": user["id"],
+            "token_hash": token_hash,
+            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+            "created_at": now_iso(),
+        })
+        public_url = os.environ.get("PUBLIC_APP_URL") or str(request.base_url).rstrip("/")
+        reset_url = f"{public_url}/add-property?auth=reset&token={raw_token}"
+        await _send_password_reset_email(email, reset_url)
+    return {"ok": True, "message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordIn):
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    reset = await db.password_reset_tokens.find_one({
+        "token_hash": token_hash,
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not reset:
+        raise HTTPException(400, "This password-reset link is invalid or has expired.")
+    await db.users.update_one(
+        {"id": reset["user_id"]},
+        {"$set": {"password_hash": hash_password(payload.password)}},
+    )
+    await db.password_reset_tokens.delete_many({"user_id": reset["user_id"]})
+    return {"ok": True}
 
 
 @router.get("/auth/me")

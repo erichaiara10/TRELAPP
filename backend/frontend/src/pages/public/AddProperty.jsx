@@ -51,7 +51,7 @@ export default function AddProperty() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const auth = params.get("auth");
-    if (auth === "login" || auth === "register") {
+    if (auth === "login" || auth === "register" || auth === "reset") {
       setDialogTab(auth);
       setDialogOpen(true);
     }
@@ -160,6 +160,7 @@ export default function AddProperty() {
       onClose={() => setDialogOpen(false)}
       selectedService={selectedService}
       next={dialogNext}
+      resetToken={queryParams.get("token") || ""}
     />
   </main>;
 }
