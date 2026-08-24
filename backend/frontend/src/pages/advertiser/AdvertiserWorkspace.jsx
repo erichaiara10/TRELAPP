@@ -26,7 +26,7 @@ const photos = [
 
 const nav = [
   ["/advertiser", "Dashboard", LayoutDashboard, true],
-  ["/advertiser/add-property", "Add Property", Plus],
+  ["/advertiser/add-property?new=1", "Add Property", Plus],
   ["/advertiser/properties", "My Properties", Home],
   ["/advertiser/enquiries", "Enquiries", MessageCircle],
   ["/advertiser/inspections", "Inspections", CalendarDays],
@@ -119,28 +119,35 @@ const DEFAULT_DRAFT = {
   local_area: "", street: "", address: "", landmark: "", section: "", lot: "", building_name: "",
   latitude: "", longitude: "", bedrooms: "", bathrooms: "", parking: "", land_size: "",
   building_area: "", furnished: "Unfurnished", condition: "Good", year_built: "", special_features: "",
-  features: [], photos: 0, documents: 0, authority_confirmed: false, terms_accepted: false,
+  features: [], photos: [], documents: [], authority_confirmed: false, terms_accepted: false,
 };
 
 const DraftContext = createContext(null);
 function DraftProvider({ children }) {
-  const [draft, setDraft] = useState(DEFAULT_DRAFT);
+  const [draft, setDraft] = useState({...DEFAULT_DRAFT});
   const [currentStep, setCurrentStep] = useState(1);
   const [submissions, setSubmissions] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const normalise = (value={}) => ({...DEFAULT_DRAFT,...value,features:Array.isArray(value.features)?value.features:[],photos:Array.isArray(value.photos)?value.photos:[],documents:Array.isArray(value.documents)?value.documents:[],authority_confirmed:false,terms_accepted:false});
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
+  const reset = () => { setDraft({...DEFAULT_DRAFT}); setCurrentStep(1); };
+  const beginEdit = (row) => {
+    const [title,location,price]=row.property; const [suburb="",province=""]=location.split(",").map(x=>x.trim());
+    setDraft(normalise({title,suburb,province,price:String(price).replace(/^PGK\s*/i,"").replace(/\s*\/\s*month/i,"").replace(/,/g,""),listing_type:row.listingType==="For Rent"?"Rent":"Sale"}));
+    setCurrentStep(1);
+  };
   const load = async () => {
     try {
       const [{ data: saved }, { data: submitted }] = await Promise.all([
         api.get("/property-advertising/advertiser/drafts/current"),
         api.get("/property-advertising/advertiser/submissions"),
       ]);
-      if (saved?.data) setDraft({ ...DEFAULT_DRAFT, ...saved.data });
+      if (saved?.data) setDraft(normalise(saved.data));
       setCurrentStep(Math.min(5, Math.max(1, Number(saved?.current_step) || 1)));
-      const submittedItems = Array.isArray(submitted) ? submitted : [];
-      setSubmissions(submittedItems);
-      syncSubmissionProperties(submittedItems);
+      setSubmissions(Array.isArray(submitted) ? submitted : []);
     } catch (err) { toast.error(formatError(err)); }
+    finally { setLoaded(true); }
   };
   useEffect(() => { load(); }, []);
   const save = async (step = 1, quiet = false) => {
@@ -159,12 +166,11 @@ function DraftProvider({ children }) {
       const { data } = await api.post("/property-advertising/advertiser/drafts/current/submit", { data: draft, current_step: 5 });
       toast.success(`Property submitted as ${data.reference}`);
       setSubmissions((current) => [data, ...current]);
-      syncSubmissionProperties([data]);
       return data;
     } catch (err) { toast.error(formatError(err)); return null; }
     finally { setSaving(false); }
   };
-  return <DraftContext.Provider value={{ draft, update, save, submit, submissions, saving, currentStep }}>{children}</DraftContext.Provider>;
+  return <DraftContext.Provider value={{ draft, update, reset, beginEdit, save, submit, submissions, saving, currentStep, loaded }}>{children}</DraftContext.Provider>;
 }
 const useDraft = () => useContext(DraftContext);
 
@@ -242,7 +248,7 @@ function Dashboard() {
   const { user } = useAuth();
   const { currentStep } = useDraft();
   const navigate = useNavigate();
-  const continueDraftPath = DRAFT_ROUTES[currentStep - 1] || DRAFT_ROUTES[0];
+  const continueDraftPath = `${DRAFT_ROUTES[currentStep - 1] || DRAFT_ROUTES[0]}?resume=1`;
   const activity = RECENT_ACTIVITY.map((item)=>item[3] === "draft" ? [...item.slice(0,3), continueDraftPath] : item);
   const stats = [
     [House, LISTING_STATS.live, "Active Listings", "View active", "/advertiser/properties?status=live"],
@@ -260,7 +266,7 @@ function Dashboard() {
     <Card className="adv-welcome"><div className="adv-welcome-icon"><Building2/></div><div><h2>Welcome back, {user?.name || "Property Advertiser"}!</h2><p>Here's what's happening with your properties today.</p><small><MapPin size={14}/> Port Moresby, National Capital District</small></div><img src={photos[0]} alt="Modern property"/></Card>
     <div className="adv-dashboard-grid"><div className="adv-dashboard-main">
       <div className="adv-stat-grid">{stats.map(([Icon,n,t,l,to],i)=><Card className="adv-stat" key={t}><Icon className={`stat-${i}`}/><div><b>{n}</b><span>{t}</span><Link to={to}>{l} <ChevronRight size={14}/></Link></div></Card>)}</div>
-      <div className="adv-two-col"><div><Card><h3>Quick Actions</h3>{[[Plus,"Add New Property","Create a new listing","/advertiser/add-property"],[FileText,"Continue Draft",`Resume at step ${currentStep}`,continueDraftPath],[Home,"View My Properties","Manage your listings","/advertiser/properties"]].map(([Icon,a,b,to])=><Link className="adv-action-row" to={to} key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><ChevronRight/></Link>)}</Card><Card className="adv-activity"><h3>Recent Activity <Link to="/advertiser/activity">View all</Link></h3>{activity.map((x,i)=><Link className="adv-activity-row" to={x[3]} key={`${x[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{x[0]}</b><small>{x[1]}</small></span><time>{x[2]}</time></Link>)}</Card></div>
+      <div className="adv-two-col"><div><Card><h3>Quick Actions</h3>{[[Plus,"Add New Property","Create a new listing","/advertiser/add-property?new=1"],[FileText,"Continue Draft",`Resume at step ${currentStep}`,continueDraftPath],[Home,"View My Properties","Manage your listings","/advertiser/properties"]].map(([Icon,a,b,to])=><Link className="adv-action-row" to={to} key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><ChevronRight/></Link>)}</Card><Card className="adv-activity"><h3>Recent Activity <Link to="/advertiser/activity">View all</Link></h3>{activity.map((x,i)=><Link className="adv-activity-row" to={x[3]} key={`${x[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{x[0]}</b><small>{x[1]}</small></span><time>{x[2]}</time></Link>)}</Card></div>
         <Card><h3>My Listings Snapshot <Link to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></h3>{properties.slice(0,4).map((p,i)=><Link className="adv-listing-row" to={`/advertiser/properties?property=${1024+i}`} key={`${p[0]}-${i}`}><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>{p[1]}</small><strong>{p[2]}</strong></div><div><Status tone={p[4]==="Live"?"green":p[4]==="Draft"?"gray":"orange"}>{p[4]}</Status><small>{p[5] && `Enquiries ${p[5]}`}</small></div><ChevronRight/></Link>)}<Link className="adv-card-link" to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></Card></div>
     </div><aside className="adv-dashboard-side"><Card><h3><Bell size={17}/> Reminders</h3>{reminders.map(([Icon,a,b,c,to])=><div className="adv-reminder" key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><Button secondary onClick={()=>navigate(to)}>{c}</Button></div>)}</Card><Card><h3><CalendarDays size={17}/> Inspection Requests <Status tone="red">2</Status></h3>{INSPECTION_ITEMS.slice(0,2).map((item)=><div className="adv-inspection-mini" key={item[0]}><img src={properties[item[6]][3]} alt=""/><div><b>{item[1]}</b><small>Requested by {item[2]}</small><small><CalendarDays size={13}/> {item[3]}, {item[4]}</small></div><Status tone={item[5]==="Confirmed"?"green":"orange"}>{item[5]}</Status></div>)}<Link className="adv-card-link" to="/advertiser/inspections">Manage inspections <ChevronRight size={15}/></Link></Card></aside></div>
   </>;
@@ -392,7 +398,7 @@ function AccountSettingsFixed(){
   </div></div></>;
 }
 
-function ActivityPage(){const {currentStep}=useDraft();const continueDraftPath=DRAFT_ROUTES[currentStep-1]||DRAFT_ROUTES[0];return <><PageHead title="Recent Activity" sub="Open the enquiry, listing or draft connected to each update."/><Card className="adv-activity adv-activity-page">{RECENT_ACTIVITY.map((item,i)=>{const to=item[3]==="draft"?continueDraftPath:item[3];return <Link className="adv-activity-row" to={to} key={`${item[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{item[0]}</b><small>{item[1]}</small></span><time>{item[2]}</time><ChevronRight size={15}/></Link>})}</Card></>}
+function ActivityPage(){const {currentStep}=useDraft();const continueDraftPath=`${DRAFT_ROUTES[currentStep-1]||DRAFT_ROUTES[0]}?resume=1`;return <><PageHead title="Recent Activity" sub="Open the enquiry, listing or draft connected to each update."/><Card className="adv-activity adv-activity-page">{RECENT_ACTIVITY.map((item,i)=>{const to=item[3]==="draft"?continueDraftPath:item[3];return <Link className="adv-activity-row" to={to} key={`${item[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{item[0]}</b><small>{item[1]}</small></span><time>{item[2]}</time><ChevronRight size={15}/></Link>})}</Card></>}
 
 function SearchResultsPage(){const [params]=useSearchParams();const query=(params.get("q")||"").trim();const needle=query.toLowerCase();const propertyResults=buildPropertyRows().filter((row)=>`${row.property[0]} ${row.property[1]} ${row.id}`.toLowerCase().includes(needle)).slice(0,5);const enquiryResults=ENQUIRY_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const documentResults=DOCUMENT_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const total=propertyResults.length+enquiryResults.length+documentResults.length;return <><PageHead title="Search Results" sub={query?`${total} result${total===1?"":"s"} for “${query}”`:"Enter a search from the dashboard header."}/><div className="adv-search-results">{propertyResults.length>0&&<Card><h3>Properties</h3>{propertyResults.map((row)=><Link to={`/advertiser/properties?property=${row.id}`} key={row.id}><House/><span><b>{row.property[0]}</b><small>{row.property[1]} • Property #{row.id}</small></span><ChevronRight/></Link>)}</Card>}{enquiryResults.length>0&&<Card><h3>Enquiries</h3>{enquiryResults.map((row)=><Link to={`/advertiser/enquiries?search=${encodeURIComponent(row[0])}`} key={row[0]}><MessageCircle/><span><b>{row[0]}</b><small>{row[1]} • {row[3]}</small></span><ChevronRight/></Link>)}</Card>}{documentResults.length>0&&<Card><h3>Documents</h3>{documentResults.map((row)=><Link to={`/advertiser/documents?search=${encodeURIComponent(row[0])}`} key={row[0]}><FileText/><span><b>{row[0]}</b><small>{row[1]} • {row[4]}</small></span><ChevronRight/></Link>)}</Card>}{query&&!total&&<Card className="adv-empty">No properties, enquiries or documents match “{query}”.</Card>}</div></>}
 
