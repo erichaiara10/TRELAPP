@@ -63,7 +63,7 @@ class SelfProfileUpdate(BaseModel):
     business_name: Optional[str] = Field(default=None, max_length=160)
     ipa_registration_number: Optional[str] = Field(default=None, max_length=80)
     position: Optional[str] = Field(default=None, max_length=120)
-    business_phone: Optional[str] = Field(default=None, max_length=40, pattern=r"^\\+?[0-9\\s-]{5,40}$")
+    business_phone: Optional[str] = Field(default=None, max_length=40, pattern=r"^$|^\\+?[0-9\\s-]{5,40}$")
     notification_preferences: Optional[dict[str, bool]] = None
     profile_photo_url: Optional[str] = Field(default=None, max_length=1000)
 
