@@ -10,7 +10,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
-from core.account_policy import require_property_writer, require_staff
+from core.account_policy import PROPERTY_ADVERTISER, STAFF, account_category, require_staff
 from core.db import db, new_id, now_iso
 from core.security import get_current_user
 
@@ -317,9 +317,14 @@ ALLOWED_DOCUMENT_TYPES = {
 @router.post("/documents/upload")
 async def document_upload(
     file: UploadFile = File(...),
-    user: dict = Depends(require_property_writer),
+    user: dict = Depends(get_current_user),
 ):
-    """Upload a Property authority/title document for authenticated staff."""
+    """Upload an advertiser document before or after identity verification."""
+    category = account_category(user)
+    if user.get("status", "ACTIVE") != "ACTIVE":
+        raise HTTPException(403, "Active account required")
+    if category not in {PROPERTY_ADVERTISER, STAFF}:
+        raise HTTPException(403, "Property Advertiser account required")
     content_type = (file.content_type or "").lower().strip()
     if content_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(400, "Only PDF, JPG, PNG or WebP documents are allowed")
@@ -341,6 +346,7 @@ async def document_upload(
         "size": result["size"],
         "is_deleted": False,
         "source": "property_document",
+        "status": "UNDER_REVIEW",
         "uploaded_by": user["id"],
         "created_at": now_iso(),
     }
@@ -351,6 +357,7 @@ async def document_upload(
         "url": result["url"],
         "name": file.filename,
         "content_type": content_type,
+        "status": "Under Review",
     }
 
 
