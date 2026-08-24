@@ -48,7 +48,7 @@ class ResetPasswordIn(BaseModel):
 class GoogleAuthIn(BaseModel):
     access_token: str = Field(min_length=20, max_length=4096)
     mode: Literal["login", "register"]
-    phone: Optional[str] = Field(default=None, min_length=5, max_length=40)
+    phone: Optional[str] = Field(default=None, min_length=5, max_length=40, pattern=r"^\\+?[0-9\\s-]{5,40}$")
     advertiser_relationship_type: Optional[Literal[
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]] = None
@@ -63,9 +63,15 @@ class SelfProfileUpdate(BaseModel):
     business_name: Optional[str] = Field(default=None, max_length=160)
     ipa_registration_number: Optional[str] = Field(default=None, max_length=80)
     position: Optional[str] = Field(default=None, max_length=120)
-    business_phone: Optional[str] = Field(default=None, max_length=40)
+    business_phone: Optional[str] = Field(default=None, max_length=40, pattern=r"^\\+?[0-9\\s-]{5,40}$")
     notification_preferences: Optional[dict[str, bool]] = None
     profile_photo_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+class IdentityDocumentIn(BaseModel):
+    document_type: Literal["Passport", "Driver Licence", "National Identification Card"]
+    file_name: str = Field(min_length=1, max_length=255)
+    url: str = Field(min_length=1, max_length=1000)
 
 
 STAFF_ROLES = {
@@ -352,6 +358,19 @@ async def update_me(payload: SelfProfileUpdate, user: dict = Depends(get_current
         )
     current = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
     return await me(current)
+
+
+@router.post("/auth/me/identity-documents")
+async def add_identity_document(payload: IdentityDocumentIn, user: dict = Depends(get_current_user)):
+    if account_category(user) != "PROPERTY_ADVERTISER":
+        raise HTTPException(403, "Identity verification is available to Property Advertisers")
+    document = {
+        "id": new_id(), "user_id": user["id"], "document_type": payload.document_type,
+        "file_name": payload.file_name, "url": payload.url, "status": "PENDING",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.identity_documents.insert_one(document.copy())
+    return document
 
 
 @router.get("/users")
