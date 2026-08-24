@@ -65,6 +65,7 @@ class SelfProfileUpdate(BaseModel):
     position: Optional[str] = Field(default=None, max_length=120)
     business_phone: Optional[str] = Field(default=None, max_length=40)
     notification_preferences: Optional[dict[str, bool]] = None
+    profile_photo_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 STAFF_ROLES = {
