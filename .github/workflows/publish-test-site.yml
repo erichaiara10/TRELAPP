@@ -86,6 +86,7 @@ jobs:
           yarn playwright test
           e2e/h01-authoritative.spec.js
           e2e/compare-price-consistency.spec.js
+          e2e/staff-property-advertising.spec.js
 
       - name: Install Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master
