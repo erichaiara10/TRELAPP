@@ -51,11 +51,13 @@ test("all Property Advertising menus and screens load selected record data",asyn
 
 test("single-destination table rows open their record",async({page})=>{
   await page.goto("/admin/property-advertising/advertisers");
-  await page.getByRole("row",{name:/ADV-USER1/}).click({position:{x:20,y:20}});
+  await expect(page.getByText("Mary Kila").first()).toBeVisible();
+  await page.locator(".spa-table tbody tr").first().click({position:{x:20,y:20}});
   await expect(page).toHaveURL(/advertisers\/ADV-USER1$/);
 
   await page.goto("/admin/property-advertising/publications");
-  await page.getByRole("row",{name:/LIST-1001/}).click({position:{x:20,y:20}});
+  await expect(page.getByText("LIST-1001").first()).toBeVisible();
+  await page.locator(".spa-table tbody tr").first().click({position:{x:20,y:20}});
   await expect(page).toHaveURL(/publications\/LIST-1001$/);
 });
 
