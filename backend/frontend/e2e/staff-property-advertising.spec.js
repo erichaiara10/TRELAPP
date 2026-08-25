@@ -8,6 +8,7 @@ const location={id:"loc-1",reference:"LOC-1001",requester_name:"Peter Tau",conta
 const lifecycle={...publication,publication_status:"PUBLISHED",availability:"AVAILABLE",lifecycle_status:"CURRENT",confirmation:{},audit:[]};
 
 test.beforeEach(async({page})=>{
+  await page.addInitScript(()=>window.localStorage.setItem("png_token","test-staff-token"));
   await page.route("**/api/**",async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname;
     if(path==="/api/auth/me")return json(route,{id:"staff-1",name:"System Admin",email:"admin@trel.com.pg",role:"system_admin",account_category:"STAFF",status:"ACTIVE"});
