@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database, Megaphone, UserRoundCheck, SendToBack, MapPinned, History, FileCheck2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const items = [
@@ -18,6 +18,15 @@ const items = [
   { to: "/admin/content", label: "Content", icon: FileText },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/market/evidence", label: "Market Evidence", icon: Database },
+];
+
+const propertyAdvertisingItems = [
+  { to: "/admin/property-advertising", label: "Overview", icon: Megaphone, end: true },
+  { to: "/admin/property-advertising/advertisers", label: "Advertisers", icon: UserRoundCheck },
+  { to: "/admin/property-advertising/submissions", label: "Properties & Submissions", icon: SendToBack },
+  { to: "/admin/property-advertising/publications", label: "Publication Control", icon: FileCheck2 },
+  { to: "/admin/property-advertising/exact-location", label: "Exact Location Requests", icon: MapPinned },
+  { to: "/admin/property-advertising/lifecycle", label: "Listing Lifecycle", icon: History },
 ];
 
 export default function AdminLayout() {
@@ -45,6 +54,25 @@ export default function AdminLayout() {
                 }`
               }
               data-testid={`sidebar-${it.to.replace("/admin","").replace("/","") || "dashboard"}`}
+            >
+              <it.icon className="w-4 h-4" />
+              {it.label}
+            </NavLink>
+          ))}
+          <div className="px-3 pt-5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+            Property Advertising
+          </div>
+          {propertyAdvertisingItems.map((it) => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.end}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-md text-sm mb-1 transition-colors ${
+                  isActive ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+                }`
+              }
+              data-testid={`sidebar-property-advertising-${it.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >
               <it.icon className="w-4 h-4" />
               {it.label}
