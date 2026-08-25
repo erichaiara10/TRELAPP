@@ -5,7 +5,7 @@ import {
   Bell, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleHelp, Clock3, FileCheck2, FileText, FolderOpen, HelpCircle,
   Home, House, Image, Inbox, Info, LayoutDashboard, ListChecks, Mail, MapPin,
-  MessageCircle, MoreVertical, Paperclip, Pencil, Phone, Plus, Search, Send,
+  LogOut, MessageCircle, MoreVertical, Paperclip, Pencil, Phone, Plus, Search, Send,
   Settings, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, Users,
   X, ZoomIn
 } from "lucide-react";
@@ -176,7 +176,7 @@ function DraftProvider({ children }) {
 const useDraft = () => useContext(DraftContext);
 
 function AppShell({ children }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const flow = useDraft();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -187,6 +187,10 @@ function AppShell({ children }) {
     event.preventDefault();
     const query = searchQuery.trim();
     if (query) navigate(`/advertiser/search?q=${encodeURIComponent(query)}`);
+  };
+  const signOut = async () => {
+    await logout();
+    navigate("/add-property?auth=login");
   };
   useEffect(()=>{
     const wanted=[flow.draft.listing_type==="Rent"?"Rent":"Sell",flow.draft.service==="Advertise only"?"Advertise only":"TREL to sell/manage",flow.draft.relationship==="Authorised Real Estate Agent"?"Authorised Real Estate Agent":flow.draft.relationship==="Authorised representative"?"Authorised to act":"Owner / Joint Owner"];
@@ -222,6 +226,7 @@ function AppShell({ children }) {
           {notificationsOpen && <div className="adv-notifications" role="menu"><b>Notifications</b><Link to="/advertiser/enquiries?search=ENQ-2024-1032" onClick={()=>setNotificationsOpen(false)}>New enquiry received<small>Executive 3 Bedroom House</small></Link><Link to="/advertiser/properties?status=under-review" onClick={()=>setNotificationsOpen(false)}>Listing awaiting review<small>Residential Land — 1/4 Acre</small></Link><Link to="/advertiser/documents?status=action-required" onClick={()=>setNotificationsOpen(false)}>Document requires attention<small>Lease Agreement — Warehouse</small></Link></div>}
         </div>
         <Link className="adv-user" to="/advertiser/account-settings" aria-label="Open account settings"><span>{initials}</span><div><b>{displayName}</b><small>Property Advertiser</small></div><ChevronDown size={16}/></Link>
+        <button className="adv-signout" type="button" onClick={signOut}><LogOut size={16}/> Sign out</button>
       </header>
       <main className="adv-main" onClick={captureChoice} onChange={captureChecks}>{children}</main>
     </div>
