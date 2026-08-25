@@ -49,7 +49,7 @@ test("all Property Advertising menus and screens load selected record data",asyn
     ["/admin/property-advertising/lifecycle","S09"],
     ["/admin/property-advertising/lifecycle/LIST-1001","S09A"],
   ];
-  for(const [path,id] of routes){await page.goto(path);await expect(page.getByRole("heading",{level:1})).toContainText(id);await expect(page.locator("main")).not.toContainText("John Tano");}
+  for(const [path,id] of routes){await page.goto(path);await expect(page.getByRole("heading",{level:1})).toContainText(id);await expect(page.getByTestId("admin-main")).not.toContainText("John Tano");}
 });
 
 test("filters work and decisions require a reason before a write",async({page})=>{
@@ -59,7 +59,7 @@ test("filters work and decisions require a reason before a write",async({page})=
   await expect(page.getByText("Mary Kila").first()).toBeVisible();
 
   await page.goto("/admin/property-advertising/publications/LIST-1001");
-  await page.getByRole("button",{name:"Publish"}).click();
+  await page.getByRole("button",{name:"Publish",exact:true}).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button",{name:"Confirm"}).click();
   await expect(page.getByText("Please enter a reason")).toBeVisible();
