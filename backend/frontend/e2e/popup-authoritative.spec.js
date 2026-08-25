@@ -194,36 +194,14 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
   });
 
-  test("Staff login stays in the admin environment while /register keeps the public account popup", async ({ page }) => {
-    await page.goto("/admin");
-    await expect(page).toHaveURL(/\/admin\/login\?next=%2Fadmin/);
-    await expect(page.getByTestId("staff-login-page")).toBeVisible();
+  test("Legacy /admin/login and /register still redirect to the popup (with P01 selector as base page)", async ({ page }) => {
+    await page.goto("/admin/login");
+    await expect(page).toHaveURL(/\/add-property\?auth=login/);
     await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-    await expect(page.getByTestId("account-access-context")).toHaveText("Secure Account Login");
-    await expect(page.getByTestId("account-access-tab-register")).toHaveCount(0);
-    await expect(page.getByTestId("p01-title")).toHaveCount(0);
+    await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
 
     await page.goto("/register");
     await expect(page).toHaveURL(/\/add-property\?auth=register/);
     await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
-  });
-
-  test("Account category, not the login URL, selects the workspace", async ({ page }) => {
-    await page.route("**/api/auth/login", (r) => json(r, {
-      token: "advertiser-token",
-      id: "adv-route",
-      email: "advertiser@t.pg",
-      name: "Advertiser",
-      role: "property_advertiser",
-      account_category: "PROPERTY_ADVERTISER",
-      workspace_path: "/advertiser",
-    }));
-
-    await page.goto("/admin");
-    await expect(page.getByTestId("account-access-login-submit")).toBeEnabled({ timeout: 3000 });
-    await page.getByTestId("account-access-login-email").fill("advertiser@t.pg");
-    await page.getByTestId("account-access-login-password").fill("Password@123");
-    await page.getByTestId("account-access-login-submit").click();
-    await expect(page).toHaveURL(/\/advertiser$/);
   });
 });

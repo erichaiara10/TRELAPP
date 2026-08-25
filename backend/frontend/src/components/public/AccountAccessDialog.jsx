@@ -12,11 +12,8 @@ const GOOGLE_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 
 // Route the user based on account_category and preserved intent.
 function destinationFor(user, next) {
+  if (next) return next;
   const cat = user?.account_category;
-  const categoryPrefix = cat === "STAFF" ? "/admin" : cat === "PROPERTY_ADVERTISER" ? "/advertiser" : cat === "REFERRAL_PARTNER" ? "/referral-partner" : "";
-  // A preserved route is valid only inside the authenticated account's own
-  // workspace. This prevents the entry URL from overriding server identity.
-  if (next && categoryPrefix && (next === categoryPrefix || next.startsWith(`${categoryPrefix}/`) || next.startsWith(`${categoryPrefix}?`))) return next;
   if (cat === "PROPERTY_ADVERTISER") return "/advertiser";
   if (cat === "REFERRAL_PARTNER") return "/referral-partner";
   if (cat === "STAFF") return user?.workspace_path || "/admin";
@@ -94,7 +91,7 @@ function PasswordInput({ placeholder, value, onChange, testId }) {
   return <div className="relative"><input required type={visible ? "text" : "password"} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} data-testid={testId} className="h-14 w-full rounded-lg border border-sky-200 px-4 pr-12 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" /><button type="button" onClick={() => setVisible(!visible)} className="absolute inset-y-0 right-0 px-4 text-slate-500" aria-label={visible ? "Hide password" : "Show password"}>{visible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div>;
 }
 
-export default function AccountAccessDialog({ open, initialTab = "login", onClose, selectedService, next, resetToken = "", loginOnly = false, contextLabel = "" }) {
+export default function AccountAccessDialog({ open, initialTab = "login", onClose, selectedService, next, resetToken = "" }) {
   const [tab, setTab] = useState(initialTab);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -133,12 +130,6 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
 
   const handleTurnstile = (token) => setTurnstileToken(token || "");
 
-  const completeLogin = async (result) => {
-    onClose();
-    navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
-    return true;
-  };
-
   const completeGoogleRegistration = async (accessToken) => {
     if (mobile.trim().length < 5) { setError("Enter your mobile number to create your account."); return; }
     if (!relationship) { setError("Select your relationship to the property."); return; }
@@ -153,7 +144,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
     });
     setGoogleBusy(false);
     if (!result.ok) { setError(result.error || "Google account creation failed"); return; }
-    await completeLogin(result);
+    onClose();
+    navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
   };
 
   const handleGoogle = () => {
@@ -174,7 +166,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
           const existing = await googleLogin({ access_token: tokenResponse.access_token, mode: "login" });
           setGoogleBusy(false);
           if (existing.ok) {
-            await completeLogin(existing);
+            onClose();
+            navigate(destinationFor(existing.user, next), { replace: true, state: { selectedService } });
             return;
           }
           if (!String(existing.error || "").includes("No TRELPNG account was found")) {
@@ -187,7 +180,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
         const result = await googleLogin({ access_token: tokenResponse.access_token, mode: "login" });
         setGoogleBusy(false);
         if (!result.ok) { setError(result.error || "Google authentication failed"); return; }
-        await completeLogin(result);
+        onClose();
+        navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
       },
       error_callback: () => { setGoogleBusy(false); setError("Google authentication was cancelled or failed."); },
     });
@@ -226,7 +220,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       setSubmitting(false);
       setResetSignal((n) => n + 1); setTurnstileToken("");
       if (!result.ok) { setError(result.error || "Login failed"); return; }
-      await completeLogin(result);
+      onClose();
+      navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
       return;
     }
     if (password !== confirmPassword) { setError("Passwords do not match"); return; }
@@ -261,8 +256,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
     <button className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Close account dialog" data-testid="account-access-scrim" />
     <div className="relative z-10 w-full max-w-[600px] rounded-[22px] bg-white px-9 py-8 shadow-2xl sm:px-10" onClick={(event) => event.stopPropagation()}>
       <button type="button" onClick={onClose} className="absolute right-6 top-5 p-2 text-slate-900" aria-label="Close" data-testid="account-access-close"><X className="h-7 w-7" /></button>
-      <div className="text-center"><Home className="mx-auto h-14 w-14 fill-[#0398FC] text-[#0398FC]" /><div className="mt-1 text-xl font-bold tracking-wide text-sky-700">TRELPNG</div>{contextLabel && <div className="mt-2 text-sm font-bold uppercase tracking-[0.18em] text-slate-500" data-testid="account-access-context">{contextLabel}</div>}<h2 className="mt-4 text-3xl font-bold text-slate-900" data-testid="account-access-title">{tab === "login" ? "Welcome Back" : tab === "register" ? "Create Your Account" : tab === "forgot" ? "Forgot Password" : "Reset Password"}</h2></div>
-      {!loginOnly && <div className="mt-5 grid grid-cols-2 rounded-lg border border-sky-300 bg-sky-50 p-1" role="tablist"><button type="button" role="tab" aria-selected={tab === "login"} data-testid="account-access-tab-login" onClick={() => setTab("login")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "login" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Log In</button><button type="button" role="tab" aria-selected={tab === "register"} data-testid="account-access-tab-register" onClick={() => setTab("register")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "register" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Create Account</button></div>}
+      <div className="text-center"><Home className="mx-auto h-14 w-14 fill-[#0398FC] text-[#0398FC]" /><div className="mt-1 text-xl font-bold tracking-wide text-sky-700">TRELPNG</div><h2 className="mt-4 text-3xl font-bold text-slate-900" data-testid="account-access-title">{tab === "login" ? "Welcome Back" : tab === "register" ? "Create Your Account" : tab === "forgot" ? "Forgot Password" : "Reset Password"}</h2></div>
+      <div className="mt-5 grid grid-cols-2 rounded-lg border border-sky-300 bg-sky-50 p-1" role="tablist"><button type="button" role="tab" aria-selected={tab === "login"} data-testid="account-access-tab-login" onClick={() => setTab("login")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "login" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Log In</button><button type="button" role="tab" aria-selected={tab === "register"} data-testid="account-access-tab-register" onClick={() => setTab("register")} className={`rounded-md px-4 py-3 text-base font-semibold ${tab === "register" ? "bg-[#0398FC] text-black" : "text-slate-500"}`}>Create Account</button></div>
       <form onSubmit={submit} className="mt-5 space-y-3">
         {(tab === "login" || tab === "register") && <><button type="button" onClick={handleGoogle} disabled={!googleClientId || googleBusy} data-testid="account-access-google" className="flex h-14 w-full items-center justify-center gap-4 rounded-full border border-sky-200 bg-white text-base font-semibold text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"><span className="text-xl font-bold text-blue-500">G</span> {googleBusy ? "Connecting…" : tab === "register" ? "Sign up with Google" : "Sign in with Google"}</button>{!googleToken && <div className="flex items-center gap-4 py-1 text-sm text-slate-500"><span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" /></div>}</>}
         {tab === "login" ? <>
@@ -274,7 +269,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
           {resetComplete && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">Password updated. You can now log in.</p>}
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="account-access-error">{error}</p>}
           <button type="submit" disabled={cannotSubmit} data-testid="account-access-login-submit" className="h-14 w-full rounded-full bg-[#0398FC] text-base font-semibold text-black disabled:opacity-60 disabled:cursor-not-allowed">{submitting ? "Logging in…" : "Login"}</button>
-          {!loginOnly && <p className="pt-3 text-center text-sm font-semibold text-sky-700">Don’t have an account? <button type="button" onClick={() => setTab("register")}>Create Account</button></p>}
+          <p className="pt-3 text-center text-sm font-semibold text-sky-700">Don’t have an account? <button type="button" onClick={() => setTab("register")}>Create Account</button></p>
         </> : tab === "forgot" ? <>
           <p className="text-sm text-slate-600">Enter your registered email address. We will send you a secure password-reset link.</p>
           <input required type="email" placeholder="Email address" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="account-access-forgot-email" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
