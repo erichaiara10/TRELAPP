@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field
 
 from core.account_policy import account_category, require_property_submitter
 from core.db import db, new_id, now_iso
-from core.property_advertising_rules import content_blockers, identity_values, status_token
+from core.property_advertising_rules import (
+    advertiser_display_status, content_blockers, identity_values, price_label,
+    status_token,
+)
 from core.security import get_current_user
 
 router = APIRouter(prefix="/property-advertising/advertiser")
@@ -104,6 +107,83 @@ async def submissions(user: dict = Depends(get_current_user)):
     return await db.advertiser_submissions.find(
         {"user_id": user["id"]}, {"_id": 0}
     ).sort("submitted_at", -1).to_list(500)
+
+
+@router.get("/properties")
+async def advertiser_properties(user: dict = Depends(get_current_user)):
+    """Return only this advertiser's real drafts, submissions and listing states."""
+    require_advertiser(user)
+    rows = await db.advertiser_submissions.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("submitted_at", -1).to_list(500)
+    references = [row.get("reference") for row in rows if row.get("reference")]
+    reviews = await db.staff_property_reviews.find(
+        {"subject_ref": {"$in": references}}, {"_id": 0}
+    ).to_list(500) if references else []
+    reviews_by_reference = {row["subject_ref"]: row for row in reviews}
+    lifecycle_rows = await db.advertiser_listing_lifecycle.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).to_list(500)
+    lifecycle_by_listing = {row.get("listing_id"): row for row in lifecycle_rows}
+
+    result = []
+    for row in rows:
+        review = reviews_by_reference.get(row.get("reference"), {})
+        listing_reference = (
+            review.get("listing_reference") or row.get("listing_reference")
+            or row.get("integrated_listing_id")
+        )
+        lifecycle = lifecycle_by_listing.get(listing_reference, {})
+        data = row.get("data") or {}
+        result.append({
+            "id": row.get("id"), "reference": row.get("reference"),
+            "record_type": "submission", "data": data,
+            "submission_status": row.get("status"),
+            "publication_status": review.get("publication_status"),
+            "lifecycle_status": lifecycle.get("status"),
+            "display_status": advertiser_display_status(
+                row.get("status"), review.get("publication_status"), lifecycle.get("status")
+            ),
+            "listing_reference": listing_reference,
+            "lifecycle_id": listing_reference or row.get("id"),
+            "price_label": price_label(data),
+            "created_at": row.get("created_at") or row.get("submitted_at"),
+            "updated_at": lifecycle.get("updated_at") or review.get("updated_at")
+                          or row.get("updated_at") or row.get("submitted_at"),
+        })
+
+    draft = await db.advertiser_drafts.find_one({"user_id": user["id"]}, {"_id": 0})
+    draft_data = (draft or {}).get("data") or {}
+    if any(str(draft_data.get(key) or "").strip() for key in ("title", "description", "lot", "portion")):
+        result.append({
+            "id": draft.get("id") or "current-draft", "reference": "Current draft",
+            "record_type": "draft", "data": draft_data,
+            "submission_status": "DRAFT", "publication_status": None,
+            "lifecycle_status": None, "display_status": "Draft",
+            "listing_reference": None, "lifecycle_id": draft.get("id") or "current-draft",
+            "price_label": price_label(draft_data),
+            "created_at": draft.get("created_at"), "updated_at": draft.get("updated_at"),
+        })
+    return sorted(result, key=lambda item: item.get("updated_at") or "", reverse=True)
+
+
+@router.delete("/properties/{record_id}/draft")
+async def delete_advertiser_draft_record(record_id: str, user: dict = Depends(get_current_user)):
+    """Delete only an unfinished draft record owned by the current advertiser."""
+    require_advertiser(user)
+    row = await db.advertiser_submissions.find_one(
+        {"id": record_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not row or status_token(row.get("status")) != "DRAFT":
+        raise HTTPException(404, "No unfinished draft was found")
+    await db.advertiser_submissions.delete_one({"id": record_id, "user_id": user["id"]})
+    await db.audit_events.insert_one({
+        "id": new_id(), "action": "ADVERTISER_DRAFT_DELETED",
+        "subject_type": "advertiser_submission_draft", "subject_id": record_id,
+        "actor_id": user["id"], "previous_status": "DRAFT", "new_status": "DELETED",
+        "reason": "Confirmed by advertiser", "created_at": now_iso(),
+    })
+    return {"ok": True, "deleted_draft_id": record_id}
 
 
 @router.get("/listing-lifecycle")

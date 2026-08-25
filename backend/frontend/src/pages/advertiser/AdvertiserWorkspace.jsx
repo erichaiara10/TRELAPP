@@ -44,12 +44,7 @@ const properties = [
   ["Warehouse — Gordons", "Gordons, NCD", "PGK 12,000 / month", photos[4], "Draft", ""],
 ];
 
-const LISTING_STATS = { all: 18, live: 8, review: 2, draft: 5, inactive: 3 };
 const ENQUIRY_STATS = { total: 32, newToday: 8, awaiting: 14, inProgress: 18, closed: 6 };
-const PROPERTY_STATUSES = [
-  "Live", "Live", "Under Review", "Draft", "Live", "Live", "Under Review", "Draft",
-  "Live", "Live", "Draft", "Draft", "Live", "Live", "Draft", "Inactive", "Inactive", "Inactive",
-];
 const DRAFT_ROUTES = [
   "/advertiser/add-property",
   "/advertiser/add-property/location",
@@ -98,21 +93,22 @@ const INSPECTION_ITEMS = [
   ["INS-2025-037", "Residential Land — Kokopo", "Samuel Tali", "30 May 2025", "3:30 PM", "Pending", 2],
 ];
 
-function buildPropertyRows(lifecycle={}) {
-  return PROPERTY_STATUSES.map((status, i) => {
-    const property = properties[i % properties.length];
-    const listingType = String(property[2]).includes("/ month") ? "For Rent" : "For Sale";
-    const id = 1024 + i;
-    return { property: [...property.slice(0, 4), lifecycle[String(id)]||status, property[5]], id, listingType, photoNeedsUpdate: i < 5 };
+const displayDate = value => value ? new Date(value).toLocaleDateString("en-GB", {day:"2-digit",month:"short",year:"numeric"}).replace(/,/g,"") : "—";
+function buildPropertyRows(items=[]) {
+  return items.map((item) => {
+    const data=item.data||{}; const media=(data.photos||[]).filter(Boolean);
+    const image=media[0]; const imageUrl=typeof image==="string"?image:image?.url;
+    const locations=[data.suburb||data.location||data.street,data.city||data.town,data.province].filter((value,index,array)=>value&&array.indexOf(value)===index);
+    const amount=Number(String(data.price||"").replace(/[^0-9.-]/g,""));
+    const fallbackPrice=data.currency==="Negotiable"?"Negotiable":String(data.currency||"").toLowerCase().includes("contact")?"Contact for Price":amount>0?`PGK ${amount.toLocaleString()}${data.listing_type==="Rent"?" / month":""}`:"Price not entered";
+    return {
+      id:item.reference||item.id, recordId:item.id, lifecycleId:item.lifecycle_id||item.id,
+      recordType:item.record_type, data, listingType:data.listing_type==="Rent"?"For Rent":"For Sale",
+      property:[data.title||item.reference||"Untitled property",locations.join(", ")||"Location not entered",item.price_label||fallbackPrice,imageUrl||photos[0],item.display_status||"Under Review",String(item.enquiry_count||"")],
+      category:data.property_class||"Other", photoNeedsUpdate:media.length<2,
+      firstRegistered:displayDate(item.created_at), lastUpdated:displayDate(item.updated_at),
+    };
   });
-}
-
-function syncSubmissionProperties(items) {
-  const live = (items || []).map((item) => {
-    const d=item.data||{}; const amount=String(d.price||"0").replace(/^PGK\s*/i,"");
-    return [d.title||item.reference, `${d.suburb||""}, ${d.province||""}`, `PGK ${amount}${d.listing_type==="Rent"?" / month":""}`, photos[0], item.status||item.row?.[10]||"Submitted", ""];
-  });
-  properties.splice(0, properties.length, ...live, ...properties.filter((p)=>!live.some((x)=>x[0]===p[0])));
 }
 
 const DEFAULT_DRAFT = {
@@ -129,30 +125,35 @@ const DraftContext = createContext(null);
 function DraftProvider({ children }) {
   const [draft, setDraft] = useState({...DEFAULT_DRAFT});
   const [currentStep, setCurrentStep] = useState(1);
-  const [submissions, setSubmissions] = useState([]);
+  const [propertyRecords, setPropertyRecords] = useState([]);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const normalise = (value={}) => ({...DEFAULT_DRAFT,...value,features:Array.isArray(value.features)?value.features:[],photos:Array.isArray(value.photos)?value.photos:[],documents:Array.isArray(value.documents)?value.documents:[],authority_confirmed:false,terms_accepted:false});
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
   const reset = () => { setDraft({...DEFAULT_DRAFT}); setCurrentStep(1); };
   const beginEdit = (row) => {
+    if(row.data){setDraft(normalise(row.data));setCurrentStep(1);return;}
     const [title,location,price]=row.property; const [suburb="",province=""]=location.split(",").map(x=>x.trim());
     setDraft(normalise({title,suburb,province,price:String(price).replace(/^PGK\s*/i,"").replace(/\s*\/\s*month/i,"").replace(/,/g,""),listing_type:row.listingType==="For Rent"?"Rent":"Sale"}));
     setCurrentStep(1);
   };
   const load = async () => {
     try {
-      const [{ data: saved }, { data: submitted }] = await Promise.all([
+      const [{ data: saved }, { data: records }] = await Promise.all([
         api.get("/property-advertising/advertiser/drafts/current"),
-        api.get("/property-advertising/advertiser/submissions"),
+        api.get("/property-advertising/advertiser/properties"),
       ]);
       if (saved?.data) setDraft(normalise(saved.data));
       setCurrentStep(Math.min(5, Math.max(1, Number(saved?.current_step) || 1)));
-      setSubmissions(Array.isArray(submitted) ? submitted : []);
+      setPropertyRecords(Array.isArray(records) ? records : []);
     } catch (err) { toast.error(formatError(err)); }
     finally { setLoaded(true); }
   };
   useEffect(() => { load(); }, []);
+  const refreshProperties = async () => {
+    const {data}=await api.get("/property-advertising/advertiser/properties");
+    setPropertyRecords(Array.isArray(data)?data:[]);
+  };
   const save = async (step = 1, quiet = false) => {
     setSaving(true);
     try {
@@ -168,12 +169,12 @@ function DraftProvider({ children }) {
     try {
       const { data } = await api.post("/property-advertising/advertiser/drafts/current/submit", { data: draft, current_step: 5 });
       toast.success(`Property submitted as ${data.reference}`);
-      setSubmissions((current) => [data, ...current]);
+      await refreshProperties();
       return data;
     } catch (err) { toast.error(formatError(err)); return null; }
     finally { setSaving(false); }
   };
-  return <DraftContext.Provider value={{ draft, update, reset, beginEdit, save, submit, submissions, saving, currentStep, loaded }}>{children}</DraftContext.Provider>;
+  return <DraftContext.Provider value={{ draft, update, reset, beginEdit, save, submit, propertyRecords, refreshProperties, saving, currentStep, loaded }}>{children}</DraftContext.Provider>;
 }
 const useDraft = () => useContext(DraftContext);
 
@@ -293,14 +294,15 @@ const RECENT_ACTIVITY = [
 
 function Dashboard() {
   const { user } = useAuth();
-  const { currentStep } = useDraft();
+  const { currentStep, propertyRecords } = useDraft();
   const navigate = useNavigate();
+  const propertyRows=buildPropertyRows(propertyRecords);
   const continueDraftPath = `${DRAFT_ROUTES[currentStep - 1] || DRAFT_ROUTES[0]}?resume=1`;
   const activity = RECENT_ACTIVITY.map((item)=>item[3] === "draft" ? [...item.slice(0,3), continueDraftPath] : item);
   const stats = [
-    [House, LISTING_STATS.live, "Active Listings", "View active", "/advertiser/properties?status=live"],
-    [FileText, LISTING_STATS.draft, "Draft Listings", "View drafts", "/advertiser/properties?status=draft"],
-    [Clock3, LISTING_STATS.review, "Awaiting Review", "View pending", "/advertiser/properties?status=under-review"],
+    [House, propertyRows.filter(row=>row.property[4]==="Live").length, "Active Listings", "View active", "/advertiser/properties?status=live"],
+    [FileText, propertyRows.filter(row=>row.property[4]==="Draft").length, "Draft Listings", "View drafts", "/advertiser/properties?status=draft"],
+    [Clock3, propertyRows.filter(row=>row.property[4]==="Under Review").length, "Awaiting Review", "View pending", "/advertiser/properties?status=under-review"],
     [MessageCircle, ENQUIRY_STATS.total, "Total Enquiries", "View enquiries", "/advertiser/enquiries"],
   ];
   const reminders = [
@@ -314,7 +316,7 @@ function Dashboard() {
     <div className="adv-dashboard-grid"><div className="adv-dashboard-main">
       <div className="adv-stat-grid">{stats.map(([Icon,n,t,l,to],i)=><Card className="adv-stat" key={t}><Icon className={`stat-${i}`}/><div><b>{n}</b><span>{t}</span><Link to={to}>{l} <ChevronRight size={14}/></Link></div></Card>)}</div>
       <div className="adv-two-col"><div><Card><h3>Quick Actions</h3>{[[Plus,"Add New Property","Create a new listing","/advertiser/add-property?new=1"],[FileText,"Continue Draft",`Resume at step ${currentStep}`,continueDraftPath],[Home,"View My Properties","Manage your listings","/advertiser/properties"]].map(([Icon,a,b,to])=><Link className="adv-action-row" to={to} key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><ChevronRight/></Link>)}</Card><Card className="adv-activity"><h3>Recent Activity <Link to="/advertiser/activity">View all</Link></h3>{activity.map((x,i)=><Link className="adv-activity-row" to={x[3]} key={`${x[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{x[0]}</b><small>{x[1]}</small></span><time>{x[2]}</time></Link>)}</Card></div>
-        <Card><h3>My Listings Snapshot <Link to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></h3>{properties.slice(0,4).map((p,i)=><Link className="adv-listing-row" to={`/advertiser/properties?property=${1024+i}`} key={`${p[0]}-${i}`}><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>{p[1]}</small><strong>{p[2]}</strong></div><div><Status tone={p[4]==="Live"?"green":p[4]==="Draft"?"gray":"orange"}>{p[4]}</Status><small>{p[5] && `Enquiries ${p[5]}`}</small></div><ChevronRight/></Link>)}<Link className="adv-card-link" to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></Card></div>
+        <Card><h3>My Listings Snapshot <Link to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></h3>{propertyRows.slice(0,4).map((row)=><Link className="adv-listing-row" to={`/advertiser/properties?property=${encodeURIComponent(row.id)}`} key={row.id}><img src={row.property[3]} alt=""/><div><b>{row.property[0]}</b><small>{row.property[1]}</small><strong>{row.property[2]}</strong></div><div><Status tone={row.property[4]==="Live"?"green":row.property[4]==="Under Review"?"orange":"gray"}>{row.property[4]}</Status></div><ChevronRight/></Link>)}{!propertyRows.length&&<p className="adv-empty">No property records yet.</p>}<Link className="adv-card-link" to="/advertiser/properties">View all properties <ChevronRight size={15}/></Link></Card></div>
     </div><aside className="adv-dashboard-side"><Card><h3><Bell size={17}/> Reminders</h3>{reminders.map(([Icon,a,b,c,to])=><div className="adv-reminder" key={a}><Icon/><span><b>{a}</b><small>{b}</small></span><Button secondary onClick={()=>navigate(to)}>{c}</Button></div>)}</Card><Card><h3><CalendarDays size={17}/> Inspection Requests <Status tone="red">2</Status></h3>{INSPECTION_ITEMS.slice(0,2).map((item)=><div className="adv-inspection-mini" key={item[0]}><img src={properties[item[6]][3]} alt=""/><div><b>{item[1]}</b><small>Requested by {item[2]}</small><small><CalendarDays size={13}/> {item[3]}, {item[4]}</small></div><Status tone={item[5]==="Confirmed"?"green":"orange"}>{item[5]}</Status></div>)}<Link className="adv-card-link" to="/advertiser/inspections">Manage inspections <ChevronRight size={15}/></Link></Card></aside></div>
   </>;
 }
@@ -421,33 +423,6 @@ function ReviewPage(){
   </Card><div><TipPanel type="review"/><Card className="adv-ready">{submitReady?<CheckCircle2/>:<Clock3/>}<h3>{submitReady?"Ready to submit":"Complete required items"}</h3><p>{submitReady?"Your listing is complete and ready for TREL review.":!identityCheck.eligible&&identityCheck.loaded?"Submit one government-issued identity document before sending this property for staff review.":"Review the highlighted required information and both declarations."}</p></Card></div></div></>;
 }
 
-function PropertiesPage(){
-  const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
-  const status = params.get("status") || "all";
-  const selectedProperty = params.get("property");
-  const needs = params.get("needs");
-  const query = params.get("search") || "";
-  const rows = buildPropertyRows();
-  const statusName = { live:"Live", draft:"Draft", "under-review":"Under Review", inactive:"Inactive" }[status];
-  const filtered = rows.filter((row)=>{
-    const p=row.property;
-    if (selectedProperty && String(row.id)!==selectedProperty) return false;
-    if (statusName && p[4]!==statusName) return false;
-    if (status==="sale" && row.listingType!=="For Sale") return false;
-    if (status==="rent" && row.listingType!=="For Rent") return false;
-    if (needs==="photos" && !row.photoNeedsUpdate) return false;
-    if (query && !`${p[0]} ${p[1]} ${row.id}`.toLowerCase().includes(query.toLowerCase())) return false;
-    return true;
-  });
-  const setStatus = (next) => { const updated=new URLSearchParams(params); if(next==="all")updated.delete("status");else updated.set("status",next);updated.delete("property");updated.delete("needs");setParams(updated); };
-  const statCards = [
-    [LISTING_STATS.all,"All Listings","blue","all"], [LISTING_STATS.live,"Live","green","live"],
-    [LISTING_STATS.review,"Under Review","orange","under-review"], [LISTING_STATS.draft,"Drafts","purple","draft"],
-    [LISTING_STATS.inactive,"Inactive","gray","inactive"],
-  ];
-  return <><PageHead title="My Properties" sub="Manage your listings and track their status" action={<Button onClick={()=>navigate("/advertiser/add-property")}><Plus/> Add New Property</Button>}/><div className="adv-stat-grid five">{statCards.map(x=><Card className="adv-mini-stat" key={x[1]}><b className={x[2]}>{x[0]}</b><span>{x[1]}</span><Link to={x[3]==="all"?"/advertiser/properties":`/advertiser/properties?status=${x[3]}`}>View {x[1].toLowerCase()} <ChevronRight/></Link></Card>)}</div><Card><div className="adv-table-tools"><label><Search/><input value={query} onChange={(event)=>{const updated=new URLSearchParams(params);if(event.target.value)updated.set("search",event.target.value);else updated.delete("search");updated.delete("property");setParams(updated,{replace:true});}} placeholder="Search by property name, location..."/></label>{["All Locations","Property Categories","All Listing Types"].map(x=><select key={x}><option>{x}</option></select>)}<Button secondary><SlidersHorizontal/> More filters</Button></div><div className="adv-tabs">{[["all","All"],["sale","For Sale"],["rent","For Rent"],["live","Live"],["under-review","Under Review"],["draft","Draft"],["inactive","Inactive"]].map(([key,label])=><button className={status===key?"active":""} onClick={()=>setStatus(key)} key={key}>{label}</button>)}</div><div className="adv-table-wrap"><table><thead><tr><th>No.</th><th>Description</th><th>Rent/Sell</th><th>Location</th><th>Price</th><th>First Registered</th><th>Last Updated</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.slice(0,10).map((row,i)=>{const p=row.property;return <tr key={row.id} className={selectedProperty===String(row.id)?"selected":""}><td>{i+1}</td><td><div className="adv-property-cell"><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>Property #{row.id}</small></div></div></td><td><Status>{row.listingType}</Status></td><td>{p[1]}</td><td><b>{p[2]}</b></td><td>{`${18+(i%10)} May 2025`}</td><td>{i%2?"21 May 2025":"1 day ago"}</td><td><Status tone={p[4]==="Live"?"green":p[4]==="Draft"||p[4]==="Inactive"?"gray":"orange"}>{p[4]}</Status></td><td><button aria-label={`Open property ${row.id}`}><MoreVertical/></button></td></tr>})}</tbody></table></div><div className="adv-pagination"><span>{filtered.length ? `Showing 1 to ${Math.min(10,filtered.length)} of ${filtered.length} listings` : "No matching listings"}</span>{filtered.length>10&&<><button>‹</button><button className="active">1</button><button>2</button><button>›</button></>}</div></Card></>}
-
 function EnquiriesPage(){
   const [params,setParams]=useSearchParams();
   const query=params.get("search")||"";
@@ -462,29 +437,28 @@ function DocumentsPage(){const [params,setParams]=useSearchParams();const status
 function AccountSettings(){return <><PageHead title="Account Settings" sub="Manage your profile, verification and preferences."/><div className="adv-settings-layout"><aside><button className="active"><UserRound/> Profile Information</button><button><ShieldCheck/> Identity Verification</button><button><Building2/> Business Details</button><button><Bell/> Notifications</button><button><Settings/> Security</button></aside><div><Card><h2>Profile Information</h2><p>Keep your personal and contact information up to date.</p><div className="adv-profile-row"><span>KA</span><div><b>Kumul Agencies</b><small>Property Advertiser</small></div><Button secondary>Change photo</Button></div><div className="adv-form-grid two"><Field label="Full Name *" value="Kumul Agencies"/><Field label="Mobile Number *" value="+675 7123 4567"/><Field label="Email Address *" value="info@kumulagencies.com.pg"/><SelectField label="Preferred Communication" value="WhatsApp" options={["Email","Both"]}/></div><Field label="Residential Address *" value="Section 23, Lot 48, Waigani, Port Moresby"/><Button>Save Changes</Button></Card><Card><div className="adv-section-head"><div><h2>Identity Verification</h2><p>One valid government-issued ID is required for identity verification.</p></div><Status tone="green"><ShieldCheck/> Verified</Status></div><div className="adv-id-card"><FileCheck2/><div><b>PNG National Identification Card</b><small>ID ending in •••• 821</small><small>Verified on 15 May 2025</small></div><Button secondary>View Document</Button></div><p className="adv-muted">Accepted IDs include a passport, driver licence or National Identification (NID) Card. Only one valid ID is required.</p></Card><Card><h2>Business Details</h2><p>Required for authorised agents and business advertisers.</p><div className="adv-form-grid two"><Field label="Business / Agency Name" value="Kumul Agencies Limited"/><Field label="IPA Registration Number" value="1-123456"/><Field label="Position / Role" value="Managing Director"/><Field label="Business Phone" value="+675 325 4567"/></div><Button>Save Business Details</Button></Card></div></div></>}
 
 function PropertiesPageFixed(){
-  const [params,setParams]=useSearchParams(); const navigate=useNavigate(); const flow=useDraft(); const [page,setPage]=useState(1); const [showFilters,setShowFilters]=useState(false); const [lifecycle,setLifecycle]=useState({}); const [confirmAction,setConfirmAction]=useState(null); const [updating,setUpdating]=useState(false);
-  useEffect(()=>{api.get("/property-advertising/advertiser/listing-lifecycle").then(({data})=>setLifecycle(data||{})).catch(err=>toast.error(formatError(err)));},[]);
-  const rows=buildPropertyRows(lifecycle); const status=params.get("status")||"all"; const query=params.get("search")||""; const selectedId=params.get("property"); const recordId=params.get("record");
+  const [params,setParams]=useSearchParams(); const navigate=useNavigate(); const flow=useDraft(); const [page,setPage]=useState(1); const [showFilters,setShowFilters]=useState(false); const [confirmAction,setConfirmAction]=useState(null); const [updating,setUpdating]=useState(false);
+  const rows=buildPropertyRows(flow.propertyRecords); const status=params.get("status")||"all"; const query=params.get("search")||""; const selectedId=params.get("property"); const recordId=params.get("record");
   const location=params.get("location")||"All Locations"; const category=params.get("category")||"Property Categories"; const type=params.get("listing")||"All Listing Types"; const condition=params.get("needs")||"all";
   const inactiveStatuses=["Inactive","Withdrawn","Sold","Leased","Archived"]; const statusName={live:"Live",draft:"Draft","under-review":"Under Review"}[status];
-  const filtered=rows.filter(row=>{const p=row.property;if(statusName&&p[4]!==statusName)return false;if(status==="inactive"&&!inactiveStatuses.includes(p[4]))return false;if(status==="sale"&&row.listingType!=="For Sale")return false;if(status==="rent"&&row.listingType!=="For Rent")return false;if(condition==="photos"&&!row.photoNeedsUpdate)return false;if(location!=="All Locations"&&!p[1].startsWith(location))return false;if(category!=="Property Categories"&&!p[0].toLowerCase().includes(category.toLowerCase()))return false;if(type!=="All Listing Types"&&row.listingType!==type)return false;return !query||`${p[0]} ${p[1]} ${row.id}`.toLowerCase().includes(query.toLowerCase());});
+  const filtered=rows.filter(row=>{const p=row.property;if(statusName&&p[4]!==statusName)return false;if(status==="inactive"&&!inactiveStatuses.includes(p[4]))return false;if(status==="sale"&&row.listingType!=="For Sale")return false;if(status==="rent"&&row.listingType!=="For Rent")return false;if(condition==="photos"&&!row.photoNeedsUpdate)return false;if(location!=="All Locations"&&!p[1].startsWith(location))return false;if(category!=="Property Categories"&&row.category!==category)return false;if(type!=="All Listing Types"&&row.listingType!==type)return false;return !query||`${p[0]} ${p[1]} ${row.id}`.toLowerCase().includes(query.toLowerCase());});
   useEffect(()=>setPage(1),[status,query,location,category,type,condition]);
   const pages=Math.max(1,Math.ceil(filtered.length/10)); const current=Math.min(page,pages); const visible=filtered.slice((current-1)*10,current*10); const selected=rows.find(row=>String(row.id)===selectedId); const record=rows.find(row=>String(row.id)===recordId);
   const setParam=(key,value,empty)=>{const next=new URLSearchParams(params);if(value===empty)next.delete(key);else next.set(key,value);if(key==="property")next.delete("record");else if(key==="record")next.delete("property");else{next.delete("property");next.delete("record");}setParams(next);};
   const edit=row=>{flow.beginEdit(row);navigate(`/advertiser/add-property?edit=${row.id}`);};
   const dangerStyle={background:"#dc2626",borderColor:"#dc2626",color:"#fff"};
-  const updateLifecycle=async(row,next)=>{setUpdating(true);try{if(next==="Archived"){await api.delete("/property-advertising/advertiser/drafts/current");flow.reset();}else{const requested=next==="Live"?"REACTIVATION_REQUESTED":next;await api.put(`/property-advertising/advertiser/listing-lifecycle/${row.id}`,{status:requested});setLifecycle(current=>({...current,[String(row.id)]:requested}));}setConfirmAction(null);setParam("property","","");toast.success(next==="Archived"?"Unfinished draft deleted":next==="Withdrawn"?"Listing withdrawn":next==="Live"?"Reactivation requested":`Property marked ${next.toLowerCase()}`);}catch(err){toast.error(formatError(err));}finally{setUpdating(false);}};
+  const updateLifecycle=async(row,next)=>{setUpdating(true);try{if(next==="Archived"){if(row.recordType==="draft")await api.delete("/property-advertising/advertiser/drafts/current");else await api.delete(`/property-advertising/advertiser/properties/${row.recordId}/draft`);flow.reset();}else{const requested=next==="Live"?"REACTIVATION_REQUESTED":next;await api.put(`/property-advertising/advertiser/listing-lifecycle/${row.lifecycleId}`,{status:requested});}await flow.refreshProperties();setConfirmAction(null);setParam("property","","");toast.success(next==="Archived"?"Unfinished draft deleted":next==="Withdrawn"?"Listing withdrawn":next==="Live"?"Reactivation requested":`Property marked ${next.toLowerCase()}`);}catch(err){toast.error(formatError(err));}finally{setUpdating(false);}};
   const statCards=[[rows.length,"All Listings","blue","all"],[rows.filter(x=>x.property[4]==="Live").length,"Live","green","live"],[rows.filter(x=>x.property[4]==="Under Review").length,"Under Review","orange","under-review"],[rows.filter(x=>x.property[4]==="Draft").length,"Drafts","purple","draft"],[rows.filter(x=>inactiveStatuses.includes(x.property[4])).length,"Inactive","gray","inactive"]];
   return <><PageHead title="My Properties" sub="Manage your listings and track their status" action={<Button onClick={()=>navigate("/advertiser/add-property?new=1")}><Plus/> Add New Property</Button>}/>
     <div className="adv-stat-grid five">{statCards.map(x=><Card className="adv-mini-stat" key={x[1]}><b className={x[2]}>{x[0]}</b><span>{x[1]}</span><button className="adv-link-button" onClick={()=>setParam("status",x[3],"all")}>View {x[1].toLowerCase()} <ChevronRight/></button></Card>)}</div>
     <Card><div className="adv-table-tools"><label><Search/><input value={query} onChange={e=>setParam("search",e.target.value,"")} placeholder="Search by property name, location..."/></label>
       <select aria-label="Filter by location" value={location} onChange={e=>setParam("location",e.target.value,"All Locations")}>{["All Locations",...new Set(rows.map(x=>x.property[1].split(",")[0]))].map(x=><option key={x}>{x}</option>)}</select>
-      <select aria-label="Filter by category" value={category} onChange={e=>setParam("category",e.target.value,"Property Categories")}>{["Property Categories",...new Set(rows.map(x=>x.property[0].split("—")[0].trim().split(" ").slice(-2).join(" ")))].map(x=><option key={x}>{x}</option>)}</select>
+      <select aria-label="Filter by category" value={category} onChange={e=>setParam("category",e.target.value,"Property Categories")}>{["Property Categories",...new Set(rows.map(x=>x.category))].map(x=><option key={x}>{x}</option>)}</select>
       <select aria-label="Filter by listing type" value={type} onChange={e=>setParam("listing",e.target.value,"All Listing Types")}>{["All Listing Types","For Sale","For Rent"].map(x=><option key={x}>{x}</option>)}</select>
       <Button secondary onClick={()=>setShowFilters(show=>!show)}><SlidersHorizontal/> More filters</Button></div>
       {showFilters&&<div className="adv-inline-filter"><label className="adv-field"><span>Listing condition</span><select value={condition} onChange={e=>setParam("needs",e.target.value,"all")}><option value="all">All listing conditions</option><option value="photos">Needs photo update</option></select></label><Button secondary onClick={()=>setParams(new URLSearchParams())}>Clear filters</Button></div>}
       <div className="adv-tabs">{[["all","All"],["sale","For Sale"],["rent","For Rent"],["live","Live"],["under-review","Under Review"],["draft","Draft"],["inactive","Inactive"]].map(([key,label])=><button className={status===key?"active":""} onClick={()=>setParam("status",key,"all")} key={key}>{label}</button>)}</div>
-      <div className="adv-table-wrap"><table><thead><tr><th>No.</th><th>Description</th><th>Rent/Sell</th><th>Location</th><th>Price</th><th>First Registered</th><th>Last Updated</th><th>Status</th><th>Action</th></tr></thead><tbody>{visible.map((row,index)=>{const p=row.property;const source=rows.findIndex(item=>item.id===row.id);return <tr key={row.id}><td>{(current-1)*10+index+1}</td><td><div className="adv-property-cell"><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>Property #{row.id}</small></div></div></td><td><Status>{row.listingType}</Status></td><td>{p[1]}</td><td><b>{p[2]}</b></td><td>{18+(source%10)} May 2025</td><td>{source%2?"21 May 2025":"1 day ago"}</td><td><Status tone={p[4]==="Live"?"green":p[4]==="Under Review"?"orange":"gray"}>{p[4]}</Status></td><td><button aria-label={`Open property ${row.id}`} onClick={()=>setParam("property",String(row.id),"")}><MoreVertical/></button></td></tr>})}</tbody></table></div>
+      <div className="adv-table-wrap"><table><thead><tr><th>No.</th><th>Description</th><th>Rent/Sell</th><th>Location</th><th>Price</th><th>First Registered</th><th>Last Updated</th><th>Status</th><th>Action</th></tr></thead><tbody>{visible.map((row,index)=>{const p=row.property;return <tr key={row.id} tabIndex="0" onClick={()=>setParam("property",String(row.id),"")} onKeyDown={event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();setParam("property",String(row.id),"");}}}><td>{(current-1)*10+index+1}</td><td><div className="adv-property-cell"><img src={p[3]} alt=""/><div><b>{p[0]}</b><small>Property #{row.id}</small></div></div></td><td><Status>{row.listingType}</Status></td><td>{p[1]}</td><td><b>{p[2]}</b></td><td>{row.firstRegistered}</td><td>{row.lastUpdated}</td><td><Status tone={p[4]==="Live"?"green":p[4]==="Under Review"?"orange":"gray"}>{p[4]}</Status></td><td><button aria-label={`Open property ${row.id}`} onClick={event=>{event.stopPropagation();setParam("property",String(row.id),"");}}><MoreVertical/></button></td></tr>})}</tbody></table></div>
       <div className="adv-pagination"><span>{filtered.length?`Showing ${(current-1)*10+1} to ${Math.min(current*10,filtered.length)} of ${filtered.length} listings`:"No matching listings"}</span>{pages>1&&<><button aria-label="Previous page" disabled={current===1} onClick={()=>setPage(value=>Math.max(1,value-1))}>‹</button>{Array.from({length:pages},(_,i)=>i+1).map(number=><button className={current===number?"active":""} onClick={()=>setPage(number)} key={number}>{number}</button>)}<button aria-label="Next page" disabled={current===pages} onClick={()=>setPage(value=>Math.min(pages,value+1))}>›</button></>}</div></Card>
     {selected&&<Modal title={`Property #${selected.id}`} onClose={()=>setParam("property","","")}><h2>{selected.property[0]}</h2><p>{selected.property[1]}</p><p><b>{selected.property[2]}</b></p><Status tone={selected.property[4]==="Live"?"green":selected.property[4]==="Draft"?"gray":"orange"}>{selected.property[4]}</Status><div className="adv-modal-actions adv-property-actions" style={{flexWrap:"wrap"}}>{selected.property[4]==="Live"&&<><Button onClick={()=>edit(selected)}>Edit Listing</Button><Button secondary onClick={()=>setParam("record",String(selected.id),"")}>View Record</Button><Button secondary onClick={()=>setConfirmAction({row:selected,type:"complete"})}>Mark as Sold/Leased</Button><Button style={dangerStyle} onClick={()=>setConfirmAction({row:selected,type:"withdraw",status:"Withdrawn"})}>Withdraw Listing</Button></>}{selected.property[4]==="Draft"&&<><Button onClick={()=>edit(selected)}>Continue Editing</Button><Button secondary onClick={()=>setParam("record",String(selected.id),"")}>View Record</Button><Button style={dangerStyle} onClick={()=>setConfirmAction({row:selected,type:"archive",status:"Archived"})}>Delete Draft</Button></>}{inactiveStatuses.includes(selected.property[4])&&<><Button secondary onClick={()=>setParam("record",String(selected.id),"")}>View Record</Button>{["Inactive","Withdrawn"].includes(selected.property[4])&&<Button onClick={()=>updateLifecycle(selected,"Live")}>Reactivate Listing</Button>}</>}{selected.property[4]==="Under Review"&&<><Button onClick={()=>edit(selected)}>Edit Listing</Button><Button secondary onClick={()=>setParam("record",String(selected.id),"")}>View Record</Button></>}</div></Modal>}
     {record&&<Modal title={`Property Record #${record.id}`} onClose={()=>setParam("record","","")}><div className="adv-form-grid two"><p><b>Property</b><br/>{record.property[0]}</p><p><b>Listing type</b><br/>{record.listingType}</p><p><b>Location</b><br/>{record.property[1]}</p><p><b>Price</b><br/>{record.property[2]}</p><p><b>Status</b><br/>{record.property[4]}</p><p><b>Record number</b><br/>{record.id}</p></div><div className="adv-modal-actions"><Button onClick={()=>edit(record)}>Edit Listing</Button><Button secondary onClick={()=>setParam("record","","")}>Close Record</Button></div></Modal>}
@@ -558,7 +532,7 @@ function AccountSettingsFixed(){
 
 function ActivityPage(){const {currentStep}=useDraft();const continueDraftPath=`${DRAFT_ROUTES[currentStep-1]||DRAFT_ROUTES[0]}?resume=1`;return <><PageHead title="Recent Activity" sub="Open the enquiry, listing or draft connected to each update."/><Card className="adv-activity adv-activity-page">{RECENT_ACTIVITY.map((item,i)=>{const to=item[3]==="draft"?continueDraftPath:item[3];return <Link className="adv-activity-row" to={to} key={`${item[0]}-${i}`}><i className={`dot d${i}`}/><span><b>{item[0]}</b><small>{item[1]}</small></span><time>{item[2]}</time><ChevronRight size={15}/></Link>})}</Card></>}
 
-function SearchResultsPage(){const [params]=useSearchParams();const query=(params.get("q")||"").trim();const needle=query.toLowerCase();const propertyResults=buildPropertyRows().filter((row)=>`${row.property[0]} ${row.property[1]} ${row.id}`.toLowerCase().includes(needle)).slice(0,5);const enquiryResults=ENQUIRY_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const documentResults=DOCUMENT_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const total=propertyResults.length+enquiryResults.length+documentResults.length;return <><PageHead title="Search Results" sub={query?`${total} result${total===1?"":"s"} for “${query}”`:"Enter a search from the dashboard header."}/><div className="adv-search-results">{propertyResults.length>0&&<Card><h3>Properties</h3>{propertyResults.map((row)=><Link to={`/advertiser/properties?property=${row.id}`} key={row.id}><House/><span><b>{row.property[0]}</b><small>{row.property[1]} • Property #{row.id}</small></span><ChevronRight/></Link>)}</Card>}{enquiryResults.length>0&&<Card><h3>Enquiries</h3>{enquiryResults.map((row)=><Link to={`/advertiser/enquiries?search=${encodeURIComponent(row[0])}`} key={row[0]}><MessageCircle/><span><b>{row[0]}</b><small>{row[1]} • {row[3]}</small></span><ChevronRight/></Link>)}</Card>}{documentResults.length>0&&<Card><h3>Documents</h3>{documentResults.map((row)=><Link to={`/advertiser/documents?search=${encodeURIComponent(row[0])}`} key={row[0]}><FileText/><span><b>{row[0]}</b><small>{row[1]} • {row[4]}</small></span><ChevronRight/></Link>)}</Card>}{query&&!total&&<Card className="adv-empty">No properties, enquiries or documents match “{query}”.</Card>}</div></>}
+function SearchResultsPage(){const [params]=useSearchParams();const {propertyRecords}=useDraft();const query=(params.get("q")||"").trim();const needle=query.toLowerCase();const propertyResults=buildPropertyRows(propertyRecords).filter((row)=>`${row.property[0]} ${row.property[1]} ${row.id}`.toLowerCase().includes(needle)).slice(0,5);const enquiryResults=ENQUIRY_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const documentResults=DOCUMENT_ROWS.filter((row)=>row.join(" ").toLowerCase().includes(needle));const total=propertyResults.length+enquiryResults.length+documentResults.length;return <><PageHead title="Search Results" sub={query?`${total} result${total===1?"":"s"} for “${query}”`:"Enter a search from the dashboard header."}/><div className="adv-search-results">{propertyResults.length>0&&<Card><h3>Properties</h3>{propertyResults.map((row)=><Link to={`/advertiser/properties?property=${encodeURIComponent(row.id)}`} key={row.id}><House/><span><b>{row.property[0]}</b><small>{row.property[1]} • Property #{row.id}</small></span><ChevronRight/></Link>)}</Card>}{enquiryResults.length>0&&<Card><h3>Enquiries</h3>{enquiryResults.map((row)=><Link to={`/advertiser/enquiries?search=${encodeURIComponent(row[0])}`} key={row[0]}><MessageCircle/><span><b>{row[0]}</b><small>{row[1]} • {row[3]}</small></span><ChevronRight/></Link>)}</Card>}{documentResults.length>0&&<Card><h3>Documents</h3>{documentResults.map((row)=><Link to={`/advertiser/documents?search=${encodeURIComponent(row[0])}`} key={row[0]}><FileText/><span><b>{row[0]}</b><small>{row[1]} • {row[4]}</small></span><ChevronRight/></Link>)}</Card>}{query&&!total&&<Card className="adv-empty">No properties, enquiries or documents match “{query}”.</Card>}</div></>}
 
 function HelpPage(){return <><PageHead title="Help Centre" sub="Find answers, guides and support for your property advertising workspace."/><Card className="adv-help-hero"><CircleHelp/><h2>How can we help you?</h2><label><Search/><input placeholder="Search help articles and guides..."/></label></Card><div className="adv-help-grid">{[[Plus,"Adding a Property",["How to create a new listing","Required property information","Saving and continuing a draft"]],[Home,"Managing Listings",["Understanding listing statuses","Editing a published listing","Making a property unavailable"]],[MessageCircle,"Enquiries & Inspections",["Responding to enquiries","Managing inspection requests","Recording calls and messages"]],[FolderOpen,"Documents & Verification",["Accepted identity documents","Uploading property documents","Why verification is required"]],[Settings,"Account & Security",["Updating account details","Changing contact preferences","Password and account security"]],[Sparkles,"TREL Services",["TREL managed sale or rental","Advertising-only listings","How TREL review works"]]].map(([Icon,h,links])=><Card key={h}><Icon/><h3>{h}</h3>{links.map(x=><button key={x}>{x}<ChevronRight/></button>)}<Link to="#">View all articles <ChevronRight/></Link></Card>)}</div><Card className="adv-support-card"><div><MessageCircle/><span><h3>Still need help?</h3><p>Our support team is available Monday to Friday, 8:00 AM–5:00 PM.</p></span></div><Button><MessageCircle/> Chat with Support</Button><Button secondary><Mail/> Email Support</Button><Button secondary><Phone/> Call +675 325 7900</Button></Card><Card><h3>Frequently Asked Questions</h3>{["How long does TREL review take?","Can I edit my listing after it is published?","Who can see my exact property location?","How many property photos can I upload?","What documents do I need to provide?"].map(x=><details key={x}><summary>{x}<ChevronDown/></summary><p>Open the relevant workspace section to review or update this information. Contact TREL support if you need further assistance.</p></details>)}</Card></>}
 

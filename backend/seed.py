@@ -203,6 +203,104 @@ async def seed_property_advertising_test_fixtures():
         upsert=True,
     )
 
+    # Replace the former browser-only 18-row demonstration with persistent,
+    # account-owned records. The account password is deliberately untouched.
+    primary = await db.users.find_one({"email": "eric.haiara10@gmail.com"})
+    if not primary:
+        logger.warning("Primary Property Advertising test account was not found; demo records were not seeded")
+        return
+    primary_id = primary.get("id")
+    await db.users.update_one({"_id": primary["_id"]}, {"$set": {
+        "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
+        "status": "ACTIVE", "email_verified": True, "mobile_verified": True,
+        "updated_at": now_iso(),
+    }})
+    await db.advertiser_profiles.update_one(
+        {"user_id": primary_id},
+        {"$setOnInsert": {
+            "id": "primary-pa-test-profile", "user_id": primary_id,
+            "status": "VERIFIED", "relationship_type": "OWNER",
+            "residential_address": "Port Moresby", "created_at": created,
+            "updated_at": created,
+        }},
+        upsert=True,
+    )
+    await db.identity_documents.update_one(
+        {"id": "primary-pa-test-identity"},
+        {"$setOnInsert": {
+            "id": "primary-pa-test-identity", "user_id": primary_id,
+            "document_type": "NID_CARD", "original_filename": "controlled-primary-identity.pdf",
+            "status": "VERIFIED", "created_at": created,
+        }},
+        upsert=True,
+    )
+    templates = [
+        ("Executive Office Space — Waigani", "Rent", "Commercial", "Office Space", "Waigani", 8500),
+        ("3 Bedroom House — Boroko", "Sale", "Residential", "House", "Boroko", 1650000),
+        ("Residential Land — Kokopo", "Sale", "Vacant Land", "Residential Land", "Kokopo", 180000),
+        ("Warehouse — Gordons", "Rent", "Industrial", "Warehouse", "Gordons", 12000),
+    ]
+    demo_states = [
+        "LIVE", "LIVE", "UNDER_REVIEW", "DRAFT", "LIVE", "LIVE",
+        "UNDER_REVIEW", "DRAFT", "LIVE", "LIVE", "DRAFT", "DRAFT",
+        "LIVE", "LIVE", "DRAFT", "WITHDRAWN", "SOLD", "ARCHIVED",
+    ]
+    for index, state in enumerate(demo_states):
+        number = 1024 + index
+        title, listing_type, property_class, property_type, suburb, price = templates[index % len(templates)]
+        fixture_id = f"primary-demo-{number}"
+        reference = f"DEMO-{number}"
+        listing_reference = f"DEMO-LIST-{number}"
+        timestamp = f"2026-08-{min(24, 1 + index):02d}T00:00:00+10:00"
+        data = {
+            "title": f"{title} #{number}",
+            "description": "Controlled persistent test record for advertiser workspace validation.",
+            "listing_type": listing_type, "property_class": property_class,
+            "property_type": property_type, "province": "National Capital District",
+            "city": "Port Moresby", "suburb": suburb, "section": str(200 + index),
+            "lot": str(500 + index), "identity_scheme": "SERVICED",
+            "service": "Advertise only", "relationship": "Owner / Joint Owner",
+            "currency": "PGK", "price": price, "authority_confirmed": True,
+            "terms_accepted": True,
+            "photos": [
+                {"url": "/logo192.png", "type": "image/png", "size": 1000},
+                {"url": "/logo512.png", "type": "image/png", "size": 2000},
+            ],
+        }
+        submission_status = "DRAFT" if state == "DRAFT" else "UNDER_REVIEW" if state == "UNDER_REVIEW" else "APPROVED"
+        await db.advertiser_submissions.update_one(
+            {"id": fixture_id},
+            {"$setOnInsert": {
+                "id": fixture_id, "reference": reference, "user_id": primary_id,
+                "status": submission_status, "data": data,
+                "submitted_at": timestamp, "created_at": timestamp, "updated_at": timestamp,
+            }},
+            upsert=True,
+        )
+        if state not in {"DRAFT", "UNDER_REVIEW"}:
+            await db.staff_property_reviews.update_one(
+                {"subject_ref": reference},
+                {"$setOnInsert": {
+                    "id": f"primary-demo-review-{number}", "subject_ref": reference,
+                    "submission_status": "APPROVED", "authority_status": "ACCEPTED",
+                    "conflict_status": "CLEAR",
+                    "publication_status": "PUBLISHED" if state == "LIVE" else "UNPUBLISHED",
+                    "listing_reference": listing_reference,
+                    "created_at": timestamp, "updated_at": timestamp,
+                }},
+                upsert=True,
+            )
+            await db.advertiser_listing_lifecycle.update_one(
+                {"listing_id": listing_reference},
+                {"$setOnInsert": {
+                    "id": f"primary-demo-lifecycle-{number}", "listing_id": listing_reference,
+                    "user_id": primary_id, "status": "AVAILABLE" if state == "LIVE" else state,
+                    "workflow_status": "CURRENT" if state == "LIVE" else state,
+                    "created_at": timestamp, "updated_at": timestamp,
+                }},
+                upsert=True,
+            )
+
 
 async def migrate_land_category():
     """Convert legacy `land_category`/lowercase property_type values to the

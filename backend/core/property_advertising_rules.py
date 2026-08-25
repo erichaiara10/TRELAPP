@@ -51,6 +51,32 @@ def status_token(value: Any) -> str:
     return re.sub(r"[\s-]+", "_", norm(value))
 
 
+def advertiser_display_status(submission_status: Any, publication_status: Any = None,
+                              lifecycle_status: Any = None) -> str:
+    """Return the single advertiser-facing state used by lists and statistics."""
+    lifecycle = status_token(lifecycle_status)
+    publication = status_token(publication_status)
+    submission = status_token(submission_status)
+    if lifecycle in {"WITHDRAWN", "SOLD", "LEASED", "ARCHIVED", "INACTIVE"}:
+        return lifecycle.replace("_", " ").title()
+    if lifecycle == "REACTIVATION_REQUESTED":
+        return "Under Review"
+    if publication in {"SUSPENDED", "UNPUBLISHED"} or lifecycle == "SUSPENDED":
+        return "Inactive"
+    if publication == "PUBLISHED" or lifecycle in {"LIVE", "AVAILABLE"}:
+        return "Live"
+    if submission == "DRAFT":
+        return "Draft"
+    if submission in {"UNDER_REVIEW", "SUBMITTED", "ON_HOLD", "INFORMATION_REQUIRED",
+                      "CHANGES_REQUIRED", "RETURNED", "REOPENED"}:
+        return "Under Review"
+    if submission == "APPROVED":
+        return "Approved"
+    if submission == "REJECTED":
+        return "Inactive"
+    return "Under Review"
+
+
 def parse_datetime(value: Any) -> Optional[datetime]:
     if not value:
         return None

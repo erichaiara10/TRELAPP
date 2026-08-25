@@ -1,5 +1,6 @@
 from core.property_advertising_rules import (
     add_business_days,
+    advertiser_display_status,
     content_blockers,
     duplicate_identity_match,
     lifecycle_deadlines,
@@ -76,6 +77,14 @@ def test_public_visibility_requires_published_and_live():
     assert public_listing_visible("PUBLISHED", "AVAILABLE")
     assert not public_listing_visible("SUSPENDED", "AVAILABLE")
     assert not public_listing_visible("PUBLISHED", "SOLD")
+
+
+def test_advertiser_display_status_uses_real_workflow_state():
+    assert advertiser_display_status("UNDER_REVIEW") == "Under Review"
+    assert advertiser_display_status("APPROVED", "PUBLISHED", "AVAILABLE") == "Live"
+    assert advertiser_display_status("APPROVED", "UNPUBLISHED", "SUSPENDED") == "Inactive"
+    assert advertiser_display_status("APPROVED", "PUBLISHED", "SOLD") == "Sold"
+    assert advertiser_display_status("DRAFT") == "Draft"
 
 
 def test_submission_sla_counts_three_business_days():
