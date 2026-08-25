@@ -7,6 +7,8 @@ browser cannot bypass them by calling an endpoint directly.
 from __future__ import annotations
 
 import re
+import calendar
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 
@@ -47,6 +49,61 @@ def norm(value: Any) -> str:
 
 def status_token(value: Any) -> str:
     return re.sub(r"[\s-]+", "_", norm(value))
+
+
+def parse_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def add_business_days(value: Any, days: int = 3) -> Optional[datetime]:
+    current = parse_datetime(value)
+    if not current:
+        return None
+    added = 0
+    while added < days:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            added += 1
+    return current
+
+
+def add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def lifecycle_deadlines(value: Any) -> dict[str, str]:
+    base = parse_datetime(value) or datetime.now(timezone.utc)
+    return {
+        "last_confirmed": base.isoformat(),
+        "next_due": add_months(base, 3).isoformat(),
+        "reminder_until": add_months(base, 5).isoformat(),
+        "unpublish_due": add_months(base, 6).isoformat(),
+        "archive_due": add_months(base, 12).isoformat(),
+    }
+
+
+def submission_sla(submitted_at: Any, status: Any, *, now: Optional[datetime] = None) -> tuple[Optional[str], str]:
+    due = add_business_days(submitted_at)
+    if not due:
+        return None, "NOT CALCULATED"
+    if status_token(status) in {"APPROVED", "REJECTED"}:
+        return due.isoformat(), "COMPLETED"
+    current = now or datetime.now(timezone.utc)
+    if current.date() == due.date():
+        return due.isoformat(), "DUE TODAY"
+    if current > due:
+        return due.isoformat(), "OVERDUE"
+    return due.isoformat(), "ON TRACK"
 
 
 def first(data: dict, *keys: str) -> Any:

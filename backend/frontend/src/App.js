@@ -46,8 +46,6 @@ import {
   AuthorityReview,
   PublicationQueue,
   PublicationReview,
-  ExactLocationQueue,
-  ExactLocationReview,
   LifecycleQueue,
   LifecycleReview,
 } from "@/pages/admin/property-advertising/StaffPropertyAdvertising";
@@ -127,8 +125,6 @@ export default function App() {
             <Route path="property-advertising/authority/:submissionRef" element={<AuthorityReview />} />
             <Route path="property-advertising/publications" element={<PublicationQueue />} />
             <Route path="property-advertising/publications/:listingRef" element={<PublicationReview />} />
-            <Route path="property-advertising/exact-location" element={<ExactLocationQueue />} />
-            <Route path="property-advertising/exact-location/:requestRef" element={<ExactLocationReview />} />
             <Route path="property-advertising/lifecycle" element={<LifecycleQueue />} />
             <Route path="property-advertising/lifecycle/:listingRef" element={<LifecycleReview />} />
             <Route path="market/evidence" element={<MarketEvidence />} />

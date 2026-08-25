@@ -19,11 +19,8 @@ export default function PropertyDetail() {
   const [contact, setContact] = useState({ name: "", email: "", phone: "", message: "" });
   const [contactSent, setContactSent] = useState(false);
   const [inspectionSent, setInspectionSent] = useState(false);
-  const [locationForm, setLocationForm] = useState({ requester_name: "", requester_email: "", requester_phone: "", reason: "Property enquiry", message: "" });
-  const [locationSent, setLocationSent] = useState("");
   const inspectionCaptchaRef = useRef(null);
   const contactCaptchaRef = useRef(null);
-  const locationCaptchaRef = useRef(null);
 
   useEffect(() => {
     api.get(`/properties/${id}`).then((r) => setP(r.data)).catch(() => setP(false));
@@ -55,15 +52,6 @@ export default function PropertyDetail() {
       await api.post("/public/leads", { source: "contact_form", ...contact, property_id: p.id, ...contactCaptchaRef.current.getPayload() });
       setContactSent(true);
     } catch (e) { toast.error(formatError(e)); contactCaptchaRef.current?.refresh(); }
-  };
-
-  const requestExactLocation = async (e) => {
-    e.preventDefault();
-    if (!locationCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
-    try {
-      const { data } = await api.post("/property-advertising/location-requests", { property_id: p.id, ...locationForm, ...locationCaptchaRef.current.getPayload() });
-      setLocationSent(data.reference);
-    } catch (e) { toast.error(formatError(e)); locationCaptchaRef.current?.refresh(); }
   };
 
   const wa = (site.whatsapp || "").replace(/\D/g, "");
@@ -185,19 +173,6 @@ export default function PropertyDetail() {
 
         {/* Sidebar */}
         <aside className="space-y-4">
-          <form onSubmit={requestExactLocation} className="bg-white rounded-2xl border border-border p-6" data-testid="exact-location-form">
-            <h3 className="font-serif text-xl flex items-center gap-2"><MapPin className="w-5 h-5" />Request exact location</h3>
-            <p className="text-xs text-muted-foreground mt-2">The exact residential location is protected and is shared only after the authorised decision.</p>
-            {locationSent ? <div className="mt-4 rounded-lg bg-pine-500 text-white p-4"><CheckCircle2 className="w-5 h-5"/><p>Request received. Reference: <b>{locationSent}</b></p></div> : <div className="mt-4 space-y-2">
-              <NameInput value={locationForm.requester_name} onChange={v=>setLocationForm({...locationForm,requester_name:v})} testId="location-name" placeholder="Your name"/>
-              <input required type="email" placeholder="Email" value={locationForm.requester_email} onChange={e=>setLocationForm({...locationForm,requester_email:e.target.value})} className="w-full border border-border rounded-lg px-3 py-2"/>
-              <PhoneInput value={locationForm.requester_phone} onChange={v=>setLocationForm({...locationForm,requester_phone:v})} testId="location-phone"/>
-              <select value={locationForm.reason} onChange={e=>setLocationForm({...locationForm,reason:e.target.value})} className="w-full border border-border rounded-lg px-3 py-2"><option>Property enquiry</option><option>Inspection planning</option><option>Due diligence</option></select>
-              <textarea placeholder="Why do you need the exact location?" rows={3} value={locationForm.message} onChange={e=>setLocationForm({...locationForm,message:e.target.value})} className="w-full border border-border rounded-lg px-3 py-2"/>
-              <HumanVerification ref={locationCaptchaRef}/>
-              <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white">Submit location request</button>
-            </div>}
-          </form>
           <div className="bg-white rounded-2xl border border-border p-6">
             <h3 className="font-serif text-xl">Contact agent</h3>
             <div className="mt-4 flex flex-col gap-2">

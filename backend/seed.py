@@ -100,6 +100,110 @@ async def restore_approved_admin():
     )
 
 
+async def seed_property_advertising_test_fixtures():
+    """Create stable workflow records only in the dedicated test database.
+
+    Existing fixture records are never reset, so Staff test decisions remain
+    available for later review and no production database can enter this path.
+    """
+    if os.getenv("DB_NAME") != "trel_test" or os.getenv(
+        "TREL_PROPERTY_ADVERTISING_TEST_FIXTURES", ""
+    ).strip().lower() not in {"1", "true", "yes"}:
+        return
+    # The feature was withdrawn. Remove its obsolete test-only collection so
+    # stale request data cannot imply that the workflow still exists.
+    await db.drop_collection("exact_location_requests")
+    created = "2026-08-24T00:00:00+10:00"
+    advertiser_id = "pa-test-advertiser"
+    await db.users.update_one(
+        {"id": advertiser_id},
+        {"$setOnInsert": {
+            "id": advertiser_id, "email": "property-advertiser-test@trelpng.com.pg",
+            "name": "Property Advertising Test Advertiser", "phone": "+675 7000 0001",
+            "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
+            "status": "ACTIVE", "email_verified": True, "mobile_verified": True,
+            "created_at": created, "updated_at": created,
+        }},
+        upsert=True,
+    )
+    await db.advertiser_profiles.update_one(
+        {"user_id": advertiser_id},
+        {"$setOnInsert": {
+            "id": "pa-test-profile", "user_id": advertiser_id,
+            "status": "VERIFIED", "relationship_type": "OWNER",
+            "residential_address": "Waigani, Port Moresby", "created_at": created,
+            "updated_at": created,
+        }},
+        upsert=True,
+    )
+    await db.identity_documents.update_one(
+        {"id": "pa-test-identity"},
+        {"$setOnInsert": {
+            "id": "pa-test-identity", "user_id": advertiser_id,
+            "document_type": "NID_CARD", "original_filename": "controlled-test-identity.pdf",
+            "status": "VERIFIED", "created_at": created,
+        }},
+        upsert=True,
+    )
+    common = {
+        "description": "Controlled test record for Property Advertising workflow validation.",
+        "listing_type": "Sale", "property_class": "Residential", "property_type": "House",
+        "province": "National Capital District", "service": "Advertise only",
+        "relationship": "Owner / Joint Owner", "identity_scheme": "SERVICED",
+        "currency": "PGK", "price": 750000, "authority_confirmed": True,
+        "terms_accepted": True, "photos": ["/logo192.png", "/logo512.png"],
+    }
+    fixtures = [
+        ("pa-test-submission-ready", "PA-TEST-READY", {
+            **common, "title": "Controlled Lifecycle Test Property", "lot": "901",
+            "section": "81", "city": "Port Moresby",
+        }, "APPROVED"),
+        ("pa-test-submission-duplicate-a", "PA-TEST-DUP-A", {
+            **common, "title": "Controlled Duplicate A", "lot": "902",
+            "section": "82", "suburb": "Waigani",
+        }, "UNDER_REVIEW"),
+        ("pa-test-submission-duplicate-b", "PA-TEST-DUP-B", {
+            **common, "title": "Controlled Duplicate B", "lot": "902",
+            "section": "82", "suburb": "Waigani",
+        }, "UNDER_REVIEW"),
+    ]
+    for fixture_id, reference, data, status in fixtures:
+        await db.advertiser_submissions.update_one(
+            {"id": fixture_id},
+            {"$setOnInsert": {
+                "id": fixture_id, "reference": reference, "user_id": advertiser_id,
+                "status": status, "data": data, "submitted_at": created,
+                "created_at": created, "updated_at": created,
+            }},
+            upsert=True,
+        )
+    await db.staff_property_reviews.update_one(
+        {"subject_ref": "PA-TEST-READY"},
+        {"$setOnInsert": {
+            "id": "pa-test-review-ready", "subject_ref": "PA-TEST-READY",
+            "submission_status": "APPROVED", "authority_status": "ACCEPTED",
+            "conflict_status": "CLEAR", "publication_status": "PUBLISHED",
+            "listing_reference": "LIST-PA-TEST-READY", "created_at": created,
+            "updated_at": created,
+        }},
+        upsert=True,
+    )
+    await db.advertiser_listing_lifecycle.update_one(
+        {"listing_id": "LIST-PA-TEST-READY"},
+        {"$setOnInsert": {
+            "id": "pa-test-lifecycle-ready", "listing_id": "LIST-PA-TEST-READY",
+            "user_id": advertiser_id, "status": "AVAILABLE", "workflow_status": "CURRENT",
+            "last_confirmed": "2026-08-24T00:00:00+10:00",
+            "next_due": "2026-11-24T00:00:00+10:00",
+            "reminder_until": "2027-01-24T00:00:00+10:00",
+            "unpublish_due": "2027-02-24T00:00:00+10:00",
+            "archive_due": "2027-08-24T00:00:00+10:00",
+            "reminder_count": 0, "created_at": created, "updated_at": created,
+        }},
+        upsert=True,
+    )
+
+
 async def migrate_land_category():
     """Convert legacy `land_category`/lowercase property_type values to the
     new titled names, then remove the `land_category` field."""
@@ -227,6 +331,7 @@ async def run_startup():
     # ---- Legacy migrations (one-off, idempotent) ----
     await migrate_legacy_user_emails()
     await restore_approved_admin()
+    await seed_property_advertising_test_fixtures()
 
     property_storage_mode = os.getenv(
         "TREL_PROPERTY_STORAGE_MODE", "legacy"

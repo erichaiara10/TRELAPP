@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database, Megaphone, UserRoundCheck, SendToBack, MapPinned, History, FileCheck2 } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database, Megaphone, UserRoundCheck, SendToBack, History, FileCheck2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const items = [
@@ -25,7 +25,6 @@ const propertyAdvertisingItems = [
   { to: "/admin/property-advertising/advertisers", label: "Advertisers", icon: UserRoundCheck },
   { to: "/admin/property-advertising/submissions", label: "Properties & Submissions", icon: SendToBack },
   { to: "/admin/property-advertising/publications", label: "Publication Control", icon: FileCheck2 },
-  { to: "/admin/property-advertising/exact-location", label: "Exact Location Requests", icon: MapPinned },
   { to: "/admin/property-advertising/lifecycle", label: "Listing Lifecycle", icon: History },
 ];
 

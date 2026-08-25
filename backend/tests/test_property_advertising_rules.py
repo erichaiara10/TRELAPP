@@ -1,11 +1,15 @@
 from core.property_advertising_rules import (
+    add_business_days,
     content_blockers,
     duplicate_identity_match,
+    lifecycle_deadlines,
     lifecycle_transition,
     price_label,
     public_listing_visible,
     publication_transition,
+    submission_sla,
 )
+from datetime import datetime, timezone
 
 
 def _complete(**changes):
@@ -72,3 +76,20 @@ def test_public_visibility_requires_published_and_live():
     assert public_listing_visible("PUBLISHED", "AVAILABLE")
     assert not public_listing_visible("SUSPENDED", "AVAILABLE")
     assert not public_listing_visible("PUBLISHED", "SOLD")
+
+
+def test_submission_sla_counts_three_business_days():
+    submitted = datetime(2026, 8, 21, 9, 0, tzinfo=timezone.utc)  # Friday
+    due = add_business_days(submitted, 3)
+    assert due.date().isoformat() == "2026-08-26"
+    assert submission_sla(submitted, "UNDER_REVIEW", now=datetime(2026, 8, 25, tzinfo=timezone.utc))[1] == "ON TRACK"
+    assert submission_sla(submitted, "UNDER_REVIEW", now=due.replace(hour=23))[1] == "DUE TODAY"
+    assert submission_sla(submitted, "APPROVED", now=due)[1] == "COMPLETED"
+
+
+def test_lifecycle_deadlines_handle_month_end():
+    deadlines = lifecycle_deadlines("2026-01-31T00:00:00+00:00")
+    assert deadlines["next_due"].startswith("2026-04-30")
+    assert deadlines["unpublish_due"].startswith("2026-07-31")
+    assert deadlines["archive_due"].startswith("2027-01-31")
+    lifecycle_deadlines,

@@ -9,6 +9,7 @@ primary_region = "syd"
 [env]
   DB_NAME = "trel_test"
   TREL_PROPERTY_STORAGE_MODE = "integrated"
+  TREL_PROPERTY_ADVERTISING_TEST_FIXTURES = "true"
 
 [http_service]
   internal_port = 8000

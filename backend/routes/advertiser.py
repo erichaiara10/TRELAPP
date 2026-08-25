@@ -21,11 +21,6 @@ class ListingLifecyclePayload(BaseModel):
     status: str
 
 
-class ExactLocationDecisionPayload(BaseModel):
-    action: str
-    reason: str = Field(min_length=3, max_length=1000)
-
-
 def require_advertiser(user: dict) -> None:
     if account_category(user) != "PROPERTY_ADVERTISER":
         raise HTTPException(403, "Property Advertiser account required")
@@ -183,46 +178,3 @@ async def update_listing_lifecycle(
                 {"$set": {"publication_status": "UNPUBLISHED", "updated_at": timestamp}},
             )
     return {"ok": True, "listing_id": listing_id, "status": requested}
-
-
-@router.get("/exact-location-requests")
-async def exact_location_requests(user: dict = Depends(get_current_user)):
-    require_advertiser(user)
-    return await db.exact_location_requests.find(
-        {"advertiser_id": user["id"]}, {"_id": 0, "exact_location": 0,
-                                        "access_token_hash": 0}
-    ).sort("created_at", -1).to_list(500)
-
-
-@router.put("/exact-location-requests/{reference}/decision")
-async def exact_location_request_decision(
-    reference: str,
-    payload: ExactLocationDecisionPayload,
-    user: dict = Depends(get_current_user),
-):
-    require_advertiser(user)
-    item = await db.exact_location_requests.find_one(
-        {"$or": [{"reference": reference}, {"id": reference}],
-         "advertiser_id": user["id"]}, {"_id": 0}
-    )
-    if not item:
-        raise HTTPException(404, "Exact-location request not found")
-    action = status_token(payload.action)
-    if item.get("decision_authority") != "ADVERTISER" or action not in {"APPROVE", "DECLINE"}:
-        raise HTTPException(409, "This request cannot be decided by the advertiser")
-    previous = item.get("status") or "AWAITING_ADVERTISER"
-    new_status = "PENDING" if action == "APPROVE" else "DECLINED"
-    consent = "APPROVED" if action == "APPROVE" else "DECLINED"
-    timestamp = now_iso()
-    await db.exact_location_requests.update_one(
-        {"id": item["id"]},
-        {"$set": {"status": new_status, "advertiser_consent_status": consent,
-                  "advertiser_consent_at": timestamp, "updated_at": timestamp}},
-    )
-    await db.audit_events.insert_one({
-        "id": new_id(), "action": f"ADVERTISER_LOCATION_{action}",
-        "subject_type": "exact_location_request", "subject_id": item.get("reference") or item["id"],
-        "actor_id": user["id"], "previous_status": previous, "new_status": new_status,
-        "reason": payload.reason, "created_at": timestamp,
-    })
-    return {"ok": True, "status": new_status, "advertiser_consent_status": consent}

@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +27,7 @@ from core.login_guard import ensure_indexes as ensure_login_guard_indexes
 from routes import (
     advertiser, ai, auth, content, csv_io, customers, files, inspections, leads, locations,
     market, matching, properties, property_types, public, referrals, reports, requirements, tasks,
-    property_advertising_public, staff_property_advertising,
+    staff_property_advertising,
 )
 from seed import run_startup
 
@@ -40,7 +42,7 @@ for module in (
     auth, properties, property_types, customers, requirements,
     leads, inspections, tasks, matching, locations,
     ai, content, reports, public, referrals, market, files, csv_io, advertiser,
-    property_advertising_public, staff_property_advertising,
+    staff_property_advertising,
 ):
     api.include_router(module.router)
 
@@ -50,12 +52,18 @@ async def root():
     return {"ok": True, "service": "TREL API"}
 
 
+_lifecycle_task = None
+
+
 @app.on_event("startup")
 async def on_startup():
+    global _lifecycle_task
     files.init_storage()
     await run_startup()
     await ensure_login_guard_indexes()
     await staff_property_advertising.ensure_indexes()
+    await staff_property_advertising.run_lifecycle_maintenance()
+    _lifecycle_task = asyncio.create_task(staff_property_advertising.lifecycle_maintenance_loop())
     topology = await detect_topology()
     strict = strict_transactions_required()
     mode = "TRANSACTIONAL" if topology.get("supports_transactions") else "NON_TRANSACTIONAL_FALLBACK"
@@ -73,6 +81,10 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    if _lifecycle_task:
+        _lifecycle_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _lifecycle_task
     client.close()
 
 
