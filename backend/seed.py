@@ -7,6 +7,8 @@ CORE RULE (Data Protection):
 - `migrate_*` functions are one-off legacy data cleanups (e.g. rename of
   `admin@pngrealty.pg` → `admin@trel.com.pg`). They are idempotent: once
   applied, they do nothing on subsequent boots.
+- The approved test administrator is restored idempotently without deleting
+  any unrelated account or storing its password in source code.
 """
 import logging
 import os
@@ -22,9 +24,12 @@ from seed_data import (
 
 logger = logging.getLogger("trel")
 
+APPROVED_ADMIN_EMAIL = os.environ.get(
+    "ADMIN_EMAIL", "admin@trelpng.com.pg"
+).strip().lower()
 
 DEMO_USERS = [
-    {"email": os.environ.get("ADMIN_EMAIL", "admin@trel.com.pg"), "name": "System Admin", "role": "system_admin"},
+    {"email": APPROVED_ADMIN_EMAIL, "name": "System Admin", "role": "system_admin"},
     {"email": "director@trel.com.pg", "name": "Naomi Kila", "role": "managing_director"},
     {"email": "sales@trel.com.pg", "name": "John Namaliu", "role": "sales_agent"},
     {"email": "leasing@trel.com.pg", "name": "Grace Toua", "role": "leasing_agent"},
@@ -43,6 +48,56 @@ async def migrate_legacy_user_emails():
             await db.users.delete_one({"email": old})
         else:
             await db.users.update_one({"email": old}, {"$set": {"email": new}})
+
+
+async def restore_approved_admin():
+    """Restore the approved administrator identity without exposing secrets.
+
+    Prefer the existing approved record. Otherwise rename the legacy TREL
+    administrator while preserving its password hash. If ADMIN_PASSWORD is
+    configured, use it to reset the approved test administrator deliberately.
+    """
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    approved = await db.users.find_one({"email": APPROVED_ADMIN_EMAIL})
+    updates = {
+        "email": APPROVED_ADMIN_EMAIL,
+        "name": "System Admin",
+        "role": "system_admin",
+        "account_category": "STAFF",
+        "status": "ACTIVE",
+        "updated_at": now_iso(),
+    }
+    if admin_password:
+        updates["password_hash"] = hash_password(admin_password)
+
+    if approved:
+        await db.users.update_one({"_id": approved["_id"]}, {"$set": updates})
+        return
+
+    for legacy_email in ("admin@trel.com.pg", "admin@pngrealty.pg"):
+        legacy = await db.users.find_one({"email": legacy_email})
+        if legacy:
+            await db.users.update_one({"_id": legacy["_id"]}, {"$set": updates})
+            return
+
+    if admin_password:
+        await db.users.insert_one({
+            "id": new_id(),
+            "email": APPROVED_ADMIN_EMAIL,
+            "name": "System Admin",
+            "role": "system_admin",
+            "account_category": "STAFF",
+            "status": "ACTIVE",
+            "phone": None,
+            "password_hash": hash_password(admin_password),
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+        return
+
+    logger.error(
+        "Approved admin could not be restored: no legacy record or ADMIN_PASSWORD"
+    )
 
 
 async def migrate_land_category():
@@ -171,6 +226,7 @@ async def run_startup():
 
     # ---- Legacy migrations (one-off, idempotent) ----
     await migrate_legacy_user_emails()
+    await restore_approved_admin()
 
     property_storage_mode = os.getenv(
         "TREL_PROPERTY_STORAGE_MODE", "legacy"
