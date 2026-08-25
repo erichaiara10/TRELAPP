@@ -62,8 +62,12 @@ function Protected({ children, categories }) {
   const location = useLocation();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
   if (!user) {
-    // Preserve the intended destination so the popup can complete the journey.
+    // Keep Staff/Admin authentication inside the admin environment. Public
+    // account workspaces continue to use the approved Add Property popup.
     const next = encodeURIComponent(location.pathname + location.search);
+    if (categories?.includes("STAFF")) {
+      return <Navigate to={`/admin/login?next=${next}`} replace />;
+    }
     return <Navigate to={`/add-property?auth=login&next=${next}`} replace />;
   }
   if (categories && !categories.includes(user.account_category || "STAFF")) {

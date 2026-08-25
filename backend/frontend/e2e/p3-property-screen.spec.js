@@ -124,7 +124,7 @@ test("Market Evidence shows the link to the advertised Master Property", async (
   await expect(page.getByText("DIRECT_TREL_ID")).toBeVisible();
 });
 
-test("common login routes a Referral Partner to the referral workspace", async ({ page }) => {
+test("public account login routes a Referral Partner to the referral workspace", async ({ page }) => {
   await page.addInitScript(() => {
     window.turnstile = {
       render: (_element, options) => {
@@ -142,7 +142,7 @@ test("common login routes a Referral Partner to the referral workspace", async (
     if (path === "/api/referrals/mine") return json(route, []);
     return json(route, []);
   });
-  await page.goto("/admin/login");
+  await page.goto("/add-property?auth=login");
   await expect(page.getByTestId("account-access-dialog")).toBeVisible();
   await page.getByTestId("account-access-login-email").fill("ref@trel.test");
   await page.getByTestId("account-access-login-password").fill("Password@123");
