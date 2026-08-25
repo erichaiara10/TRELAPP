@@ -130,11 +130,12 @@ def test_referral_partner_payload_requires_direct_owner_source():
         raise AssertionError("Agent-sourced or indirect referral was accepted")
 
 
-def test_common_login_routes_each_account_category_to_its_workspace():
+def test_common_login_routes_only_current_phase_categories():
     assert account_category({"role": "sales_agent"}) == "GUEST"
     assert workspace_path({"account_category": "STAFF"}) == "/admin"
     assert workspace_path({"account_category": "PROPERTY_ADVERTISER"}) == "/advertiser"
-    assert workspace_path({"account_category": "REFERRAL_PARTNER"}) == "/referral-partner"
+    assert account_category({"account_category": "REFERRAL_PARTNER"}) == "GUEST"
+    assert workspace_path({"account_category": "REFERRAL_PARTNER"}) == "/"
 
 
 def test_integrated_property_storage_is_the_final_default(monkeypatch):

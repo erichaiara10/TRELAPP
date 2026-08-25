@@ -56,18 +56,21 @@ import { ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 import Register from "@/pages/account/Register";
 import AddProperty from "@/pages/public/AddProperty";
+import { workspaceForUser } from "@/lib/accountRouting";
 
 function Protected({ children, categories }) {
   const { user } = useAuth();
   const location = useLocation();
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
   if (!user) {
-    // Preserve the intended destination so the popup can complete the journey.
     const next = encodeURIComponent(location.pathname + location.search);
+    if (categories?.includes("STAFF")) {
+      return <Navigate to={`/login?next=${next}`} replace />;
+    }
     return <Navigate to={`/add-property?auth=login&next=${next}`} replace />;
   }
-  if (categories && !categories.includes(user.account_category || "STAFF")) {
-    return <Navigate to={user.workspace_path || "/"} replace />;
+  if (categories && !categories.includes(user.account_category)) {
+    return <Navigate to={workspaceForUser(user)} replace />;
   }
   return children;
 }
@@ -93,6 +96,7 @@ export default function App() {
             <Route path="/add-property" element={<AddProperty />} />
           </Route>
 
+          <Route path="/login" element={<Login />} />
           <Route path="/admin/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/admin" element={<Protected categories={["STAFF"]}><AdminLayout /></Protected>}>

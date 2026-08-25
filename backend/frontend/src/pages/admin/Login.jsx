@@ -1,12 +1,25 @@
 import React from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import AccountAccessDialog from "@/components/public/AccountAccessDialog";
+import { useAuth } from "@/lib/auth";
+import { destinationForUser } from "@/lib/accountRouting";
 
-// Compatibility fallback: any legacy /admin/login bookmark opens the approved
-// common account popup on its Log In tab. The rejected standalone
-// "TRELPNG sign in" page is no longer served.
 export default function Login() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const params = new URLSearchParams(location.search);
-  params.set("auth", "login");
-  return <Navigate to={`/add-property?${params.toString()}`} replace />;
+  const requestedPath = params.get("next") || "";
+
+  if (user === null) return <div className="min-h-screen bg-slate-950 p-10 text-sm text-slate-300">Loading…</div>;
+  if (user) return <Navigate to={destinationForUser(user, requestedPath)} replace />;
+
+  return <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950" data-testid="generic-login-page">
+    <AccountAccessDialog
+      open
+      initialTab="login"
+      onClose={() => navigate("/", { replace: true })}
+      next={requestedPath}
+    />
+  </main>;
 }

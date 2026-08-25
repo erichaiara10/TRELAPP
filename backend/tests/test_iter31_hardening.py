@@ -20,8 +20,10 @@ backend_env = dotenv_values("/app/backend/.env")
 MONGO_URL = os.environ.get("MONGO_URL") or backend_env.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME") or backend_env.get("DB_NAME")
 
-ADMIN_EMAIL = "admin@trel.com.pg"
-ADMIN_PASSWORD = "Admin@123"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL") or backend_env.get("ADMIN_EMAIL")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or backend_env.get("ADMIN_PASSWORD")
+if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+    pytest.skip("Test-admin credentials are not configured", allow_module_level=True)
 
 
 @pytest.fixture(scope="module")
@@ -99,15 +101,12 @@ class TestRegisterLoginPath:
             mongo.referral_partner_profiles.delete_many({"user_id": user["id"]})
             mongo.users.delete_one({"id": user["id"]})
 
-    @pytest.mark.parametrize("category,relationship", [
-        ("PROPERTY_ADVERTISER", "OWNER"),
-        ("REFERRAL_PARTNER", None),
-    ])
-    def test_register_returns_popup_login_path(self, mongo, category, relationship):
+    def test_register_returns_popup_login_path(self, mongo):
+        category, relationship = "PROPERTY_ADVERTISER", "OWNER"
         stamp = int(time.time() * 1000)
         email = f"test_iter31_{category.lower()}_{stamp}@example.com"
         payload = {"name": "TEST Iter31", "email": email, "phone": "+67570000000",
-                   "password": "Passw0rd!23", "account_category": category}
+                   "password": "Passw0rd!23"}
         if relationship:
             payload["advertiser_relationship_type"] = relationship
         try:
@@ -125,8 +124,7 @@ class TestRegisterLoginPath:
             assert login.status_code == 200, login.text[:300]
             body = login.json()
             assert body["account_category"] == category
-            expected_ws = "/advertiser" if category == "PROPERTY_ADVERTISER" else "/referral-partner"
-            assert body["workspace_path"] == expected_ws, body["workspace_path"]
+            assert body["workspace_path"] == "/advertiser", body["workspace_path"]
         finally:
             self._cleanup(mongo, email)
             assert mongo.users.find_one({"email": email}) is None

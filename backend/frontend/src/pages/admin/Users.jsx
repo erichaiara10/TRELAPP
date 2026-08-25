@@ -12,7 +12,7 @@ const CATEGORY_ROLES = {
 };
 
 function EditUserModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "", account_category: user.account_category || "STAFF", status: user.status || "ACTIVE", advertiser_relationship_type: user.advertiser_relationship_type || "OWNER" });
+  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "", account_category: user.account_category || "UNASSIGNED", status: user.status || "ACTIVE", advertiser_relationship_type: user.advertiser_relationship_type || "OWNER" });
   const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [profileStatus, setProfileStatus] = useState(user.advertiser_profile_status || "PENDING");
@@ -21,7 +21,9 @@ function EditUserModal({ user, onClose, onSaved }) {
   const save = async () => {
     setBusy(true);
     try {
-      await api.put(`/users/${user.id}`, form);
+      const updates = { ...form };
+      delete updates.account_category;
+      await api.put(`/users/${user.id}`, updates);
       toast.success("User updated"); onSaved();
     } catch (e) { toast.error(formatError(e)); }
     finally { setBusy(false); }
@@ -64,12 +66,10 @@ function EditUserModal({ user, onClose, onSaved }) {
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="edit-user-email" className="mt-1 w-full border border-border rounded px-2 py-1.5" /></label>
           <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Role</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} data-testid="edit-user-role" className="mt-1 w-full border border-border rounded px-2 py-1.5">
-              {CATEGORY_ROLES[form.account_category].map((r) => <option key={r} value={r}>{r}</option>)}
+              {(CATEGORY_ROLES[form.account_category] || [form.role]).map((r) => <option key={r} value={r}>{r}</option>)}
             </select></label>
           <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Account category</span>
-            <select value={form.account_category} onChange={(e) => { const account_category=e.target.value; setForm({ ...form, account_category, role:CATEGORY_ROLES[account_category][0] }); }} className="mt-1 w-full border border-border rounded px-2 py-1.5">
-              <option value="STAFF">Staff Account</option><option value="PROPERTY_ADVERTISER">Property Advertiser Account</option><option value="REFERRAL_PARTNER">Referral Partner Account</option>
-            </select></label>
+            <input value={form.account_category} readOnly className="mt-1 w-full border border-border rounded bg-slate-50 px-2 py-1.5" /></label>
           <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Status</span>
             <select value={form.status} onChange={(e) => setForm({ ...form, status:e.target.value })} className="mt-1 w-full border border-border rounded px-2 py-1.5"><option>ACTIVE</option><option>PENDING</option><option>SUSPENDED</option><option>REJECTED</option></select></label>
           {form.account_category === "PROPERTY_ADVERTISER" && <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Relationship to property</span>
@@ -124,7 +124,7 @@ export default function Users() {
           <input required placeholder="Name" value={n.name} onChange={(e) => setN({ ...n, name: e.target.value })} data-testid="user-name" className="border border-border rounded px-3 py-2" />
           <input required type="email" placeholder="Email" value={n.email} onChange={(e) => setN({ ...n, email: e.target.value })} data-testid="user-email" className="border border-border rounded px-3 py-2" />
           <input required type="password" placeholder="Password" value={n.password} onChange={(e) => setN({ ...n, password: e.target.value })} data-testid="user-pwd" className="border border-border rounded px-3 py-2" />
-          <select value={n.account_category} onChange={(e) => { const account_category=e.target.value; setN({ ...n, account_category, role:CATEGORY_ROLES[account_category][0], advertiser_relationship_type:account_category === "PROPERTY_ADVERTISER" ? "OWNER" : null }); }} className="border border-border rounded px-3 py-2"><option value="STAFF">Staff</option><option value="PROPERTY_ADVERTISER">Property Advertiser</option><option value="REFERRAL_PARTNER">Referral Partner</option></select>
+          <input value="STAFF" readOnly aria-label="Account category" className="border border-border rounded bg-slate-50 px-3 py-2" />
           <select value={n.role} onChange={(e) => setN({ ...n, role: e.target.value })} data-testid="user-role" className="border border-border rounded px-3 py-2">
             {CATEGORY_ROLES[n.account_category].map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -143,7 +143,7 @@ export default function Users() {
               <tr key={u.id} className="border-t border-border" data-testid={`user-row-${u.id}`}>
                 <td className="p-3 font-medium">{u.name}</td>
                 <td className="p-3">{u.email}</td>
-                <td className="p-3 text-xs">{u.account_category || "STAFF"}</td>
+                <td className="p-3 text-xs">{u.account_category || "UNASSIGNED"}</td>
                 <td className="p-3"><span className="px-2 py-0.5 rounded-full text-xs bg-sand-100">{u.role}</span></td>
                 <td className="p-3 text-xs">{u.status || "ACTIVE"}</td>
                 <td className="p-3 text-xs">{u.phone || "—"}</td>

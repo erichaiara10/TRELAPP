@@ -3,8 +3,7 @@
 // Covers the four latest requirements:
 //   1. + Add Property opens the P01 selector (Sell/Rent → TREL/Self → Owner/Agent/Rep)
 //   2. Real Cloudflare Turnstile widget renders; buttons disabled until token
-//   3. Any authenticated user (STAFF, ADMIN, REFERRAL_PARTNER, PROPERTY_ADVERTISER)
-//      can proceed past the entry screen — no category-mismatch notice
+//   3. Current Staff and Property Advertiser categories route to their own workspaces
 //   4. Guest selections are preserved through login and reach /advertiser
 //
 // The Turnstile widget script is stubbed with a mock that immediately delivers
@@ -151,7 +150,7 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     expect(loggedIn).toBeTruthy();
   });
 
-  test("Authenticated Staff sees the P01 selector and can proceed (no category notice)", async ({ page }) => {
+  test("Authenticated Staff cannot be routed into the advertiser workspace", async ({ page }) => {
     await authedAs(page, { id: "s1", email: "admin@trel.com.pg", name: "Admin", role: "system_admin", account_category: "STAFF", workspace_path: "/admin" });
     await page.goto("/add-property");
     await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
@@ -162,19 +161,16 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await page.getByTestId("p01-relationship-owner").click();
     await expect(page.getByTestId("p01-proceed-authed")).toBeEnabled();
     await page.getByTestId("p01-proceed-authed").click();
-    await expect(page).toHaveURL(/\/advertiser$/);
+    await expect(page).toHaveURL(/\/admin$/);
   });
 
-  test("Authenticated Referral Partner also proceeds (universal access)", async ({ page }) => {
+  test("An unknown future category cannot enter a current workspace", async ({ page }) => {
     await authedAs(page, { id: "r1", email: "ref@t.pg", name: "Ref", role: "referral_partner", account_category: "REFERRAL_PARTNER", workspace_path: "/referral-partner" });
     await page.goto("/add-property");
     await expect(page.getByTestId("p01-title")).toHaveText("Add Your Property");
     await expect(page.getByTestId("add-property-category-notice")).toHaveCount(0);
-    await page.getByTestId("p01-listing-rent").click();
-    await page.getByTestId("p01-service-self").click();
-    await page.getByTestId("p01-relationship-authorised_representative").click();
-    await page.getByTestId("p01-proceed-authed").click();
-    await expect(page).toHaveURL(/\/advertiser$/);
+    await page.goto("/advertiser");
+    await expect(page).toHaveURL(/\/$/);
   });
 
   test("Popup dismiss and Escape still work", async ({ page }) => {
@@ -194,14 +190,30 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
   });
 
-  test("Legacy /admin/login and /register still redirect to the popup (with P01 selector as base page)", async ({ page }) => {
-    await page.goto("/admin/login");
-    await expect(page).toHaveURL(/\/add-property\?auth=login/);
+  test("Admin entry uses the generic login without opening Add Property", async ({ page }) => {
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
+    await expect(page.getByTestId("generic-login-page")).toBeVisible();
     await expect(page.getByTestId("account-access-dialog")).toBeVisible();
     await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("p01-title")).toHaveCount(0);
 
     await page.goto("/register");
     await expect(page).toHaveURL(/\/add-property\?auth=register/);
     await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("Account category overrides the entry URL", async ({ page }) => {
+    await page.route("**/api/auth/login", (r) => json(r, {
+      token: "advertiser-token", id: "adv-route", email: "advertiser@t.pg",
+      name: "Advertiser", role: "property_advertiser",
+      account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser",
+    }));
+    await page.goto("/admin");
+    await expect(page.getByTestId("account-access-login-submit")).toBeEnabled({ timeout: 3000 });
+    await page.getByTestId("account-access-login-email").fill("advertiser@t.pg");
+    await page.getByTestId("account-access-login-password").fill("Password@123");
+    await page.getByTestId("account-access-login-submit").click();
+    await expect(page).toHaveURL(/\/advertiser$/);
   });
 });

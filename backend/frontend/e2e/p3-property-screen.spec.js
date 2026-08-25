@@ -124,7 +124,7 @@ test("Market Evidence shows the link to the advertised Master Property", async (
   await expect(page.getByText("DIRECT_TREL_ID")).toBeVisible();
 });
 
-test("common login routes a Referral Partner to the referral workspace", async ({ page }) => {
+test("generic login routes a Staff account to the admin workspace", async ({ page }) => {
   await page.addInitScript(() => {
     window.turnstile = {
       render: (_element, options) => {
@@ -138,15 +138,13 @@ test("common login routes a Referral Partner to the referral workspace", async (
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    if (path === "/api/auth/login") return json(route, { id:"ref-1", name:"Referral QA", email:"ref@trel.test", role:"referral_partner", account_category:"REFERRAL_PARTNER", workspace_path:"/referral-partner", token:"ref-token" });
-    if (path === "/api/referrals/mine") return json(route, []);
+    if (path === "/api/auth/login") return json(route, { id:"staff-login", name:"Staff QA", email:"staff@trel.test", role:"system_admin", account_category:"STAFF", workspace_path:"/admin", token:"staff-token" });
     return json(route, []);
   });
-  await page.goto("/admin/login");
+  await page.goto("/login?next=%2Fadmin");
   await expect(page.getByTestId("account-access-dialog")).toBeVisible();
-  await page.getByTestId("account-access-login-email").fill("ref@trel.test");
+  await page.getByTestId("account-access-login-email").fill("staff@trel.test");
   await page.getByTestId("account-access-login-password").fill("Password@123");
   await page.getByTestId("account-access-login-submit").click();
-  await expect(page).toHaveURL(/\/referral-partner$/);
-  await expect(page.getByRole("heading", { name:"Referral Partner Workspace" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin$/);
 });

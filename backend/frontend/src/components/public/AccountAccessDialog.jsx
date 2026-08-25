@@ -3,23 +3,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Home, X } from "lucide-react";
 import { api, formatError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { destinationForUser } from "@/lib/accountRouting";
 
 const TURNSTILE_SITE_KEY =
   process.env.REACT_APP_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
 const TURNSTILE_SCRIPT_URL =
   "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const GOOGLE_SCRIPT_URL = "https://accounts.google.com/gsi/client";
-
-// Route the user based on account_category and preserved intent.
-function destinationFor(user, next) {
-  if (next) return next;
-  const cat = user?.account_category;
-  if (cat === "PROPERTY_ADVERTISER") return "/advertiser";
-  if (cat === "REFERRAL_PARTNER") return "/referral-partner";
-  if (cat === "STAFF") return user?.workspace_path || "/admin";
-  // GUEST / unknown → do NOT drop into /admin.
-  return user?.workspace_path || "/";
-}
 
 function loadTurnstileScript() {
   if (typeof window === "undefined") return Promise.resolve();
@@ -145,7 +135,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
     setGoogleBusy(false);
     if (!result.ok) { setError(result.error || "Google account creation failed"); return; }
     onClose();
-    navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
+    navigate(destinationForUser(result.user, next), { replace: true, state: { selectedService } });
   };
 
   const handleGoogle = () => {
@@ -167,7 +157,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
           setGoogleBusy(false);
           if (existing.ok) {
             onClose();
-            navigate(destinationFor(existing.user, next), { replace: true, state: { selectedService } });
+            navigate(destinationForUser(existing.user, next), { replace: true, state: { selectedService } });
             return;
           }
           if (!String(existing.error || "").includes("No TRELPNG account was found")) {
@@ -181,7 +171,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
         setGoogleBusy(false);
         if (!result.ok) { setError(result.error || "Google authentication failed"); return; }
         onClose();
-        navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
+        navigate(destinationForUser(result.user, next), { replace: true, state: { selectedService } });
       },
       error_callback: () => { setGoogleBusy(false); setError("Google authentication was cancelled or failed."); },
     });
@@ -221,7 +211,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       setResetSignal((n) => n + 1); setTurnstileToken("");
       if (!result.ok) { setError(result.error || "Login failed"); return; }
       onClose();
-      navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
+      navigate(destinationForUser(result.user, next), { replace: true, state: { selectedService } });
       return;
     }
     if (password !== confirmPassword) { setError("Passwords do not match"); return; }
@@ -233,7 +223,6 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
         email: email.trim(),
         phone: mobile.trim(),
         password,
-        account_category: "PROPERTY_ADVERTISER",
         advertiser_relationship_type: (selectedService && selectedService.relationship) || "OWNER",
         turnstile_token: turnstileToken,
       });
@@ -242,7 +231,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       setResetSignal((n) => n + 1); setTurnstileToken("");
       if (!result.ok) { setNotice("Account created. Please log in."); setTab("login"); return; }
       onClose();
-      navigate(destinationFor(result.user, next), { replace: true, state: { selectedService } });
+      navigate(destinationForUser(result.user, next), { replace: true, state: { selectedService } });
     } catch (err) {
       setSubmitting(false);
       setResetSignal((n) => n + 1); setTurnstileToken("");

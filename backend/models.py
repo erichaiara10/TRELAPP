@@ -19,7 +19,7 @@ class UserCreate(BaseModel):
     name: str
     role: str
     phone: Optional[str] = None
-    account_category: Literal["STAFF", "PROPERTY_ADVERTISER", "REFERRAL_PARTNER"] = "STAFF"
+    account_category: Literal["STAFF"] = "STAFF"
     status: Literal["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"] = "ACTIVE"
     advertiser_relationship_type: Optional[Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"]] = None
 

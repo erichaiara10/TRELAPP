@@ -17,7 +17,13 @@ API = f"{BASE_URL}/api"
 
 PASS_TOKEN = "1x0000000000000000000000000000AA"
 FAIL_TOKEN = "2x0000000000000000000000000000AA"
-ADMIN = {"email": "admin@trel.com.pg", "password": "Admin@123"}
+backend_env = dotenv_values("/app/backend/.env")
+ADMIN = {
+    "email": os.environ.get("ADMIN_EMAIL") or backend_env.get("ADMIN_EMAIL"),
+    "password": os.environ.get("ADMIN_PASSWORD") or backend_env.get("ADMIN_PASSWORD"),
+}
+if not ADMIN["email"] or not ADMIN["password"]:
+    pytest.skip("Test-admin credentials are not configured", allow_module_level=True)
 
 
 def rand_email(prefix="ephemeral"):
@@ -99,7 +105,7 @@ class TestRegisterTurnstile:
         email = rand_email()
         r = client.post(f"{API}/auth/register", json={
             "name": "Test Advertiser", "email": email, "phone": "+67512345678",
-            "password": "Password@123", "account_category": "PROPERTY_ADVERTISER",
+            "password": "Password@123",
             "advertiser_relationship_type": "OWNER", "turnstile_token": None,
         })
         assert r.status_code == 400, r.text
@@ -110,7 +116,7 @@ class TestRegisterTurnstile:
         created_emails.append(email)
         r = client.post(f"{API}/auth/register", json={
             "name": "Test Advertiser", "email": email, "phone": "+67512345678",
-            "password": "Password@123", "account_category": "PROPERTY_ADVERTISER",
+            "password": "Password@123",
             "advertiser_relationship_type": "AUTHORISED_AGENT",
             "turnstile_token": PASS_TOKEN,
         })
@@ -128,7 +134,7 @@ class TestRegisterTurnstile:
         assert me.json()["email"] == email
         assert "_id" not in me.json()
 
-    def test_register_referral_partner_with_token(self, client, created_emails):
+    def test_public_registration_cannot_choose_referral_category(self, client, created_emails):
         email = rand_email("ref")
         created_emails.append(email)
         r = client.post(f"{API}/auth/register", json={
@@ -136,11 +142,7 @@ class TestRegisterTurnstile:
             "password": "Password@123", "account_category": "REFERRAL_PARTNER",
             "turnstile_token": PASS_TOKEN,
         })
-        assert r.status_code == 201, r.text
-        lr = client.post(f"{API}/auth/login",
-                         json={"email": email, "password": "Password@123", "turnstile_token": PASS_TOKEN})
-        assert lr.status_code == 200, lr.text
-        assert lr.json()["account_category"] == "REFERRAL_PARTNER"
+        assert r.status_code == 422, r.text
 
 
 # ---- Brute force lockout regression ----
@@ -150,7 +152,7 @@ class TestLockout:
         created_emails.append(email)
         reg = client.post(f"{API}/auth/register", json={
             "name": "Lock Target", "email": email, "phone": "+67511112222",
-            "password": "Password@123", "account_category": "PROPERTY_ADVERTISER",
+            "password": "Password@123",
             "advertiser_relationship_type": "OWNER", "turnstile_token": PASS_TOKEN,
         })
         assert reg.status_code == 201, reg.text

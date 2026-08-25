@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.account_policy import account_category, require_staff, workspace_path
 from core.db import db, new_id, now_iso
@@ -24,11 +24,12 @@ router = APIRouter()
 
 
 class PublicRegisterIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     phone: str = Field(min_length=5, max_length=40)
     password: str = Field(min_length=8, max_length=128)
-    account_category: Literal["PROPERTY_ADVERTISER", "REFERRAL_PARTNER"]
     advertiser_relationship_type: Optional[Literal[
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]] = None
@@ -86,6 +87,8 @@ def _validate_account_role(category: str, role: str) -> None:
         "PROPERTY_ADVERTISER": {"property_advertiser"},
         "REFERRAL_PARTNER": {"referral_partner"},
     }
+    if category not in allowed:
+        raise HTTPException(400, f"Account category '{category}' is not active in this phase")
     if role not in allowed[category]:
         raise HTTPException(400, f"Role '{role}' is not valid for {category}")
 
@@ -223,34 +226,27 @@ async def google_auth(payload: GoogleAuthIn, response: Response):
 
 @router.post("/auth/register", status_code=201)
 async def public_register(payload: PublicRegisterIn, request: Request):
+    """Public self-registration always creates a Property Advertiser."""
     fwd = request.headers.get("x-forwarded-for", "")
     ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
     if not await verify_turnstile(payload.turnstile_token, ip):
         raise HTTPException(400, "Human verification failed. Please retry the check.")
-    """Self-registration for the two approved external account categories only."""
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
-    _validate_advertiser_relationship(payload.account_category, payload.advertiser_relationship_type)
-    role = "property_advertiser" if payload.account_category == "PROPERTY_ADVERTISER" else "referral_partner"
+    _validate_advertiser_relationship("PROPERTY_ADVERTISER", payload.advertiser_relationship_type)
     user = {
         "id": new_id(), "email": email, "name": payload.name.strip(), "phone": payload.phone.strip(),
-        "role": role, "account_category": payload.account_category, "status": "ACTIVE",
+        "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER", "status": "ACTIVE",
         "password_hash": hash_password(payload.password), "created_at": now_iso(),
     }
     await db.users.insert_one(user)
-    if payload.account_category == "PROPERTY_ADVERTISER":
-        await db.advertiser_profiles.insert_one({
-            "id": new_id(), "user_id": user["id"],
-            "relationship_type": payload.advertiser_relationship_type,
-            "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
-        })
-    else:
-        await db.referral_partner_profiles.insert_one({
-            "id": new_id(), "user_id": user["id"], "status": "ACTIVE",
-            "created_at": now_iso(), "updated_at": now_iso(),
-        })
-    return {"ok": True, "account_category": payload.account_category, "login_path": "/add-property?auth=login"}
+    await db.advertiser_profiles.insert_one({
+        "id": new_id(), "user_id": user["id"],
+        "relationship_type": payload.advertiser_relationship_type,
+        "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    return {"ok": True, "account_category": "PROPERTY_ADVERTISER", "login_path": "/add-property?auth=login"}
 
 
 async def _send_password_reset_email(email: str, reset_url: str) -> None:
@@ -393,26 +389,13 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_roles("s
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
-    _validate_account_role(payload.account_category, payload.role)
-    _validate_advertiser_relationship(payload.account_category, payload.advertiser_relationship_type)
+    _validate_account_role("STAFF", payload.role)
     u = {"id": new_id(), "email": email, "name": payload.name, "role": payload.role,
-         "account_category": payload.account_category, "status": payload.status,
+         "account_category": "STAFF", "status": payload.status,
          "phone": payload.phone, "password_hash": hash_password(payload.password),
          "created_at": now_iso()}
     await db.users.insert_one(u)
-    if payload.account_category == "PROPERTY_ADVERTISER":
-        await db.advertiser_profiles.insert_one({
-            "id": new_id(), "user_id": u["id"],
-            "relationship_type": payload.advertiser_relationship_type,
-            "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
-        })
-    elif payload.account_category == "REFERRAL_PARTNER":
-        await db.referral_partner_profiles.insert_one({
-            "id": new_id(), "user_id": u["id"], "status": "ACTIVE",
-            "created_at": now_iso(), "updated_at": now_iso(),
-        })
     u.pop("password_hash", None); u.pop("_id", None)
-    u["advertiser_relationship_type"] = payload.advertiser_relationship_type
     return u
 
 
@@ -439,6 +422,8 @@ async def update_user(uid: str, payload: UserUpdate,
     existing = await db.users.find_one({"id": uid}, {"_id": 0})
     if not existing:
         raise HTTPException(404, "User not found")
+    if "account_category" in updates and updates["account_category"] != account_category(existing):
+        raise HTTPException(400, "Account category cannot be changed after account creation")
     category = updates.get("account_category", account_category(existing))
     existing_profile = await db.advertiser_profiles.find_one({"user_id": uid}, {"_id": 0}) or {}
     relationship = updates.pop(
