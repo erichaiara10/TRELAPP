@@ -31,6 +31,26 @@ import Users from "@/pages/admin/Users";
 import Content from "@/pages/admin/Content";
 import Locations from "@/pages/admin/Locations";
 import Reports from "@/pages/admin/Reports";
+import {
+  Overview as PropertyAdvertisingOverview,
+  Advertisers as PropertyAdvertisers,
+  AdvertiserProfile,
+  IdentityVerification,
+  Submissions as PropertySubmissions,
+  SubmissionOverviewPage,
+  PropertyLocationPage,
+  PriceFeaturesPage,
+  PhotosDocumentsPage,
+  PublicContentPage,
+  ConflictResolution,
+  AuthorityReview,
+  PublicationQueue,
+  PublicationReview,
+  ExactLocationQueue,
+  ExactLocationReview,
+  LifecycleQueue,
+  LifecycleReview,
+} from "@/pages/admin/property-advertising/StaffPropertyAdvertising";
 import MarketEvidence from "@/pages/admin/market/Evidence";
 import { ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
@@ -89,6 +109,24 @@ export default function App() {
             <Route path="locations" element={<Locations />} />
             <Route path="content" element={<Content />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="property-advertising" element={<PropertyAdvertisingOverview />} />
+            <Route path="property-advertising/advertisers" element={<PropertyAdvertisers />} />
+            <Route path="property-advertising/advertisers/:advertiserId" element={<AdvertiserProfile />} />
+            <Route path="property-advertising/advertisers/:advertiserId/identity" element={<IdentityVerification />} />
+            <Route path="property-advertising/submissions" element={<PropertySubmissions />} />
+            <Route path="property-advertising/submissions/:submissionRef" element={<SubmissionOverviewPage />} />
+            <Route path="property-advertising/submissions/:submissionRef/property-location" element={<PropertyLocationPage />} />
+            <Route path="property-advertising/submissions/:submissionRef/price-features" element={<PriceFeaturesPage />} />
+            <Route path="property-advertising/submissions/:submissionRef/photos-documents" element={<PhotosDocumentsPage />} />
+            <Route path="property-advertising/submissions/:submissionRef/public-content" element={<PublicContentPage />} />
+            <Route path="property-advertising/conflicts/:submissionRef" element={<ConflictResolution />} />
+            <Route path="property-advertising/authority/:submissionRef" element={<AuthorityReview />} />
+            <Route path="property-advertising/publications" element={<PublicationQueue />} />
+            <Route path="property-advertising/publications/:listingRef" element={<PublicationReview />} />
+            <Route path="property-advertising/exact-location" element={<ExactLocationQueue />} />
+            <Route path="property-advertising/exact-location/:requestRef" element={<ExactLocationReview />} />
+            <Route path="property-advertising/lifecycle" element={<LifecycleQueue />} />
+            <Route path="property-advertising/lifecycle/:listingRef" element={<LifecycleReview />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
           </Route>
           <Route path="/advertiser/*" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
