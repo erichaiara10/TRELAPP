@@ -66,8 +66,16 @@ jobs:
         run: |
           python - <<'PY'
           import runpy
-          namespace = runpy.run_path("tests/test_property_advertising_rules.py")
-          tests = [namespace[name] for name in sorted(namespace) if name.startswith("test_")]
+          namespaces = [
+              runpy.run_path("tests/test_property_advertising_rules.py"),
+              runpy.run_path("tests/test_advertiser_submission_policy.py"),
+          ]
+          tests = [
+              namespace[name]
+              for namespace in namespaces
+              for name in sorted(namespace)
+              if name.startswith("test_")
+          ]
           for test in tests:
               test()
           print(f"{len(tests)} Property Advertising business-rule tests passed")
@@ -101,6 +109,7 @@ jobs:
           e2e/compare-price-consistency.spec.js
           e2e/popup-authoritative.spec.js
           e2e/staff-property-advertising.spec.js
+          e2e/advertiser-identity-submission.spec.js
 
       - name: Install Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master

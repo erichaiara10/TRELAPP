@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from core.account_policy import account_category, require_property_writer
+from core.account_policy import account_category, require_property_submitter
 from core.db import db, new_id, now_iso
 from core.property_advertising_rules import content_blockers, identity_values, status_token
 from core.security import get_current_user
@@ -67,7 +67,7 @@ async def delete_current_draft(user: dict = Depends(get_current_user)):
 
 
 @router.post("/drafts/current/submit")
-async def submit_draft(payload: DraftPayload, user: dict = Depends(require_property_writer)):
+async def submit_draft(payload: DraftPayload, user: dict = Depends(require_property_submitter)):
     require_advertiser(user)
     blockers = content_blockers(payload.data)
     if blockers:

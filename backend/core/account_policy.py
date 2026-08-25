@@ -17,6 +17,7 @@ PROPERTY_RELATIONSHIPS = {
     "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE",
 }
 GOVERNMENT_ID_TYPES = {"PASSPORT", "DRIVER_LICENCE", "NID_CARD"}
+SUBMITTED_ID_STATUSES = {"PENDING", "PENDING_REVIEW", "UNDER_REVIEW", "VERIFIED"}
 
 
 def account_category(user: dict) -> str:
@@ -71,6 +72,37 @@ async def require_property_writer(user: dict = Depends(get_current_user)) -> dic
         raise HTTPException(403, "Verified Property Advertiser profile required")
     if not government_id:
         raise HTTPException(403, "One verified government-issued ID is required")
+    return user
+
+
+async def require_property_submitter(user: dict = Depends(get_current_user)) -> dict:
+    """Allow an active advertiser to submit once an ID is awaiting review.
+
+    Staff verification remains mandatory for publication, but it must not stop
+    a complete property submission from entering the staff review queue.
+    """
+    if user.get("status", "ACTIVE") not in ACTIVE_ACCOUNT_STATUSES:
+        raise HTTPException(403, "Active account required")
+    if account_category(user) != PROPERTY_ADVERTISER:
+        raise HTTPException(403, "Property Advertiser account required")
+
+    profile = await db.advertiser_profiles.find_one({
+        "user_id": user["id"],
+        "relationship_type": {"$in": sorted(PROPERTY_RELATIONSHIPS)},
+    }, {"_id": 0, "id": 1})
+    if not profile:
+        raise HTTPException(403, "Complete the Property Advertiser profile before submitting this property")
+
+    government_id = await db.identity_documents.find_one({
+        "user_id": user["id"],
+        "document_type": {"$in": sorted(GOVERNMENT_ID_TYPES)},
+        "status": {"$in": sorted(SUBMITTED_ID_STATUSES)},
+    }, {"_id": 0, "id": 1})
+    if not government_id:
+        raise HTTPException(
+            403,
+            "Submit one government-issued identity document before submitting this property",
+        )
     return user
 
 
