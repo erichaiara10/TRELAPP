@@ -12,6 +12,7 @@ test.beforeEach(async({page})=>{
   await page.route("**/api/**",async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname;
     if(path==="/api/auth/me")return json(route,{id:"staff-1",name:"System Admin",email:"admin@trel.com.pg",role:"system_admin",account_category:"STAFF",status:"ACTIVE"});
+    if(path.endsWith("/capabilities"))return json(route,{role:"system_admin",capabilities:{account_management:true,identity:true,submission:true,authority:true,publication:true,location:true,lifecycle:true}});
     if(req.method()==="PUT")return json(route,{ok:true,status:"UPDATED"});
     if(path.endsWith("/overview"))return json(route,{stats:{advertisers:1,submissions:1,pending_identity:0,ready_to_publish:1,location_pending:1},priorities:[{id:"task-1",priority:"HIGH",task:"Submission review",subject_label:"Mary's Waigani Home",assigned_staff_name:"System Admin",due_at:"2026-08-25T00:00:00Z",path:"/admin/property-advertising/submissions/TREL-1001"}]});
     if(path.endsWith("/advertisers"))return json(route,{items:[advertiser],total:1,page:1,limit:25});
@@ -36,10 +37,10 @@ test("all Property Advertising menus and screens load selected record data",asyn
     ["/admin/property-advertising/advertisers/ADV-USER1/identity","S02B"],
     ["/admin/property-advertising/submissions","S03"],
     ["/admin/property-advertising/submissions/TREL-1001","S03A"],
-    ["/admin/property-advertising/submissions/TREL-1001/property-location","S03A-property-location"],
-    ["/admin/property-advertising/submissions/TREL-1001/price-features","S03A-price-features"],
-    ["/admin/property-advertising/submissions/TREL-1001/photos-documents","S03A-photos-documents"],
-    ["/admin/property-advertising/submissions/TREL-1001/public-content","S03A-public-content"],
+    ["/admin/property-advertising/submissions/TREL-1001/property-location","S03A"],
+    ["/admin/property-advertising/submissions/TREL-1001/price-features","S03A"],
+    ["/admin/property-advertising/submissions/TREL-1001/photos-documents","S03A"],
+    ["/admin/property-advertising/submissions/TREL-1001/public-content","S03A"],
     ["/admin/property-advertising/conflicts/TREL-1001","S03B"],
     ["/admin/property-advertising/authority/TREL-1001","S03C"],
     ["/admin/property-advertising/publications","S07"],
@@ -61,8 +62,7 @@ test("filters work and decisions require a reason before a write",async({page})=
   await page.goto("/admin/property-advertising/publications/LIST-1001");
   await page.getByRole("button",{name:"Publish",exact:true}).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByRole("button",{name:"Confirm"}).click();
-  await expect(page.getByText("Please enter a reason")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Confirm"})).toBeDisabled();
   await page.getByLabel("Reason *").fill("All publication requirements reviewed");
   const write=page.waitForRequest(r=>r.method()==="PUT"&&r.url().includes("/publications/LIST-1001/decision"));
   await page.getByRole("button",{name:"Confirm"}).click();

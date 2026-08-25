@@ -9,7 +9,7 @@ const DEFAULT_SITE = {
   agency_name: "Triumph Real Estate Limited",
   short_name: "TREL",
   tagline: "We Care To Share",
-  logo_url: "https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+  logo_url: "/images/trel-logo.svg",
   phone: "+675 76281552",
   whatsapp: "+675 8138 3302",
   email: "sales101.trel@gmail.com",

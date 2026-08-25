@@ -75,14 +75,14 @@ export default function PropertyCard({ p }) {
       <div className="px-5 pb-2">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-semibold text-pine-500">{money(p.price, p.currency || "PGK")}</span>
-            {isRent && <span className="text-sm text-muted-foreground">/ month</span>}
+            <span className="text-2xl font-semibold text-pine-500">{p.price_label||money(p.price, p.currency || "PGK")}</span>
+            {isRent && (!p.price_type||p.price_type==="PGK") && <span className="text-sm text-muted-foreground">/ month</span>}
           </div>
-          <PriceCompareButton
+          {(!p.price_type||p.price_type==="PGK")&&<PriceCompareButton
             property={p}
             audience="buyer"
             testIdPrefix={`card-ai-${p.id}`}
-          />
+          />}
         </div>
         <PropertySpecs p={p} />
       </div>

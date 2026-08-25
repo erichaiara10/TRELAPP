@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.account_policy import account_category, require_property_writer
 from core.db import db, new_id, now_iso
+from core.property_advertising_rules import content_blockers, identity_values, status_token
 from core.security import get_current_user
 
 router = APIRouter(prefix="/property-advertising/advertiser")
@@ -18,6 +19,11 @@ class DraftPayload(BaseModel):
 
 class ListingLifecyclePayload(BaseModel):
     status: str
+
+
+class ExactLocationDecisionPayload(BaseModel):
+    action: str
+    reason: str = Field(min_length=3, max_length=1000)
 
 
 def require_advertiser(user: dict) -> None:
@@ -48,19 +54,46 @@ async def save_draft(payload: DraftPayload, user: dict = Depends(get_current_use
     return {**saved, "ok": True}
 
 
+@router.delete("/drafts/current")
+async def delete_current_draft(user: dict = Depends(get_current_user)):
+    """Delete only the advertiser's unfinished draft; never a Master Property."""
+    require_advertiser(user)
+    draft = await db.advertiser_drafts.find_one({"user_id": user["id"]}, {"_id": 0})
+    if not draft:
+        raise HTTPException(404, "No unfinished draft was found")
+    await db.advertiser_drafts.delete_one({"id": draft["id"], "user_id": user["id"]})
+    await db.audit_events.insert_one({
+        "id": new_id(), "action": "ADVERTISER_DRAFT_DELETED",
+        "subject_type": "advertiser_draft", "subject_id": draft["id"],
+        "actor_id": user["id"], "previous_status": "DRAFT", "new_status": "DELETED",
+        "reason": "Confirmed by advertiser", "created_at": now_iso(),
+    })
+    return {"ok": True, "deleted_draft_id": draft["id"]}
+
+
 @router.post("/drafts/current/submit")
 async def submit_draft(payload: DraftPayload, user: dict = Depends(require_property_writer)):
     require_advertiser(user)
-    title = str(payload.data.get("title") or "").strip()
-    description = str(payload.data.get("description") or "").strip()
-    if not title or not description:
-        raise HTTPException(400, "Property title and description are required")
+    blockers = content_blockers(payload.data)
+    if blockers:
+        raise HTTPException(400, {
+            "code": "INCOMPLETE_PROPERTY_SUBMISSION",
+            "message": "Complete the required property information before submitting",
+            "blockers": blockers,
+        })
+    submitted_data = dict(payload.data)
+    identity = identity_values(submitted_data)
+    submitted_data["identity_scheme"] = identity["scheme"]
+    submitted_data["identity_normalized"] = {
+        key: sorted(value) if isinstance(value, set) else value
+        for key, value in identity.items()
+    }
     identifier = new_id()
     submission = {
         "id": identifier,
         "reference": f"TREL-{identifier[:8].upper()}",
         "user_id": user["id"],
-        "data": payload.data,
+        "data": submitted_data,
         "status": "Under Review",
         "submitted_at": now_iso(),
     }
@@ -94,13 +127,33 @@ async def update_listing_lifecycle(
     user: dict = Depends(get_current_user),
 ):
     require_advertiser(user)
-    allowed = {"Live", "Withdrawn", "Sold", "Leased", "Archived"}
-    if payload.status not in allowed:
-        raise HTTPException(400, "Invalid listing lifecycle status")
+    existing = await db.advertiser_listing_lifecycle.find_one(
+        {"user_id": user["id"], "listing_id": listing_id}, {"_id": 0}
+    ) or {}
+    current = status_token(existing.get("status") or "LIVE")
+    requested = status_token(payload.status)
+    allowed = {
+        "LIVE": {"WITHDRAWN", "SOLD", "LEASED"},
+        "WITHDRAWN": {"REACTIVATION_REQUESTED"},
+        "SOLD": set(), "LEASED": set(), "ARCHIVED": set(),
+    }
+    if requested not in allowed.get(current, set()):
+        raise HTTPException(409, f"Listing cannot move from {current} to {requested}")
+    listing = await db.listings.find_one(
+        {"$or": [{"id": listing_id}, {"property_id": listing_id}, {"listing_reference": listing_id}]},
+        {"_id": 0},
+    )
+    if listing:
+        master = await db.master_properties.find_one({"id": listing["property_id"]}, {"_id": 0, "created_by": 1}) or {}
+        submission = await db.advertiser_submissions.find_one(
+            {"integrated_listing_id": listing["id"], "user_id": user["id"]}, {"_id": 0, "reference": 1}
+        )
+        if master.get("created_by") != user["id"] and not submission:
+            raise HTTPException(403, "This listing does not belong to your account")
     timestamp = now_iso()
     await db.advertiser_listing_lifecycle.update_one(
         {"user_id": user["id"], "listing_id": listing_id},
-        {"$set": {"status": payload.status, "updated_at": timestamp},
+        {"$set": {"status": requested, "updated_at": timestamp},
          "$setOnInsert": {
              "id": new_id(), "user_id": user["id"],
              "listing_id": listing_id, "created_at": timestamp,
@@ -110,7 +163,66 @@ async def update_listing_lifecycle(
     await db.audit_events.insert_one({
         "id": new_id(), "action": "ADVERTISER_LISTING_LIFECYCLE_CHANGED",
         "subject_type": "advertiser_listing", "subject_id": listing_id,
-        "actor_id": user["id"], "status": payload.status,
+        "actor_id": user["id"], "previous_status": current,
+        "new_status": requested, "status": requested,
         "created_at": timestamp,
     })
-    return {"ok": True, "listing_id": listing_id, "status": payload.status}
+    if listing and requested in {"WITHDRAWN", "SOLD", "LEASED"}:
+        integrated_status = requested.lower()
+        await db.listings.update_one({"id": listing["id"]}, {"$set": {
+            "publication_status": integrated_status, "responsible_channel_active": False,
+            "updated_at": timestamp,
+        }})
+        await db.listing_status_history.insert_one({
+            "id": new_id(), "listing_id": listing["id"], "status": integrated_status,
+            "changed_at": timestamp, "changed_by": user["id"],
+        })
+        if submission:
+            await db.staff_property_reviews.update_one(
+                {"subject_ref": submission["reference"]},
+                {"$set": {"publication_status": "UNPUBLISHED", "updated_at": timestamp}},
+            )
+    return {"ok": True, "listing_id": listing_id, "status": requested}
+
+
+@router.get("/exact-location-requests")
+async def exact_location_requests(user: dict = Depends(get_current_user)):
+    require_advertiser(user)
+    return await db.exact_location_requests.find(
+        {"advertiser_id": user["id"]}, {"_id": 0, "exact_location": 0,
+                                        "access_token_hash": 0}
+    ).sort("created_at", -1).to_list(500)
+
+
+@router.put("/exact-location-requests/{reference}/decision")
+async def exact_location_request_decision(
+    reference: str,
+    payload: ExactLocationDecisionPayload,
+    user: dict = Depends(get_current_user),
+):
+    require_advertiser(user)
+    item = await db.exact_location_requests.find_one(
+        {"$or": [{"reference": reference}, {"id": reference}],
+         "advertiser_id": user["id"]}, {"_id": 0}
+    )
+    if not item:
+        raise HTTPException(404, "Exact-location request not found")
+    action = status_token(payload.action)
+    if item.get("decision_authority") != "ADVERTISER" or action not in {"APPROVE", "DECLINE"}:
+        raise HTTPException(409, "This request cannot be decided by the advertiser")
+    previous = item.get("status") or "AWAITING_ADVERTISER"
+    new_status = "PENDING" if action == "APPROVE" else "DECLINED"
+    consent = "APPROVED" if action == "APPROVE" else "DECLINED"
+    timestamp = now_iso()
+    await db.exact_location_requests.update_one(
+        {"id": item["id"]},
+        {"$set": {"status": new_status, "advertiser_consent_status": consent,
+                  "advertiser_consent_at": timestamp, "updated_at": timestamp}},
+    )
+    await db.audit_events.insert_one({
+        "id": new_id(), "action": f"ADVERTISER_LOCATION_{action}",
+        "subject_type": "exact_location_request", "subject_id": item.get("reference") or item["id"],
+        "actor_id": user["id"], "previous_status": previous, "new_status": new_status,
+        "reason": payload.reason, "created_at": timestamp,
+    })
+    return {"ok": True, "status": new_status, "advertiser_consent_status": consent}

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.account_policy import STAFF, account_category, require_property_writer
 from core.db import db, now_iso
 from core.integrated_property_service import DuplicatePropertyError, PartialWriteError
+from core.property_advertising_rules import public_listing_visible
 from core.property_repository import PropertyRepository
 from core.security import get_current_user, get_optional_user
 from models import Property, PropertyCreate, PropertyFilters
@@ -65,14 +66,24 @@ def build_property_query(filters: dict) -> dict:
     return query
 
 
+def _public_property(document: dict) -> dict:
+    safe = dict(document)
+    for key in (
+        "map_coords", "address", "street_name", "nearby_landmark",
+        "owner_name", "owner_email", "owner_phone", "owner_customer_id",
+        "documents", "authority_status", "title_reference", "assigned_agent_id",
+        "created_by", "street_id", "district_id", "local_area_id",
+    ):
+        safe.pop(key, None)
+    return safe
+
+
 async def enforce_scheme(payload: dict, enforce_publication: bool = True) -> dict:
     for key, label in [
         ("title", "Title"),
         ("listing_type", "Listing Type"),
         ("property_type", "Property Type"),
         ("province", "Province"),
-        ("location", "City"),
-        ("suburb", "Suburb"),
     ]:
         if not str(payload.get(key) or "").strip():
             raise HTTPException(400, f"{label} is required")
@@ -114,16 +125,17 @@ async def enforce_scheme(payload: dict, enforce_publication: bool = True) -> dic
         payload["allotment_number"] = None
         payload["section_number"] = None
         payload["street_name"] = None
-        if not str(payload.get("district") or payload.get("district_id") or "").strip():
-            raise HTTPException(400, "District is required for portion/customary property")
+        if not str(payload.get("location") or payload.get("district") or "").strip():
+            raise HTTPException(400, "Location or town is required for portion/customary property")
     elif scheme == "lot_section_street":
         for key, label in [
             ("allotment_number", "Lot Number"),
             ("section_number", "Section Number"),
-            ("street_name", "Street Name"),
         ]:
             if not str(payload.get(key) or "").strip():
                 raise HTTPException(400, f"{label} is required for this property type")
+        if not any(str(payload.get(key) or "").strip() for key in ("location", "suburb", "street_name")):
+            raise HTTPException(400, "Town, Suburb or Street is required for this property type")
         payload["full_portion_number"] = None
 
     if payload.get("listing_type") == "sale" and float(payload.get("total_area_ha") or 0) <= 0:
@@ -165,7 +177,12 @@ async def list_properties(
             raise HTTPException(401, "Authentication required for mine=true")
         if account_category(user) != STAFF:
             query["created_by"] = user["id"]
-    return await repository.list(query, filters.limit)
+    elif not user or account_category(user) != STAFF:
+        query["status"] = "active"
+    rows = await repository.list(query, filters.limit)
+    if filters.mine or (user and account_category(user) == STAFF):
+        return rows
+    return [_public_property(row) for row in rows if public_listing_visible("PUBLISHED", row.get("status"))]
 
 
 @router.post("/properties/duplicate-check")
@@ -179,11 +196,16 @@ async def check_property_duplicates(
 
 
 @router.get("/properties/{pid}")
-async def get_property(pid: str):
+async def get_property(pid: str, user=Depends(get_optional_user)):
     document = await repository.get(pid)
     if not document:
         raise HTTPException(404, "Property not found")
-    return document
+    privileged = bool(user and (account_category(user) == STAFF or document.get("created_by") == user.get("id")))
+    if privileged:
+        return document
+    if not public_listing_visible("PUBLISHED", document.get("status")):
+        raise HTTPException(404, "Property not found")
+    return _public_property(document)
 
 
 @router.post("/properties")

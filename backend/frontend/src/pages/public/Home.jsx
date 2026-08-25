@@ -18,7 +18,7 @@ function ListingCard({ property }) {
       <div className="p-4">
         <div className="flex items-center gap-1 text-xs text-slate-600"><MapPin className="w-3.5 h-3.5" />{[property.suburb, property.location].filter(Boolean).join(", ")}</div>
         <h3 className="mt-2 text-lg font-semibold leading-snug line-clamp-1">{property.title}</h3>
-        <div className="mt-1 text-lg font-bold text-[#075C36]">{money(property.price, property.currency || "PGK")}{rent ? " / month" : ""}</div>
+        <div className="mt-1 text-lg font-bold text-[#075C36]">{property.price_label||money(property.price, property.currency || "PGK")}{rent&&(!property.price_type||property.price_type==="PGK") ? " / month" : ""}</div>
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
           <span className="flex gap-1"><Bed className="w-4 h-4" />{property.bedrooms ? `${property.bedrooms} Bedrooms` : "-"}</span><span className="flex gap-1"><Bath className="w-4 h-4" />{property.bathrooms ? `${property.bathrooms} Bathrooms` : "-"}</span>
           <span className="flex gap-1"><Car className="w-4 h-4" />{property.parking ? `${property.parking} Parking` : "-"}</span><span className="flex gap-1"><Ruler className="w-4 h-4" />{property.area_sqm ? `${property.area_sqm} m²` : "-"}</span>

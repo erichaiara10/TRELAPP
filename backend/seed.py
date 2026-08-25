@@ -10,7 +10,6 @@ CORE RULE (Data Protection):
 """
 import logging
 import os
-from pathlib import Path
 
 from core.db import db, new_id, now_iso
 from core.security import hash_password
@@ -69,11 +68,15 @@ async def migrate_land_category():
 async def seed_users():
     """Insert demo users ONLY when they don't already exist. Never overwrite
     passwords or profile fields of existing users."""
-    admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
+    admin_pwd = os.environ.get("ADMIN_PASSWORD")
+    demo_pwd = os.environ.get("DEMO_USER_PASSWORD")
     for u in DEMO_USERS:
         if await db.users.find_one({"email": u["email"]}, {"_id": 0, "id": 1}):
             continue  # user exists → leave untouched (no password reset)
-        pwd = admin_pwd if u["role"] == "system_admin" else "Password@123"
+        pwd = admin_pwd if u["role"] == "system_admin" else demo_pwd
+        if not pwd:
+            logger.warning("Skipping demo user %s: seed password is not configured", u["email"])
+            continue
         await db.users.insert_one({
             "id": new_id(), "email": u["email"], "name": u["name"],
             "role": u["role"], "phone": None,
@@ -89,10 +92,18 @@ async def seed_properties():
 
 
 async def seed_content():
-    if await db.content.count_documents({}) > 0:
-        return
-    for k, v in DEFAULT_CONTENT.items():
-        await db.content.insert_one({"key": k, "value": v})
+    if await db.content.count_documents({}) == 0:
+        for k, v in DEFAULT_CONTENT.items():
+            await db.content.insert_one({"key": k, "value": v})
+    await db.content.update_one(
+        {"key": "site"},
+        {"$set": {
+            "value.logo_url": "/images/trel-logo.svg",
+            "value.favicon_url": "/images/trel-logo.svg",
+            "value.og_image_url": "/images/trel-logo.svg",
+        }},
+        upsert=False,
+    )
 
 
 async def seed_requirements():
@@ -142,34 +153,11 @@ async def seed_property_types():
 
 
 def write_test_credentials():
-    admin_pwd = os.environ.get("ADMIN_PASSWORD", "Admin@123")
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@trel.com.pg")
-    try:
-        creds_dir = Path("/app/memory")
-        creds_dir.mkdir(parents=True, exist_ok=True)
-        (creds_dir / "test_credentials.md").write_text(f"""# Triumph Real Estate Limited (TREL) — Test Credentials
+    """Credentials are configured through environment variables only.
 
-## Admin
-- Email: `{admin_email}`
-- Password: `{admin_pwd}`
-- Role: system_admin
-
-## Staff (all password: `Password@123`)
-- director@trel.com.pg  (managing_director)
-- sales@trel.com.pg     (sales_agent)
-- leasing@trel.com.pg   (leasing_agent)
-- marketing@trel.com.pg (marketing_officer)
-
-Note: Passwords are ONLY seeded on first boot. If an existing admin has
-changed their password, it will NOT be reset by the seed script.
-
-## Auth Endpoints
-- POST /api/auth/login  {{ email, password }} -> returns token
-- POST /api/auth/logout
-- GET  /api/auth/me     (Authorization: Bearer <token>)
-""")
-    except Exception as e:
-        logger.warning(f"Could not write test credentials: {e}")
+    Do not write passwords or access tokens to the application filesystem.
+    """
+    logger.info("Test credentials file disabled; seed credentials remain environment-only")
 
 
 async def run_startup():

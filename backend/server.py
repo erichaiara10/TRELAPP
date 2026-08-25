@@ -25,7 +25,7 @@ from core.login_guard import ensure_indexes as ensure_login_guard_indexes
 from routes import (
     advertiser, ai, auth, content, csv_io, customers, files, inspections, leads, locations,
     market, matching, properties, property_types, public, referrals, reports, requirements, tasks,
-    staff_property_advertising,
+    property_advertising_public, staff_property_advertising,
 )
 from seed import run_startup
 
@@ -40,7 +40,7 @@ for module in (
     auth, properties, property_types, customers, requirements,
     leads, inspections, tasks, matching, locations,
     ai, content, reports, public, referrals, market, files, csv_io, advertiser,
-    staff_property_advertising,
+    property_advertising_public, staff_property_advertising,
 ):
     api.include_router(module.router)
 

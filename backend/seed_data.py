@@ -65,9 +65,9 @@ LEGACY_AGENCY_NAMES = {"PNG Realty"}
 DEFAULT_CONTENT = {
     "site": {"agency_name": "Triumph Real Estate Limited", "short_name": "TREL",
              "tagline": "We Care To Share",
-             "logo_url": "https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
-             "favicon_url": "https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
-             "og_image_url": "https://customer-assets.emergentagent.com/job_req-to-web-1/artifacts/uh12vkjw_TREL%20Logo.png",
+             "logo_url": "/images/trel-logo.svg",
+             "favicon_url": "/images/trel-logo.svg",
+             "og_image_url": "/images/trel-logo.svg",
              "og_description": "Triumph Real Estate Limited — verified homes, apartments, land and commercial properties across Papua New Guinea. We Care To Share.",
              "phone": "+675 76281552", "whatsapp": "+675 8138 3302", "email": "sales101.trel@gmail.com",
              "address": "Lot 33, Section 38, Unity Mall, Steamships Compound, Waigani Rd. P.O. Box 1061, Vision City, National Capital District, PNG"},

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pymongo.errors import OperationFailure
 
 from core.db import detect_topology, new_id, now_iso, strict_transactions_required
+from core.property_advertising_rules import duplicate_identity_match, identity_reasons
 
 logger = logging.getLogger("trel")
 
@@ -207,21 +208,53 @@ class IntegratedPropertyService:
         return document
 
     async def resolve_context(self, payload: Dict[str, Any], session=None) -> Dict[str, Any]:
+        province_name = payload.get("province")
+        if norm(province_name) in {"NCD", "NATIONAL CAPITAL DISTRICT"}:
+            province_name = "National Capital District"
         province = await self._resolve_reference(
-            "provinces", payload.get("province_id"), payload.get("province"), session
+            "provinces", payload.get("province_id"), province_name, session
         )
-        city = await self._resolve_reference(
-            "cities", payload.get("city_id"), payload.get("location"), session,
-            {"province_id": province["id"]},
+        city = await self._resolve_or_create_optional(
+            "cities", payload.get("city_id"), payload.get("location"),
+            {"province_id": province["id"]}, session,
         )
-        suburb = await self._resolve_reference(
-            "suburbs", payload.get("suburb_id"), payload.get("suburb"), session,
-            {"city_id": city["id"]},
+        if not city:
+            raise ValueError("City or town reference is required")
+        suburb = await self._resolve_or_create_optional(
+            "suburbs", payload.get("suburb_id"), payload.get("suburb") or payload.get("location"),
+            {"city_id": city["id"]}, session,
         )
-        property_type = await self._resolve_reference(
-            "property_types", payload.get("property_type_id"), payload.get("property_type"), session,
-            {"is_active": True},
-        )
+        if not suburb:
+            raise ValueError("Suburb or town reference is required")
+        type_aliases = {
+            "APARTMENT / UNIT": "Apartment", "TOWNHOUSE": "Town House",
+            "OFFICE SPACE": "Commercial", "RETAIL": "Commercial",
+            "COMMERCIAL BUILDING": "Commercial", "HOTEL / LODGE": "Commercial",
+            "WAREHOUSE": "Commercial", "FACTORY": "Commercial", "WORKSHOP": "Commercial",
+            "LAND": "Vacant Land – Urban Subdivided", "RESIDENTIAL LAND": "Vacant Land – Urban Subdivided",
+            "COMMERCIAL LAND": "Vacant Land – Urban Subdivided", "INDUSTRIAL LAND": "Vacant Land – Urban Subdivided",
+            "FARM": "Large Land – Portion / Customary", "PLANTATION": "Large Land – Portion / Customary",
+            "RURAL LAND": "Large Land – Portion / Customary",
+        }
+        property_type_name = type_aliases.get(norm(payload.get("property_type")), payload.get("property_type"))
+        try:
+            property_type = await self._resolve_reference(
+                "property_types", payload.get("property_type_id"), property_type_name, session,
+                {"is_active": True},
+            )
+        except ValueError:
+            if norm(property_type_name) != "OTHER" or payload.get("property_type_id"):
+                raise
+            await self.db.property_types.update_one(
+                {"name": "Other"},
+                {"$setOnInsert": {"id": new_id(), "name": "Other", "is_active": True,
+                                  "legal_scheme": "portion" if identifier_scheme(payload) in {"PORTION", "CUSTOMARY"} else "lot_section_street",
+                                  "order": 999, "created_at": now_iso()}},
+                upsert=True, session=session,
+            )
+            property_type = await self._resolve_reference(
+                "property_types", None, "Other", session, {"is_active": True},
+            )
         district = None
         if payload.get("district_id") or payload.get("district"):
             district = await self._resolve_or_create_optional(
@@ -243,76 +276,44 @@ class IntegratedPropertyService:
             "local_area": local_area,
         }
 
-    def _parcel_filter(self, payload: Dict[str, Any], context: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
-        scheme = identifier_scheme(payload)
-        if scheme == "URBAN_LOT_SECTION":
-            query = {
-                "identifier_scheme": scheme,
-                "province_id": context["province"]["id"],
-                "suburb_id": context["suburb"]["id"],
-                "street_norm": norm(payload.get("street_name")),
-                "section_norm": norm(payload.get("section_number")),
-                "lot_norm": norm(payload.get("allotment_number")),
-            }
-            reasons = ["same province", "same suburb", "same street", "same section", "same lot"]
-        else:
-            query = {
-                "identifier_scheme": {"$in": ["PORTION", "CUSTOMARY"]},
-                "province_id": context["province"]["id"],
-                "district_id": context["district"]["id"] if context.get("district") else None,
-                "location_norm": norm(payload.get("location")),
-                "portion_norm": norm(payload.get("full_portion_number")),
-            }
-            reasons = ["same province", "same district", "same location", "same portion"]
-        return query, reasons
-
     async def duplicate_check(
         self,
         payload: Dict[str, Any],
         exclude_property_id: Optional[str] = None,
         session=None,
     ) -> List[Dict[str, Any]]:
-        context = await self.resolve_context(payload, session)
-        query, reasons = self._parcel_filter(payload, context)
-        if exclude_property_id:
-            query["property_id"] = {"$ne": exclude_property_id}
+        query = {"property_id": {"$ne": exclude_property_id}} if exclude_property_id else {}
         parcels = await self.db.property_parcels.find(
-            query, {"_id": 0, "property_id": 1}, session=session
-        ).limit(10).to_list(10)
+            query, {"_id": 0}, session=session
+        ).limit(5000).to_list(5000)
         output = []
-        owner_norm = norm(payload.get("owner_name"))
         for parcel in parcels:
             property_id = parcel["property_id"]
+            address = await self.db.property_addresses.find_one(
+                {"property_id": property_id, "valid_to": None}, {"_id": 0}, session=session
+            ) or await self.db.property_addresses.find_one(
+                {"property_id": property_id}, {"_id": 0}, session=session
+            ) or {}
+            candidate = {
+                "identity_scheme": "LARGE_PORTION" if parcel.get("identifier_scheme") in {"PORTION", "CUSTOMARY"} else "SERVICED",
+                "portion": parcel.get("portion"),
+                "location": parcel.get("location_norm") or address.get("district_name"),
+                "city": address.get("city_name"),
+                "lot": parcel.get("lot"),
+                "section": parcel.get("section"),
+                "street": address.get("street_name") or parcel.get("street_norm"),
+                "suburb": address.get("suburb_name"),
+            }
+            if not duplicate_identity_match(payload, candidate):
+                continue
             master = await self.db.master_properties.find_one(
                 {"id": property_id}, {"_id": 0, "id": 1, "title": 1}, session=session
             )
-            owner_match = False
-            if owner_norm:
-                links = self.db.property_parties.find(
-                    {"property_id": property_id, "relationship_type": {"$in": ["OWNER", "JOINT_OWNER"]}},
-                    {"_id": 0, "party_id": 1},
-                    session=session,
-                )
-                async for link in links:
-                    party = await self.db.parties.find_one(
-                        {"id": link["party_id"], "normalized_name": owner_norm},
-                        {"_id": 0, "id": 1},
-                        session=session,
-                    )
-                    if party:
-                        owner_match = True
-                        break
-            # The approved TREL identity is the owner plus the complete parcel
-            # combination. A parcel belonging to a different owner is not an
-            # automatic duplicate and must not block creation.
-            if not owner_match:
-                continue
-            matched_reasons = [*reasons, "same owner"]
             output.append({
                 "property_id": property_id,
                 "title": (master or {}).get("title") or "Existing property",
                 "confidence": 100,
-                "reasons": matched_reasons,
+                "reasons": identity_reasons(payload),
             })
         return output
 
@@ -750,6 +751,10 @@ class IntegratedPropertyService:
             "property_type_id": master.get("property_type_id"),
             "price": listing.get("price_current"),
             "currency": listing.get("currency", "PGK"),
+            "price_type": listing.get("price_type") or "PGK",
+            "price_label": listing.get("price_label"),
+            "listing_reference": listing.get("listing_reference"),
+            "service": listing.get("service"),
             "bedrooms": attributes.get("bedrooms", 0),
             "bathrooms": attributes.get("bathrooms", 0),
             "parking": attributes.get("parking", 0),
