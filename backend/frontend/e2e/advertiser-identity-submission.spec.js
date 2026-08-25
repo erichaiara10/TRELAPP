@@ -60,6 +60,21 @@ test("advertiser can sign out and switch to another account", async ({page}) => 
   await expect.poll(() => page.evaluate(() => localStorage.getItem("png_token"))).toBeNull();
 });
 
+test("inactive advertiser is warned, can continue, and is then signed out automatically", async ({page}) => {
+  await mockAdvertiser(page, [{id:"id-1",document_type:"NID_CARD",status:"PENDING"}]);
+  await page.clock.install({time:new Date("2026-08-26T00:00:00Z")});
+  await page.goto("/advertiser");
+  await page.clock.fastForward(13 * 60 * 1000);
+  await expect(page.getByRole("dialog", {name:"Still using TRELPNG?"})).toBeVisible();
+  await page.getByRole("button", {name:"Continue session"}).click();
+  await expect(page.getByRole("dialog", {name:"Still using TRELPNG?"})).toBeHidden();
+  await page.clock.fastForward(13 * 60 * 1000);
+  await expect(page.getByRole("dialog", {name:"Still using TRELPNG?"})).toBeVisible();
+  await page.clock.fastForward(2 * 60 * 1000);
+  await expect(page).toHaveURL(/\/add-property\?auth=login&reason=inactive$/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("png_token"))).toBeNull();
+});
+
 test("identity link saves the draft and provides a return path", async ({page}) => {
   await mockAdvertiser(page, []);
   await page.goto("/advertiser/add-property/review?resume=1");

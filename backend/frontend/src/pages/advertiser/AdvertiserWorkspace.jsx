@@ -16,6 +16,8 @@ import "./advertiser-workspace.css";
 
 const SKY = "#0398FC";
 const logo = "/images/trel-logo.svg";
+const ADVERTISER_IDLE_TIMEOUT_MS = Number(process.env.REACT_APP_ADVERTISER_IDLE_TIMEOUT_MS) || 15 * 60 * 1000;
+const ADVERTISER_IDLE_WARNING_MS = Number(process.env.REACT_APP_ADVERTISER_IDLE_WARNING_MS) || 2 * 60 * 1000;
 const photos = [
   "https://images.pexels.com/photos/259588/pexels-photo-259588.jpeg?auto=compress&cs=tinysrgb&w=700",
   "https://images.pexels.com/photos/106399/pexels-photo-106399.jpeg?auto=compress&cs=tinysrgb&w=700",
@@ -181,6 +183,8 @@ function AppShell({ children }) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [inactivityWarning, setInactivityWarning] = useState(false);
+  const [sessionReset, setSessionReset] = useState(0);
   const displayName = user?.name || "Property Advertiser";
   const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const submitSearch = (event) => {
@@ -192,6 +196,39 @@ function AppShell({ children }) {
     await logout();
     navigate("/add-property?auth=login");
   };
+  const continueSession = () => {
+    setInactivityWarning(false);
+    setSessionReset((value) => value + 1);
+  };
+  useEffect(() => {
+    let warningOpen = false;
+    let warningTimer;
+    let logoutTimer;
+    const warningAfter = Math.max(0, ADVERTISER_IDLE_TIMEOUT_MS - ADVERTISER_IDLE_WARNING_MS);
+    const schedule = () => {
+      window.clearTimeout(warningTimer);
+      window.clearTimeout(logoutTimer);
+      warningTimer = window.setTimeout(() => {
+        warningOpen = true;
+        setInactivityWarning(true);
+      }, warningAfter);
+      logoutTimer = window.setTimeout(async () => {
+        await logout();
+        navigate("/add-property?auth=login&reason=inactive");
+      }, ADVERTISER_IDLE_TIMEOUT_MS);
+    };
+    const recordActivity = () => {
+      if (!warningOpen) schedule();
+    };
+    const events = ["pointerdown", "keydown", "touchstart", "scroll"];
+    events.forEach((event) => window.addEventListener(event, recordActivity, {passive:true}));
+    schedule();
+    return () => {
+      window.clearTimeout(warningTimer);
+      window.clearTimeout(logoutTimer);
+      events.forEach((event) => window.removeEventListener(event, recordActivity));
+    };
+  }, [logout, navigate, sessionReset]);
   useEffect(()=>{
     const wanted=[flow.draft.listing_type==="Rent"?"Rent":"Sell",flow.draft.service==="Advertise only"?"Advertise only":"TREL to sell/manage",flow.draft.relationship==="Authorised Real Estate Agent"?"Authorised Real Estate Agent":flow.draft.relationship==="Authorised representative"?"Authorised to act":"Owner / Joint Owner"];
     document.querySelectorAll(".adv-choice-row").forEach((row)=>row.querySelectorAll("button").forEach((button)=>button.classList.toggle("selected",wanted.some((text)=>button.textContent.trim().startsWith(text)))));
@@ -229,6 +266,10 @@ function AppShell({ children }) {
         <button className="adv-signout" type="button" onClick={signOut}><LogOut size={16}/> Sign out</button>
       </header>
       <main className="adv-main" onClick={captureChoice} onChange={captureChecks}>{children}</main>
+      {inactivityWarning && <Modal title="Still using TRELPNG?" onClose={continueSession}>
+        <p>Your advertiser session has been inactive. It will sign out automatically in two minutes to protect your account.</p>
+        <div className="adv-modal-actions"><Button secondary onClick={signOut}>Sign out now</Button><Button onClick={continueSession}>Continue session</Button></div>
+      </Modal>}
     </div>
   </div>;
 }
