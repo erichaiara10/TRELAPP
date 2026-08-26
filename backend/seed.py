@@ -114,37 +114,23 @@ async def seed_property_advertising_test_fixtures():
     # stale request data cannot imply that the workflow still exists.
     await db.drop_collection("exact_location_requests")
     created = "2026-08-24T00:00:00+10:00"
-    advertiser_id = "pa-test-advertiser"
-    await db.users.update_one(
-        {"id": advertiser_id},
-        {"$setOnInsert": {
-            "id": advertiser_id, "email": "property-advertiser-test@trelpng.com.pg",
-            "name": "Property Advertising Test Advertiser", "phone": "+675 7000 0001",
-            "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
-            "status": "ACTIVE", "email_verified": True, "mobile_verified": True,
-            "created_at": created, "updated_at": created,
-        }},
-        upsert=True,
+    primary = await db.users.find_one({"email": "eric.haiara10@gmail.com"})
+    if not primary:
+        logger.warning("Primary Property Advertising test account was not found; test fixtures were not seeded")
+        return
+    advertiser_id = primary.get("id")
+    legacy_advertiser_id = "pa-test-advertiser"
+    # Migrate any fixtures created by the former synthetic test account, then
+    # remove that obsolete account so Eric remains the sole test-data owner.
+    await db.advertiser_submissions.update_many(
+        {"user_id": legacy_advertiser_id}, {"$set": {"user_id": advertiser_id}}
     )
-    await db.advertiser_profiles.update_one(
-        {"user_id": advertiser_id},
-        {"$setOnInsert": {
-            "id": "pa-test-profile", "user_id": advertiser_id,
-            "status": "VERIFIED", "relationship_type": "OWNER",
-            "residential_address": "Waigani, Port Moresby", "created_at": created,
-            "updated_at": created,
-        }},
-        upsert=True,
+    await db.advertiser_listing_lifecycle.update_many(
+        {"user_id": legacy_advertiser_id}, {"$set": {"user_id": advertiser_id}}
     )
-    await db.identity_documents.update_one(
-        {"id": "pa-test-identity"},
-        {"$setOnInsert": {
-            "id": "pa-test-identity", "user_id": advertiser_id,
-            "document_type": "NID_CARD", "original_filename": "controlled-test-identity.pdf",
-            "status": "VERIFIED", "created_at": created,
-        }},
-        upsert=True,
-    )
+    await db.identity_documents.delete_many({"user_id": legacy_advertiser_id})
+    await db.advertiser_profiles.delete_many({"user_id": legacy_advertiser_id})
+    await db.users.delete_one({"id": legacy_advertiser_id})
     common = {
         "description": "Controlled test record for Property Advertising workflow validation.",
         "listing_type": "Sale", "property_class": "Residential", "property_type": "House",
@@ -205,10 +191,6 @@ async def seed_property_advertising_test_fixtures():
 
     # Replace the former browser-only 18-row demonstration with persistent,
     # account-owned records. The account password is deliberately untouched.
-    primary = await db.users.find_one({"email": "eric.haiara10@gmail.com"})
-    if not primary:
-        logger.warning("Primary Property Advertising test account was not found; demo records were not seeded")
-        return
     primary_id = primary.get("id")
     await db.users.update_one({"_id": primary["_id"]}, {"$set": {
         "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
