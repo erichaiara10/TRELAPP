@@ -4,6 +4,7 @@ from core.property_advertising_rules import (
     content_blockers,
     duplicate_identity_match,
     lifecycle_deadlines,
+    lifecycle_action_allowed,
     lifecycle_transition,
     optional_number,
     price_label,
@@ -72,6 +73,16 @@ def test_publication_and_lifecycle_transitions_reject_invalid_jumps():
     assert publication_transition("PUBLISHED", "SUSPEND") == "SUSPENDED"
     assert lifecycle_transition("CURRENT", "ARCHIVE") == "ARCHIVED"
     assert lifecycle_transition("ARCHIVED", "SEND_CONFIRMATION") is None
+
+
+def test_closed_listing_can_only_be_archived_after_unpublishing():
+    assert lifecycle_action_allowed("CURRENT", "ARCHIVE", "SOLD", "UNPUBLISHED")
+    assert lifecycle_action_allowed("CURRENT", "ARCHIVE", "LEASED", "UNPUBLISHED")
+    assert lifecycle_action_allowed("CURRENT", "ARCHIVE", "WITHDRAWN", "UNPUBLISHED")
+    assert not lifecycle_action_allowed("CURRENT", "ARCHIVE", "SOLD", "PUBLISHED")
+    assert not lifecycle_action_allowed("CURRENT", "SEND_CONFIRMATION", "SOLD", "UNPUBLISHED")
+    assert not lifecycle_action_allowed("CURRENT", "SUSPEND", "SOLD", "UNPUBLISHED")
+    assert not lifecycle_action_allowed("ARCHIVED", "REACTIVATE", "SOLD", "UNPUBLISHED")
 
 
 def test_public_visibility_requires_published_and_live():
