@@ -301,6 +301,75 @@ async def seed_property_advertising_test_fixtures():
                 upsert=True,
             )
 
+    # These records previously lived as browser constants and consequently
+    # appeared for every advertiser. Store them under the primary test account
+    # so all other accounts correctly begin with an empty workspace.
+    demo_properties = [
+        ("Executive Office Space — Waigani", "For Rent"),
+        ("3 Bedroom House — Boroko", "For Sale"),
+        ("Residential Land — Kokopo", "For Sale"),
+        ("Warehouse — Gordons", "For Rent"),
+    ]
+    enquiry_names = ["Anna Kila", "David Tamo", "Ruth Wari", "James Nalu", "Mary Palia", "Thomas Kora"]
+    enquiry_statuses = ["New"] * 8 + ["In Progress"] * 18 + ["Closed"] * 6
+    for index, status in enumerate(enquiry_statuses):
+        number = 1032 - index
+        title, listing_type = demo_properties[index % len(demo_properties)]
+        name = enquiry_names[index % len(enquiry_names)]
+        row = [
+            f"ENQ-2024-{number}", title, listing_type, name,
+            "Today" if index < 3 else f"{index} days ago", status,
+            f"+675 7{6100000 + index}",
+            f"{name.lower().replace(' ', '.')}@example.com",
+        ]
+        await db.advertiser_workspace_records.update_one(
+            {"id": f"primary-enquiry-{number}"},
+            {"$setOnInsert": {"id": f"primary-enquiry-{number}", "user_id": primary_id,
+                              "kind": "enquiries", "sort_order": index, "data": row,
+                              "created_at": created}}, upsert=True,
+        )
+    document_statuses = ["Verified"] * 18 + ["Under Review"] * 3 + ["Action Required"] * 3
+    for index, status in enumerate(document_statuses):
+        title, _ = demo_properties[index % len(demo_properties)]
+        file_format = "JPG" if index % 4 == 0 else "PDF"
+        row = [f"Supporting Document {index + 1} — {title}", "Property Document",
+               title, file_format, status, f"{1.1 + (index % 8) * .3:.1f} MB",
+               f"{1 + (index % 24)} May 2025", "Property"]
+        await db.advertiser_workspace_records.update_one(
+            {"id": f"primary-document-{index + 1}"},
+            {"$setOnInsert": {"id": f"primary-document-{index + 1}", "user_id": primary_id,
+                              "kind": "documents", "sort_order": index, "data": row,
+                              "created_at": created}}, upsert=True,
+        )
+    inspections = [
+        ["INS-2025-042", "3 Bedroom House — Boroko", "John Tau", "24 May 2025", "10:00 AM", "Pending", 1],
+        ["INS-2025-041", "Executive Office Space — Waigani", "Maria Kua", "26 May 2025", "2:00 PM", "Confirmed", 0],
+        ["INS-2025-040", "Residential Land — Kokopo", "Peter Naru", "27 May 2025", "11:30 AM", "Pending", 2],
+        ["INS-2025-039", "Warehouse — Gordons", "Helen Ume", "21 May 2025", "9:00 AM", "Completed", 3],
+        ["INS-2025-038", "Executive Office Space — Waigani", "Lucy Wama", "29 May 2025", "1:00 PM", "Confirmed", 0],
+        ["INS-2025-037", "Residential Land — Kokopo", "Samuel Tali", "30 May 2025", "3:30 PM", "Pending", 2],
+    ]
+    activity = [
+        ["New enquiry received", "Executive Office Space — Waigani", "1h ago", "/advertiser/enquiries?search=ENQ-2024-1032"],
+        ["Listing submitted for review", "3 Bedroom House — Boroko", "3h ago", "/advertiser/properties?status=under-review"],
+        ["Photos updated", "Residential Land — Kokopo", "1d ago", "/advertiser/properties"],
+        ["Draft saved", "Warehouse — Gordons", "2d ago", "draft"],
+        ["Listing approved and live", "Executive Office Space — Waigani", "3d ago", "/advertiser/properties?status=live"],
+    ]
+    reminders = [
+        ["verification", "Verify listing details", "2 listings have incomplete or unverified details.", "Review", "/advertiser/properties?status=under-review"],
+        ["photos", "Update property photos", "5 listings could perform better with more photos.", "Update", "/advertiser/properties?needs=photos"],
+        ["documents", "Pending documents", "2 listings require additional documents.", "View", "/advertiser/documents?status=action-required"],
+    ]
+    for kind, rows in (("inspections", inspections), ("activity", activity), ("reminders", reminders)):
+        for index, row in enumerate(rows):
+            await db.advertiser_workspace_records.update_one(
+                {"id": f"primary-{kind}-{index + 1}"},
+                {"$setOnInsert": {"id": f"primary-{kind}-{index + 1}", "user_id": primary_id,
+                                  "kind": kind, "sort_order": index, "data": row,
+                                  "created_at": created}}, upsert=True,
+            )
+
 
 async def migrate_land_category():
     """Convert legacy `land_category`/lowercase property_type values to the
