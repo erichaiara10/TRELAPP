@@ -181,7 +181,7 @@ async def advertiser_workspace_records(user: dict = Depends(get_current_user)):
     ).sort("sort_order", 1).to_list(1000)
     grouped = {
         "enquiries": [], "inspections": [], "documents": [],
-        "activity": [], "reminders": [],
+        "activity": [], "reminders": [], "notifications": [],
     }
     for record in records:
         kind = record.get("kind")
