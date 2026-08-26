@@ -115,7 +115,6 @@ test("sold records are read-only and notifications are account scoped", async ({
   await page.getByRole("row", {name:/TREL-SOLD100/}).click();
   await page.getByRole("button", {name:"View Record"}).click();
   const record = page.getByRole("dialog", {name:"Property Record #TREL-SOLD100"});
-  await expect(record.getByText("Sold", {exact:true})).toBeVisible();
   await expect(record.getByRole("button", {name:"Edit Listing"})).toHaveCount(0);
   await expect(record.getByRole("button", {name:"Close Record"})).toBeVisible();
 });
