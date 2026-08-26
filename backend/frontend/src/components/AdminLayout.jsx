@@ -133,12 +133,12 @@ export default function AdminLayout() {
           ))}
           </div>}
         </nav>
-        <div className="p-4 border-t border-white/10 text-sm">
+        <div className="shrink-0 sticky bottom-0 bg-[#0F172A] p-4 border-t border-white/10 text-sm">
           <div className="font-medium">{user?.name}</div>
           <div className="text-xs text-white/60 mb-3">{user?.role}</div>
           <button onClick={handleLogout} data-testid="admin-logout-btn"
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20">
-            <LogOut className="w-4 h-4" /> Logout
+            <LogOut className="w-4 h-4" /> Sign out
           </button>
         </div>
       </aside>
