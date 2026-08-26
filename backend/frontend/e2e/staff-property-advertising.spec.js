@@ -5,6 +5,7 @@ const advertiser={id:"user-1",reference:"ADV-USER1",name:"Mary Kila",email:"mary
 const submission={id:"sub-1",reference:"TREL-1001",user_id:"user-1",advertiser_reference:"ADV-USER1",advertiser_name:"Mary Kila",property_title:"Mary's Waigani Home",relationship:"OWNER",service:"Advertise only",submitted_at:"2026-08-20T00:00:00Z",review_due:"2026-08-25T00:00:00Z",sla:"DUE_TODAY",conflict_status:"CLEAR",conflict_resolution_stale:false,authority_status:"ACCEPTED",assigned_staff:"System Admin",status:"APPROVED",listing_reference:"LIST-1001",data:{title:"Mary's Waigani Home",description:"Family home",property_class:"Residential",property_type:"House",listing_type:"Sale",currency:"PGK",price:"900000",province:"NCD",city:"Port Moresby",suburb:"Waigani",street:"Independence Drive",section:"12",lot:"8",bedrooms:"3",bathrooms:"2",parking:"2",authority_confirmed:true,features:["Fenced"],photos:["/photo-1.jpg","/photo-2.jpg"]},documents:[{id:"doc-2",original_filename:"title.pdf",status:"SUBMITTED",created_at:"2026-08-20T00:00:00Z"}],audit:[]};
 const publication={...submission,identity_status:"VERIFIED",readiness:"READY",blockers:[],publication_status:"DRAFT"};
 const lifecycle={...publication,publication_status:"PUBLISHED",availability:"AVAILABLE",lifecycle_status:"CURRENT",last_confirmed:"2026-08-20T00:00:00Z",next_due:"2026-11-20T00:00:00Z",unpublish_due:"2027-02-20T00:00:00Z",archive_due:"2027-08-20T00:00:00Z",reminder_count:0,confirmation:{},audit:[]};
+const soldLifecycle={...lifecycle,listing_reference:"LIST-SOLD100",publication_status:"UNPUBLISHED",availability:"SOLD",lifecycle_status:"CURRENT",property_title:"Completed Boroko Sale"};
 
 test.beforeEach(async({page})=>{
   await page.addInitScript(()=>window.localStorage.setItem("png_token","test-staff-token"));
@@ -21,7 +22,8 @@ test.beforeEach(async({page})=>{
     if(path.endsWith("/publications"))return json(route,{items:[publication],total:1,page:1,limit:25});
     if(path.endsWith("/publications/LIST-1001"))return json(route,publication);
     if(path.endsWith("/master-properties"))return json(route,[{id:"master-1",title:"Mary's Waigani Home"}]);
-    if(path.endsWith("/lifecycle"))return json(route,{items:[lifecycle],total:1,page:1,limit:25});
+    if(path.endsWith("/lifecycle"))return json(route,{items:[lifecycle,soldLifecycle],total:2,page:1,limit:25,counts:{CURRENT:2,SOLD:1,LEASED:0,WITHDRAWN:0,SUSPENDED:0,ARCHIVED:0}});
+    if(path.endsWith("/lifecycle/LIST-SOLD100"))return json(route,soldLifecycle);
     if(path.endsWith("/lifecycle/LIST-1001"))return json(route,lifecycle);
     return json(route,[]);
   });
@@ -107,6 +109,20 @@ test("Property Data Aggregation menu is restored without changing the other staf
     await page.goto(path);
     await expect(page.getByRole("heading",{level:1,name:title,exact:true})).toBeVisible();
   }
+});
+
+test("sold lifecycle records expose archive only and remain searchable",async({page})=>{
+  await page.goto("/admin/property-advertising/lifecycle");
+  await expect(page.getByText("Sold",{exact:true}).first()).toBeVisible();
+  await page.getByLabel("Filter by status").selectOption("SOLD");
+  await expect(page.getByText("Completed Boroko Sale")).toBeVisible();
+  await page.goto("/admin/property-advertising/lifecycle/LIST-SOLD100");
+  await expect(page.getByText("Availability confirmations are no longer required.")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Send quarterly confirmation"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Suspend listing"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Archive Record"})).toBeVisible();
+  await page.getByRole("button",{name:"Archive Record"}).click();
+  await expect(page.getByRole("dialog",{name:"Confirm: Archive record"})).toContainText("Master Property, outcome, price history and audit records will be retained");
 });
 
 test("filters work and decisions require a reason before a write",async({page})=>{
