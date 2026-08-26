@@ -30,6 +30,7 @@ from core.property_advertising_rules import (
     identity_reasons,
     identity_scheme,
     identity_values,
+    lifecycle_action_allowed,
     lifecycle_transition,
     lifecycle_deadlines,
     normalize_candidates,
@@ -1073,10 +1074,18 @@ async def _lifecycle_items() -> list[dict]:
 async def lifecycle(q: str = "", status: str = "", page: int = Query(1, ge=1),
                     limit: int = Query(25, ge=1, le=100), user: dict = Depends(require_staff)):
     items = await _lifecycle_items()
+    counts = {token: sum(1 for item in items if status_token(item.get("availability")) == token or
+                         status_token(item.get("lifecycle_status")) == token)
+              for token in ("CURRENT", "SOLD", "LEASED", "WITHDRAWN", "SUSPENDED", "ARCHIVED")}
     query = q.strip().lower()
     if query: items = [item for item in items if query in " ".join(str(v) for k, v in item.items() if k not in {"data", "blockers"}).lower()]
-    if status: items = [item for item in items if status_token(item["lifecycle_status"]) == status_token(status)]
-    return _page(items, page, limit)
+    if status:
+        selected = status_token(status)
+        items = [item for item in items if status_token(item.get("availability")) == selected or
+                 status_token(item.get("lifecycle_status")) == selected]
+    result = _page(items, page, limit)
+    result["counts"] = counts
+    return result
 
 
 @router.get("/lifecycle/{listing_reference}")
@@ -1094,6 +1103,9 @@ async def lifecycle_decision(listing_reference: str, payload: LifecycleDecisionI
     if not item: raise HTTPException(404, "Lifecycle record not found")
     action = payload.action.upper()
     previous = status_token(item.get("lifecycle_status")) or "CURRENT"
+    if not lifecycle_action_allowed(previous, action, item.get("availability"),
+                                    item.get("publication_status")):
+        raise HTTPException(409, f"Lifecycle cannot perform {action} for this listing state")
     new_status = lifecycle_transition(previous, action)
     if not new_status:
         raise HTTPException(409, f"Lifecycle cannot perform {action} while {previous}")
@@ -1120,6 +1132,8 @@ async def lifecycle_decision(listing_reference: str, payload: LifecycleDecisionI
         updates["confirmation_requested_at"] = timestamp
         updates["next_reminder_due"] = add_months(parse_datetime(timestamp), 1).isoformat()
         updates["reminder_count"] = 0
+    if action == "ARCHIVE":
+        updates["archived_at"] = timestamp
     if action == "RECORD_RESPONSE":
         updates.update({"last_confirmed": timestamp, "confirmation": {
             "price": payload.price_confirmed, "description": payload.description_confirmed,
@@ -1132,6 +1146,16 @@ async def lifecycle_decision(listing_reference: str, payload: LifecycleDecisionI
         "$setOnInsert": {"id": new_id(), "listing_id": listing_reference, "created_at": timestamp}}
     if action in {"RECORD_RESPONSE", "REACTIVATE"}:
         lifecycle_update["$unset"] = {"next_reminder_due": ""}
+    if action == "RECORD_RESPONSE" and payload.availability in {"SOLD", "LEASED", "WITHDRAWN"}:
+        lifecycle_update["$unset"] = {
+            "next_due": "", "unpublish_due": "", "archive_due": "",
+            "next_reminder_due": "", "confirmation_requested_at": "",
+        }
+    if action == "ARCHIVE":
+        lifecycle_update["$unset"] = {
+            "next_due": "", "unpublish_due": "", "archive_due": "",
+            "next_reminder_due": "", "confirmation_requested_at": "",
+        }
     await db.advertiser_listing_lifecycle.update_one(
         {"listing_id": listing_reference}, lifecycle_update, upsert=True)
     unavailable = action == "RECORD_RESPONSE" and payload.availability in {"SOLD", "LEASED", "WITHDRAWN"}
