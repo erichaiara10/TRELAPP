@@ -68,6 +68,17 @@ export default function AddProperty() {
     setDialogOpen(true);
   }, [canProceed]);
 
+  const closePopup = useCallback(() => {
+    setDialogOpen(false);
+    const params = new URLSearchParams(location.search);
+    if (!params.has("auth")) return;
+    params.delete("auth");
+    params.delete("reason");
+    params.delete("token");
+    const search = params.toString();
+    navigate(`${location.pathname}${search ? `?${search}` : ""}`, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
   const proceedAuthed = useCallback(() => {
     if (!canProceed) return;
     navigate("/advertiser", { state: { selectedService } });
@@ -157,7 +168,7 @@ export default function AddProperty() {
     <AccountAccessDialog
       open={dialogOpen}
       initialTab={dialogTab}
-      onClose={() => setDialogOpen(false)}
+      onClose={closePopup}
       selectedService={selectedService}
       next={dialogNext}
       resetToken={queryParams.get("token") || ""}
