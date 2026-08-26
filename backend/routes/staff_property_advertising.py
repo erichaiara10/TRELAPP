@@ -31,6 +31,7 @@ from core.property_advertising_rules import (
     identity_scheme,
     identity_values,
     lifecycle_action_allowed,
+    lifecycle_filter_match,
     lifecycle_transition,
     lifecycle_deadlines,
     normalize_candidates,
@@ -1056,7 +1057,6 @@ async def lifecycle_maintenance_loop() -> None:
 
 
 async def _lifecycle_items() -> list[dict]:
-    await run_lifecycle_maintenance()
     publications = await _publication_items()
     items = []
     for pub in publications:
@@ -1074,15 +1074,13 @@ async def _lifecycle_items() -> list[dict]:
 async def lifecycle(q: str = "", status: str = "", page: int = Query(1, ge=1),
                     limit: int = Query(25, ge=1, le=100), user: dict = Depends(require_staff)):
     items = await _lifecycle_items()
-    counts = {token: sum(1 for item in items if status_token(item.get("availability")) == token or
-                         status_token(item.get("lifecycle_status")) == token)
+    counts = {token: sum(1 for item in items if lifecycle_filter_match(item, token))
               for token in ("CURRENT", "SOLD", "LEASED", "WITHDRAWN", "SUSPENDED", "ARCHIVED")}
     query = q.strip().lower()
     if query: items = [item for item in items if query in " ".join(str(v) for k, v in item.items() if k not in {"data", "blockers"}).lower()]
     if status:
         selected = status_token(status)
-        items = [item for item in items if status_token(item.get("availability")) == selected or
-                 status_token(item.get("lifecycle_status")) == selected]
+        items = [item for item in items if lifecycle_filter_match(item, selected)]
     result = _page(items, page, limit)
     result["counts"] = counts
     return result
