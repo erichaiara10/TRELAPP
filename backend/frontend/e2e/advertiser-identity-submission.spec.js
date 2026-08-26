@@ -64,8 +64,9 @@ test("advertiser can sign out and switch to another account", async ({page}) => 
   await mockAdvertiser(page, [{id:"id-1",document_type:"NID_CARD",status:"PENDING"}]);
   await page.goto("/advertiser");
   await page.getByRole("button", {name:"Sign out"}).click();
-  await expect(page).toHaveURL(/\/add-property\?auth=login$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("png_token"))).toBeNull();
+  await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
 });
 
 test("property totals and rows come from the signed-in advertiser account", async ({page}) => {
@@ -93,8 +94,9 @@ test("inactive advertiser is warned, can continue, and is then signed out automa
   await page.clock.fastForward(13 * 60 * 1000);
   await expect(page.getByRole("dialog", {name:"Still using TRELPNG?"})).toBeVisible();
   await page.clock.fastForward(2 * 60 * 1000);
-  await expect(page).toHaveURL(/\/add-property\?auth=login&reason=inactive$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("png_token"))).toBeNull();
+  await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
 });
 
 test("identity link saves the draft and provides a return path", async ({page}) => {

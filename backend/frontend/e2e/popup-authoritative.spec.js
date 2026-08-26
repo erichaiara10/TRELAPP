@@ -190,6 +190,20 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
   });
 
+  test("Header Login and Register can reopen after the account dialog is closed", async ({ page }) => {
+    await page.goto("/add-property?auth=login");
+    await expect(page.getByTestId("account-access-dialog")).toBeVisible();
+    await page.getByTestId("account-access-close").click();
+    await expect(page).toHaveURL(/\/add-property$/);
+    await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
+
+    await page.getByTestId("nav-login").click();
+    await expect(page.getByTestId("account-access-tab-login")).toHaveAttribute("aria-selected", "true");
+    await page.getByTestId("account-access-close").click();
+    await page.getByTestId("nav-register").click();
+    await expect(page.getByTestId("account-access-tab-register")).toHaveAttribute("aria-selected", "true");
+  });
+
   test("Admin entry uses the generic login without opening Add Property", async ({ page }) => {
     await page.goto("/admin");
     await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);

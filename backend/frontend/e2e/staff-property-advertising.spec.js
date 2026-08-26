@@ -68,6 +68,21 @@ test("removed exact-location workflow is absent",async({page})=>{
   await expect(page.getByTestId("exact-location-form")).toHaveCount(0);
 });
 
+test("staff navigation groups collapse and logout returns home without a login popup",async({page})=>{
+  await page.goto("/admin/property-advertising");
+  await expect(page.getByTestId("sidebar-group-property-advertising")).toHaveAttribute("aria-expanded","true");
+  await expect(page.getByTestId("sidebar-group-operations")).toHaveAttribute("aria-expanded","false");
+  await page.getByTestId("sidebar-group-property-advertising").click();
+  await expect(page.getByTestId("sidebar-group-property-advertising-items")).toHaveCount(0);
+  await page.getByTestId("sidebar-group-operations").click();
+  await expect(page.getByTestId("sidebar-group-operations-items")).toBeVisible();
+
+  await page.getByTestId("admin-logout-btn").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect.poll(()=>page.evaluate(()=>localStorage.getItem("png_token"))).toBeNull();
+  await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
+});
+
 test("filters work and decisions require a reason before a write",async({page})=>{
   await page.goto("/admin/property-advertising/advertisers");
   await page.getByLabel("Search records").fill("Mary");
