@@ -70,6 +70,7 @@ test("removed exact-location workflow is absent",async({page})=>{
 
 test("staff navigation groups collapse and logout returns home without a login popup",async({page})=>{
   await page.goto("/admin/property-advertising");
+  await expect(page.locator("header").getByText("System Admin",{exact:true})).toBeVisible();
   await expect(page.getByTestId("admin-logout-btn")).toBeVisible();
   await expect(page.getByTestId("admin-logout-btn")).toHaveText(/Sign out/);
   await expect(page.getByTestId("sidebar-group-property-advertising")).toHaveAttribute("aria-expanded","true");
