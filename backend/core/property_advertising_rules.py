@@ -60,6 +60,14 @@ def lifecycle_action_allowed(workflow_status: Any, action: Any, availability: An
     return lifecycle_transition(workflow, requested) is not None
 
 
+def lifecycle_filter_match(item: dict, token: Any) -> bool:
+    """Keep completed-property outcome separate from lifecycle record status."""
+    selected = status_token(token)
+    if selected in {"SOLD", "LEASED", "WITHDRAWN"}:
+        return status_token(item.get("availability")) == selected
+    return status_token(item.get("lifecycle_status")) == selected
+
+
 def norm(value: Any) -> str:
     """Normalize user-entered identity values for deterministic matching."""
     return re.sub(r"\s+", " ", str(value or "").strip()).upper()
