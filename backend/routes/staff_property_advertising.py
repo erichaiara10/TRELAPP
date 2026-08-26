@@ -255,8 +255,13 @@ async def _duplicate_candidates(
             })
 
     master_records = master_records if master_records is not None else await _master_identity_records()
+    linked_master_id = str(row.get("master_property_id") or "").strip()
     for master in master_records:
         property_id = master["id"]
+        # Once publication creates or links the durable Master Property, that
+        # record is the submission's identity—not a competing duplicate.
+        if linked_master_id and property_id == linked_master_id:
+            continue
         if duplicate_identity_match(data, master["data"]):
             candidates.append({
                 "source": "MASTER_PROPERTY",
