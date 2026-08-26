@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 
 from core.account_policy import require_staff
 from core.db import client, db, new_id, now_iso
-from core.integrated_property_service import IntegratedPropertyService
+from core.integrated_property_service import (
+    DuplicatePropertyError,
+    IntegratedPropertyService,
+    PartialWriteError,
+)
 from core.notify import notify
 from core.property_advertising_rules import (
     content_blockers,
@@ -901,7 +905,23 @@ async def publication_decision(listing_reference: str, payload: DecisionIn, user
         raise HTTPException(409, f"Publication cannot perform {action} while {status_token(previous) or 'DRAFT'}")
     if action == "PUBLISH" and item["blockers"]:
         raise HTTPException(409, {"message": "Publication requirements are incomplete", "blockers": item["blockers"]})
-    integrated = await _sync_public_listing(item, user, new_status)
+    try:
+        integrated = await _sync_public_listing(item, user, new_status)
+    except DuplicatePropertyError as exc:
+        raise HTTPException(
+            409,
+            {"message": "A matching Master Property must be resolved before publication",
+             "candidates": exc.candidates},
+        ) from exc
+    except ValueError as exc:
+        # Reference failures (province, town, suburb or property type) are
+        # actionable publication blockers, not opaque server errors.
+        raise HTTPException(409, f"Publication data could not be linked: {exc}") from exc
+    except PartialWriteError as exc:
+        raise HTTPException(
+            500,
+            f"Publication storage failed safely; reference {exc.failure_id}",
+        ) from exc
     timestamp = now_iso()
     if new_status == "PUBLISHED":
         deadlines = lifecycle_deadlines(timestamp)
