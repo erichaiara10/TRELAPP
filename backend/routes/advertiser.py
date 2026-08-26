@@ -167,6 +167,29 @@ async def advertiser_properties(user: dict = Depends(get_current_user)):
     return sorted(result, key=lambda item: item.get("updated_at") or "", reverse=True)
 
 
+@router.get("/workspace-records")
+async def advertiser_workspace_records(user: dict = Depends(get_current_user)):
+    """Return auxiliary workspace records owned by the signed-in advertiser.
+
+    Demonstration data is seeded as ordinary account-owned records.  Keeping the
+    ownership filter here prevents a new advertiser from inheriting another
+    account's enquiries, inspections, documents, activity or reminders.
+    """
+    require_advertiser(user)
+    records = await db.advertiser_workspace_records.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(1000)
+    grouped = {
+        "enquiries": [], "inspections": [], "documents": [],
+        "activity": [], "reminders": [],
+    }
+    for record in records:
+        kind = record.get("kind")
+        if kind in grouped:
+            grouped[kind].append(record.get("data"))
+    return grouped
+
+
 @router.delete("/properties/{record_id}/draft")
 async def delete_advertiser_draft_record(record_id: str, user: dict = Depends(get_current_user)):
     """Delete only an unfinished draft record owned by the current advertiser."""
