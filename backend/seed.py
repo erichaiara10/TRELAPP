@@ -282,6 +282,12 @@ async def seed_property_advertising_test_fixtures():
                 }},
                 upsert=True,
             )
+            if state == "ARCHIVED":
+                # Archive describes record storage, not the completed property outcome.
+                await db.advertiser_listing_lifecycle.update_one(
+                    {"listing_id": listing_reference},
+                    {"$set": {"status": "SOLD", "workflow_status": "ARCHIVED"}},
+                )
 
     # These records previously lived as browser constants and consequently
     # appeared for every advertiser. Store them under the primary test account
