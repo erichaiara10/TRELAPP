@@ -757,6 +757,13 @@ def _photo_urls(data: dict) -> list[str]:
             if str(item if isinstance(item, str) else item.get("url") or "").strip()]
 
 
+def _optional_number(value: Any) -> Optional[float]:
+    """Convert optional form values to the numeric type required by MongoDB."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return float(value)
+
+
 def _integrated_payload(item: dict, advertiser: dict) -> dict:
     data = item.get("data") or {}
     price_type = status_token(data.get("price_type") or data.get("currency") or "PGK")
@@ -780,7 +787,8 @@ def _integrated_payload(item: dict, advertiser: dict) -> dict:
         "street_name": data.get("street"), "address": data.get("address"),
         "nearby_landmark": data.get("landmark"), "map_coords": map_coords,
         "allotment_number": data.get("lot"), "section_number": data.get("section"),
-        "full_portion_number": data.get("portion"), "area_sqm": data.get("building_area") or data.get("land_size"),
+        "full_portion_number": data.get("portion"),
+        "area_sqm": _optional_number(data.get("building_area") or data.get("land_size")),
         "bedrooms": data.get("bedrooms") or 0, "bathrooms": data.get("bathrooms") or 0,
         "parking": data.get("parking") or 0, "features": data.get("features") or [],
         "images": _photo_urls(data), "price": amount, "currency": "PGK",
@@ -921,13 +929,6 @@ async def publication_decision(listing_reference: str, payload: DecisionIn, user
         raise HTTPException(
             500,
             f"Publication storage failed safely; reference {exc.failure_id}",
-        ) from exc
-    except Exception as exc:
-        # This staff-only operation needs an actionable diagnostic while the
-        # integrated publication path is being commissioned in test.
-        raise HTTPException(
-            500,
-            f"Publication storage error ({type(exc).__name__}): {str(exc)[:300]}",
         ) from exc
     timestamp = now_iso()
     if new_status == "PUBLISHED":
