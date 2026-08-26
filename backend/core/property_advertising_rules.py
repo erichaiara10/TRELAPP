@@ -38,8 +38,26 @@ LIFECYCLE_TRANSITIONS = {
     "CURRENT": {"SEND_CONFIRMATION": "AWAITING_ADVERTISER", "SUSPEND": "SUSPENDED", "ARCHIVE": "ARCHIVED"},
     "AWAITING_ADVERTISER": {"RECORD_RESPONSE": "CURRENT", "SUSPEND": "SUSPENDED", "ARCHIVE": "ARCHIVED"},
     "SUSPENDED": {"REACTIVATE": "CURRENT", "ARCHIVE": "ARCHIVED"},
-    "ARCHIVED": {"REACTIVATE": "CURRENT"},
+    "ARCHIVED": {},
 }
+
+CLOSED_LISTING_OUTCOMES = {"SOLD", "LEASED", "WITHDRAWN"}
+
+
+def lifecycle_action_allowed(workflow_status: Any, action: Any, availability: Any,
+                             publication_status: Any) -> bool:
+    """Apply outcome and publication guards before a lifecycle transition."""
+    workflow = status_token(workflow_status) or "CURRENT"
+    requested = status_token(action)
+    outcome = status_token(availability)
+    publication = status_token(publication_status)
+    if workflow == "ARCHIVED":
+        return False
+    if outcome in CLOSED_LISTING_OUTCOMES:
+        return requested == "ARCHIVE" and publication == "UNPUBLISHED"
+    if requested == "ARCHIVE":
+        return False
+    return lifecycle_transition(workflow, requested) is not None
 
 
 def norm(value: Any) -> str:
