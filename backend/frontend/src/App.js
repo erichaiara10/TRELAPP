@@ -50,6 +50,17 @@ import {
   LifecycleReview,
 } from "@/pages/admin/property-advertising/StaffPropertyAdvertising";
 import MarketEvidence from "@/pages/admin/market/Evidence";
+import {
+  MarketOverview,
+  ComparableProperties,
+  PriceTrends,
+  DataSources,
+  DuplicateMatches,
+  PriceCompareResults,
+  ReviewCases,
+  MarketConfiguration,
+  MarketAuditLog,
+} from "@/pages/admin/market/Workspace";
 import { ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 import Register from "@/pages/account/Register";
@@ -127,7 +138,16 @@ export default function App() {
             <Route path="property-advertising/publications/:listingRef" element={<PublicationReview />} />
             <Route path="property-advertising/lifecycle" element={<LifecycleQueue />} />
             <Route path="property-advertising/lifecycle/:listingRef" element={<LifecycleReview />} />
+            <Route path="market" element={<MarketOverview />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
+            <Route path="market/comparables" element={<ComparableProperties />} />
+            <Route path="market/trends" element={<PriceTrends />} />
+            <Route path="market/sources" element={<DataSources />} />
+            <Route path="market/duplicates" element={<DuplicateMatches />} />
+            <Route path="market/price-compare-results" element={<PriceCompareResults />} />
+            <Route path="market/review-cases" element={<ReviewCases />} />
+            <Route path="market/configuration" element={<MarketConfiguration />} />
+            <Route path="market/audit-log" element={<MarketAuditLog />} />
           </Route>
           <Route path="/advertiser/*" element={<Protected categories={["PROPERTY_ADVERTISER"]}><AdvertiserWorkspace /></Protected>} />
           <Route path="/referral-partner" element={<Protected categories={["REFERRAL_PARTNER"]}><ReferralPartnerWorkspace /></Protected>} />
