@@ -36,6 +36,9 @@ async function mockAdvertiser(page, identityDocuments) {
       return json(route, {data:completeDraft,current_step:5});
     }
     if (path.endsWith("/properties") && request.method() === "GET") return json(route, [accountProperty]);
+    if (path.endsWith("/workspace-records") && request.method() === "GET") {
+      return json(route, {enquiries:[],inspections:[],documents:[],activity:[],reminders:[]});
+    }
     if (path.endsWith("/submissions") && request.method() === "GET") return json(route, []);
     if (path.endsWith("/drafts/current") && request.method() === "PUT") return json(route, {ok:true});
     if (path.endsWith("/drafts/current/submit") && request.method() === "POST") {
@@ -81,6 +84,19 @@ test("property totals and rows come from the signed-in advertiser account", asyn
   await expect(page.getByRole("cell", {name:/Identity workflow test/})).toBeVisible();
   await page.getByRole("row", {name:/Identity workflow test/}).click();
   await expect(page.getByRole("dialog", {name:"Property #TREL-TEST100"})).toBeVisible();
+});
+
+test("new advertiser has no shared enquiries inspections documents or activity", async ({page}) => {
+  await mockAdvertiser(page, []);
+  await page.goto("/advertiser");
+  await expect(page.locator(".adv-stat").filter({hasText:"Total Enquiries"})).toContainText("0");
+  await expect(page.getByText("No recent activity.")).toBeVisible();
+  await expect(page.getByText("No reminders.")).toBeVisible();
+  await expect(page.getByText("No inspection requests.")).toBeVisible();
+  await page.goto("/advertiser/enquiries");
+  await expect(page.getByText("No matching enquiries.")).toBeVisible();
+  await page.goto("/advertiser/documents");
+  await expect(page.getByText("No matching documents.")).toBeVisible();
 });
 
 test("inactive advertiser is warned, can continue, and is then signed out automatically", async ({page}) => {
