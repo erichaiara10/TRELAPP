@@ -133,18 +133,22 @@ export default function AdminLayout() {
           ))}
           </div>}
         </nav>
-        <div className="shrink-0 sticky bottom-0 bg-[#0F172A] p-4 border-t border-white/10 text-sm">
-          <div className="font-medium">{user?.name}</div>
-          <div className="text-xs text-white/60 mb-3">{user?.role}</div>
+      </aside>
+      <div className="flex-1 min-w-0">
+        <header className="h-[72px] bg-white border-b border-[#E5E7EB] px-6 flex items-center justify-end gap-4">
+          <div className="text-right leading-tight">
+            <div className="text-sm font-semibold">{user?.name}</div>
+            <div className="text-xs text-[#6B7280]">{user?.role}</div>
+          </div>
           <button onClick={handleLogout} data-testid="admin-logout-btn"
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20">
+            className="flex items-center gap-2 px-3 py-2 rounded-md border border-[#D1D5DB] bg-white hover:bg-[#F9FAFB] text-sm font-medium">
             <LogOut className="w-4 h-4" /> Sign out
           </button>
-        </div>
-      </aside>
-      <main className="flex-1 min-w-0 p-6 overflow-y-auto" data-testid="admin-main">
-        <Outlet />
-      </main>
+        </header>
+        <main className="p-6 overflow-y-auto" data-testid="admin-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
