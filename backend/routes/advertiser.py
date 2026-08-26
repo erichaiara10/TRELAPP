@@ -249,13 +249,21 @@ async def update_listing_lifecycle(
         if master.get("created_by") != user["id"] and not submission:
             raise HTTPException(403, "This listing does not belong to your account")
     timestamp = now_iso()
+    lifecycle_update = {
+        "$set": {"status": requested, "updated_at": timestamp},
+        "$setOnInsert": {
+            "id": new_id(), "user_id": user["id"],
+            "listing_id": listing_id, "created_at": timestamp,
+        },
+    }
+    if requested in {"WITHDRAWN", "SOLD", "LEASED"}:
+        lifecycle_update["$unset"] = {
+            "next_due": "", "unpublish_due": "", "archive_due": "",
+            "next_reminder_due": "", "confirmation_requested_at": "",
+        }
     await db.advertiser_listing_lifecycle.update_one(
         {"user_id": user["id"], "listing_id": listing_id},
-        {"$set": {"status": requested, "updated_at": timestamp},
-         "$setOnInsert": {
-             "id": new_id(), "user_id": user["id"],
-             "listing_id": listing_id, "created_at": timestamp,
-         }},
+        lifecycle_update,
         upsert=True,
     )
     await db.audit_events.insert_one({
