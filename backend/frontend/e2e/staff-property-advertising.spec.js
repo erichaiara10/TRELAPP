@@ -83,6 +83,29 @@ test("staff navigation groups collapse and logout returns home without a login p
   await expect(page.getByTestId("account-access-dialog")).toHaveCount(0);
 });
 
+test("Property Data Aggregation menu is restored without changing the other staff groups",async({page})=>{
+  const routes=[
+    ["/admin/market","Overview"],
+    ["/admin/market/evidence","Market Evidence"],
+    ["/admin/market/comparables","Comparable Properties"],
+    ["/admin/market/trends","Price Trends"],
+    ["/admin/market/sources","Data Sources"],
+    ["/admin/market/duplicates","Duplicate Matches"],
+    ["/admin/market/price-compare-results","Price Compare Results"],
+    ["/admin/market/review-cases","Review Cases"],
+    ["/admin/market/configuration","Configuration"],
+    ["/admin/market/audit-log","Audit Log"],
+  ];
+  await page.goto("/admin/market");
+  await expect(page.getByTestId("sidebar-group-property-data-aggregation")).toHaveAttribute("aria-expanded","true");
+  await expect(page.getByTestId("sidebar-group-operations")).toHaveAttribute("aria-expanded","false");
+  await expect(page.getByTestId("sidebar-group-property-advertising")).toHaveAttribute("aria-expanded","false");
+  for(const [path,title] of routes){
+    await page.goto(path);
+    await expect(page.getByRole("heading",{level:1,name:title,exact:true})).toBeVisible();
+  }
+});
+
 test("filters work and decisions require a reason before a write",async({page})=>{
   await page.goto("/admin/property-advertising/advertisers");
   await page.getByLabel("Search records").fill("Mary");
