@@ -5,6 +5,7 @@ from core.property_advertising_rules import (
     duplicate_identity_match,
     lifecycle_deadlines,
     lifecycle_action_allowed,
+    lifecycle_filter_match,
     lifecycle_transition,
     optional_number,
     price_label,
@@ -83,6 +84,15 @@ def test_closed_listing_can_only_be_archived_after_unpublishing():
     assert not lifecycle_action_allowed("CURRENT", "SEND_CONFIRMATION", "SOLD", "UNPUBLISHED")
     assert not lifecycle_action_allowed("CURRENT", "SUSPEND", "SOLD", "UNPUBLISHED")
     assert not lifecycle_action_allowed("ARCHIVED", "REACTIVATE", "SOLD", "UNPUBLISHED")
+
+
+def test_lifecycle_filters_keep_outcome_separate_from_record_status():
+    sold_archive = {"availability": "SOLD", "lifecycle_status": "ARCHIVED"}
+    legacy_archive = {"availability": "ARCHIVED", "lifecycle_status": "ARCHIVED"}
+    assert lifecycle_filter_match(sold_archive, "SOLD")
+    assert lifecycle_filter_match(sold_archive, "ARCHIVED")
+    assert not lifecycle_filter_match(legacy_archive, "SOLD")
+    assert lifecycle_filter_match(legacy_archive, "ARCHIVED")
 
 
 def test_public_visibility_requires_published_and_live():
