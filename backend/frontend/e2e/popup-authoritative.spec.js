@@ -94,7 +94,7 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
 
   test("Guest login preserves selections and lands on /advertiser with router state", async ({ page }) => {
     let loggedIn = false;
-    await page.route("**/api/auth/me", (r) => loggedIn
+    await page.route("**/api/auth/me", (r) => registered
       ? json(r, { id: "adv1", email: "adv@t.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" })
       : json(r, {}, 401));
     await page.route("**/api/auth/login", (r) => {
@@ -117,20 +117,28 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await expect(page).toHaveURL(/\/advertiser$/);
   });
 
-  test("Guest registration submits Turnstile token and lands on /advertiser", async ({ page }) => {
-    let registered = false, loggedIn = false;
+  test("Guest registration creates a basic account, then requires advertiser completion", async ({ page }) => {
+    let registered = false, completed = false;
     await page.route("**/api/auth/me", (r) => loggedIn
-      ? json(r, { id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" })
+      ? json(r, { id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser", profile_complete: completed })
       : json(r, {}, 401));
     await page.route("**/api/auth/register", (r) => {
       const body = JSON.parse(r.request().postData() || "{}");
       if (!body.turnstile_token) return json(r, { detail: "Human verification failed." }, 400);
+      expect(body.phone).toBeUndefined();
+      expect(body.advertiser_relationship_type).toBeUndefined();
       registered = true;
-      return json(r, { ok: true, account_category: "PROPERTY_ADVERTISER", login_path: "/add-property?auth=login" }, 201);
+      return json(r, { token: "tk", id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser", email_verified: false, profile_complete: false }, 201);
     });
-    await page.route("**/api/auth/login", (r) => {
-      loggedIn = true;
-      return json(r, { token: "tk", id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" });
+    await page.route("**/api/auth/verify-email-code", async (r) => {
+      expect(JSON.parse(r.request().postData() || "{}")).toEqual({ code: "123456" });
+      return json(r, { token: "tk2", id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser", email_verified: true, profile_complete: false });
+    });
+    await page.route("**/api/auth/complete-advertiser-profile", async (r) => {
+      const body = JSON.parse(r.request().postData() || "{}");
+      expect(body).toEqual({ phone: "70000123", advertiser_relationship_type: "OWNER", terms_accepted: true });
+      completed = true;
+      return json(r, { ok: true, profile_complete: true });
     });
 
     await page.goto("/add-property");
@@ -138,16 +146,26 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await page.getByTestId("p01-service-self").click();
     await page.getByTestId("p01-relationship-owner").click();
     await page.getByTestId("p01-create-account").click();
+    await expect(page.getByTestId("account-access-register-mobile")).toHaveCount(0);
+    await expect(page.getByTestId("account-access-register-terms")).toHaveCount(0);
     await expect(page.getByTestId("account-access-register-submit")).toBeEnabled({ timeout: 3000 });
     await page.getByTestId("account-access-register-email").fill("new@t.pg");
-    await page.getByTestId("account-access-register-mobile").fill("70000123");
     await page.getByTestId("account-access-register-password").fill("Password@123");
     await page.getByTestId("account-access-register-confirm").fill("Password@123");
-    await page.getByTestId("account-access-register-terms").check();
     await page.getByTestId("account-access-register-submit").click();
+    await expect(page.getByTestId("account-access-title")).toHaveText("Verify Your Email Address");
+    await page.getByTestId("account-access-verification-code").fill("123456");
+    await page.getByTestId("account-access-verify-submit").click();
+    await expect(page.getByTestId("account-access-title")).toHaveText("Complete Your Advertiser Account");
+    await expect(page.getByTestId("account-access-complete-submit")).toBeDisabled();
+    await page.getByTestId("account-access-complete-mobile").fill("70000123");
+    await page.getByRole("radio", { name: "Owner", exact: true }).check();
+    await page.getByTestId("account-access-complete-terms").check();
+    await expect(page.getByTestId("account-access-complete-submit")).toBeEnabled();
+    await page.getByTestId("account-access-complete-submit").click();
     await expect(page).toHaveURL(/\/advertiser$/);
     expect(registered).toBeTruthy();
-    expect(loggedIn).toBeTruthy();
+    expect(completed).toBeTruthy();
   });
 
   test("Authenticated Staff cannot be routed into the advertiser workspace", async ({ page }) => {

@@ -28,7 +28,7 @@ class PublicRegisterIn(BaseModel):
 
     name: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    phone: str = Field(min_length=5, max_length=40)
+    phone: Optional[str] = Field(default=None, min_length=5, max_length=40)
     password: str = Field(min_length=8, max_length=128)
     advertiser_relationship_type: Optional[Literal[
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
@@ -54,6 +54,22 @@ class GoogleAuthIn(BaseModel):
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]] = None
     terms_accepted: bool = False
+
+
+class AdvertiserProfileCompletionIn(BaseModel):
+    phone: str = Field(min_length=5, max_length=40, pattern=r"^\+?[0-9\s-]{5,40}$")
+    advertiser_relationship_type: Literal[
+        "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
+    ]
+    terms_accepted: bool
+
+
+class EmailVerificationCodeIn(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+
+class PendingEmailChangeIn(BaseModel):
+    email: EmailStr
 
 
 class SelfProfileUpdate(BaseModel):
@@ -136,7 +152,9 @@ def _google_session(user: dict, response: Response) -> dict:
     return {
         "id": user["id"], "email": user["email"], "name": user["name"],
         "role": user["role"], "account_category": account_category(user),
-        "workspace_path": workspace_path(user), "token": token,
+        "workspace_path": workspace_path(user),
+        "profile_complete": user.get("profile_complete", True),
+        "email_verified": user.get("email_verified", True), "token": token,
     }
 
 
@@ -162,7 +180,9 @@ async def login(payload: LoginIn, request: Request, response: Response):
                         samesite="lax", max_age=43200, path="/")
     return {"id": user["id"], "email": user["email"], "name": user["name"],
             "role": user["role"], "account_category": account_category(user),
-            "workspace_path": workspace_path(user), "token": token}
+            "workspace_path": workspace_path(user),
+            "profile_complete": user.get("profile_complete", True),
+            "email_verified": user.get("email_verified", True), "token": token}
 
 
 @router.post("/auth/logout")
@@ -194,38 +214,37 @@ async def google_auth(payload: GoogleAuthIn, response: Response):
             {"$set": {
                 "google_sub": google_sub,
                 "google_email_verified": True,
+                "email_verified": True,
                 "google_linked_at": now_iso(),
             }},
         )
+        user["email_verified"] = True
         return _google_session(user, response)
 
     if payload.mode != "register":
         raise HTTPException(404, "No TRELPNG account was found. Use Create Account first.")
-    if not payload.phone or len(payload.phone.strip()) < 5:
-        raise HTTPException(400, "Mobile number is required")
-    if not payload.terms_accepted:
-        raise HTTPException(400, "Accept the Terms of Use and Privacy Policy")
-    _validate_advertiser_relationship("PROPERTY_ADVERTISER", payload.advertiser_relationship_type)
-
     user = {
         "id": new_id(), "email": email,
         "name": (identity.get("name") or email.split("@")[0]).strip(),
-        "phone": (payload.phone or "").strip(),
+        "phone": "",
         "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER",
         "status": "ACTIVE", "auth_provider": "google", "google_sub": google_sub,
-        "google_email_verified": True, "created_at": now_iso(),
+        "google_email_verified": True, "email_verified": True,
+        "profile_complete": False, "created_at": now_iso(),
     }
     await db.users.insert_one(user)
     await db.advertiser_profiles.insert_one({
         "id": new_id(), "user_id": user["id"],
-        "relationship_type": payload.advertiser_relationship_type,
-        "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
+        "relationship_type": None, "terms_accepted": False,
+        "status": "INCOMPLETE", "created_at": now_iso(), "updated_at": now_iso(),
     })
-    return _google_session(user, response)
+    session = _google_session(user, response)
+    session.update({"ok": True, "login_path": "/add-property?auth=login"})
+    return session
 
 
 @router.post("/auth/register", status_code=201)
-async def public_register(payload: PublicRegisterIn, request: Request):
+async def public_register(payload: PublicRegisterIn, request: Request, response: Response):
     """Public self-registration always creates a Property Advertiser."""
     fwd = request.headers.get("x-forwarded-for", "")
     ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
@@ -234,19 +253,150 @@ async def public_register(payload: PublicRegisterIn, request: Request):
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
-    _validate_advertiser_relationship("PROPERTY_ADVERTISER", payload.advertiser_relationship_type)
     user = {
-        "id": new_id(), "email": email, "name": payload.name.strip(), "phone": payload.phone.strip(),
+        "id": new_id(), "email": email, "name": payload.name.strip(), "phone": "",
         "role": "property_advertiser", "account_category": "PROPERTY_ADVERTISER", "status": "ACTIVE",
-        "password_hash": hash_password(payload.password), "created_at": now_iso(),
+        "password_hash": hash_password(payload.password), "email_verified": False,
+        "profile_complete": False, "created_at": now_iso(),
     }
     await db.users.insert_one(user)
     await db.advertiser_profiles.insert_one({
         "id": new_id(), "user_id": user["id"],
-        "relationship_type": payload.advertiser_relationship_type,
-        "status": "PENDING", "created_at": now_iso(), "updated_at": now_iso(),
+        "relationship_type": None, "terms_accepted": False,
+        "status": "INCOMPLETE", "created_at": now_iso(), "updated_at": now_iso(),
     })
-    return {"ok": True, "account_category": "PROPERTY_ADVERTISER", "login_path": "/add-property?auth=login"}
+    await _issue_email_verification(user, request)
+    session = _google_session(user, response)
+    session.update({"ok": True, "login_path": "/add-property?auth=login"})
+    return session
+
+
+async def _send_verification_email(email: str, verify_url: str, code: str) -> None:
+    subject = "Verify your TRELPNG email address"
+    body = f"Verify your email within 24 hours: {verify_url} or enter this one-time code: {code}"
+    await notify(subject, body, email)
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        return
+    sender = os.environ.get("RESEND_FROM_EMAIL", "TRELPNG <noreply@trelpng.com>")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            result = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"from": sender, "to": [email], "subject": subject, "html": (
+                    "<p>Confirm that this is your TRELPNG email address.</p>"
+                    f'<p><a href="{verify_url}">Verify My Email Address</a></p>'
+                    f"<p>Alternatively, enter this one-time code: <strong>{code}</strong></p>"
+                    "<p>The link and code expire in 24 hours and can be used only once.</p>"
+                )},
+            )
+            result.raise_for_status()
+    except Exception:
+        return
+
+
+async def _issue_email_verification(user: dict, request: Request) -> None:
+    raw_token = secrets.token_urlsafe(32)
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await db.email_verification_tokens.delete_many({"user_id": user["id"]})
+    await db.email_verification_tokens.insert_one({
+        "id": new_id(), "user_id": user["id"],
+        "token_hash": hashlib.sha256(raw_token.encode()).hexdigest(),
+        "code_hash": hashlib.sha256(code.encode()).hexdigest(),
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+        "created_at": now_iso(),
+    })
+    public_url = os.environ.get("PUBLIC_APP_URL") or str(request.base_url).rstrip("/")
+    await _send_verification_email(
+        user["email"], f"{public_url}/add-property?auth=verify&token={raw_token}", code,
+    )
+
+
+async def _complete_email_verification(record: dict, response: Response) -> dict:
+    user = await db.users.find_one({"id": record["user_id"]})
+    if not user:
+        raise HTTPException(400, "This verification request is invalid.")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True, "updated_at": now_iso()}})
+    await db.email_verification_tokens.delete_many({"user_id": user["id"]})
+    user["email_verified"] = True
+    return _google_session(user, response)
+
+
+@router.post("/auth/verify-email-token")
+async def verify_email_token(payload: dict, response: Response):
+    raw_token = str(payload.get("token") or "")
+    record = await db.email_verification_tokens.find_one({
+        "token_hash": hashlib.sha256(raw_token.encode()).hexdigest(),
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not record:
+        raise HTTPException(400, "This email-verification link is invalid or has expired.")
+    return await _complete_email_verification(record, response)
+
+
+@router.post("/auth/verify-email-code")
+async def verify_email_code(payload: EmailVerificationCodeIn, response: Response,
+                            user: dict = Depends(get_current_user)):
+    record = await db.email_verification_tokens.find_one({
+        "user_id": user["id"], "code_hash": hashlib.sha256(payload.code.encode()).hexdigest(),
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not record:
+        raise HTTPException(400, "The verification code is invalid or has expired.")
+    return await _complete_email_verification(record, response)
+
+
+@router.post("/auth/resend-email-verification")
+async def resend_email_verification(request: Request, user: dict = Depends(get_current_user)):
+    if user.get("email_verified", True):
+        return {"ok": True, "message": "Your email address is already verified."}
+    existing = await db.email_verification_tokens.find_one({"user_id": user["id"]})
+    if existing and existing.get("created_at"):
+        created = datetime.fromisoformat(existing["created_at"].replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) - created < timedelta(seconds=60):
+            raise HTTPException(429, "Please wait one minute before requesting another email.")
+    await _issue_email_verification(user, request)
+    return {"ok": True, "message": "A new verification email has been sent."}
+
+
+@router.put("/auth/pending-email")
+async def change_pending_email(payload: PendingEmailChangeIn, request: Request,
+                               user: dict = Depends(get_current_user)):
+    if user.get("email_verified", True):
+        raise HTTPException(400, "This email address is already verified.")
+    email = payload.email.lower().strip()
+    if await db.users.find_one({"email": email, "id": {"$ne": user["id"]}}):
+        raise HTTPException(400, "Email already registered")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"email": email, "updated_at": now_iso()}})
+    user["email"] = email
+    await _issue_email_verification(user, request)
+    return {"ok": True, "email": email, "message": "Email updated. A new verification email has been sent."}
+
+
+@router.put("/auth/complete-advertiser-profile")
+async def complete_advertiser_profile(payload: AdvertiserProfileCompletionIn,
+                                      user: dict = Depends(get_current_user)):
+    if account_category(user) != "PROPERTY_ADVERTISER":
+        raise HTTPException(403, "Property Advertiser account required")
+    if not user.get("email_verified", True):
+        raise HTTPException(403, "Verify your email address before completing your advertiser account")
+    if not payload.terms_accepted:
+        raise HTTPException(400, "Accept the Terms of Use and Privacy Policy")
+    _validate_advertiser_relationship("PROPERTY_ADVERTISER", payload.advertiser_relationship_type)
+    timestamp = now_iso()
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"phone": payload.phone.strip(), "profile_complete": True, "updated_at": timestamp}},
+    )
+    await db.advertiser_profiles.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"relationship_type": payload.advertiser_relationship_type,
+                  "terms_accepted": True, "status": "PENDING", "updated_at": timestamp},
+         "$setOnInsert": {"id": new_id(), "created_at": timestamp}},
+        upsert=True,
+    )
+    return {"ok": True, "profile_complete": True}
 
 
 async def _send_password_reset_email(email: str, reset_url: str) -> None:
@@ -328,6 +478,8 @@ async def reset_password(payload: ResetPasswordIn):
 @router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     output = {**user, "account_category": account_category(user), "workspace_path": workspace_path(user)}
+    output["profile_complete"] = user.get("profile_complete", True)
+    output["email_verified"] = user.get("email_verified", True)
     output.pop("password_hash", None)
     output.pop("_id", None)
     if account_category(user) == "PROPERTY_ADVERTISER":

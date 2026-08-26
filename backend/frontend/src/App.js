@@ -81,6 +81,14 @@ function Protected({ children, categories }) {
   if (categories && !categories.includes(user.account_category)) {
     return <Navigate to={workspaceForUser(user)} replace />;
   }
+  if (categories?.includes("PROPERTY_ADVERTISER") && user.email_verified === false) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/add-property?auth=verify&next=${next}`} replace />;
+  }
+  if (categories?.includes("PROPERTY_ADVERTISER") && user.profile_complete === false) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/add-property?auth=complete&next=${next}`} replace />;
+  }
   return children;
 }
 

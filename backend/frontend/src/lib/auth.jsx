@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
 
   const acceptSession = useCallback((data) => {
     localStorage.setItem("png_token", data.token);
-    const authenticatedUser = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path };
+    const authenticatedUser = { id: data.id, email: data.email, name: data.name, role: data.role, account_category: data.account_category, workspace_path: data.workspace_path, email_verified: data.email_verified !== false, profile_complete: data.profile_complete !== false };
     setUser(authenticatedUser);
     return { ok: true, user: authenticatedUser, workspacePath: data.workspace_path };
   }, []);
@@ -35,6 +35,27 @@ export function AuthProvider({ children }) {
     } catch (e) { return { ok: false, error: formatError(e) }; }
   }, [acceptSession]);
 
+  const register = useCallback(async (payload) => {
+    try {
+      const { data } = await api.post("/auth/register", payload);
+      return acceptSession(data);
+    } catch (e) { return { ok: false, error: formatError(e) }; }
+  }, [acceptSession]);
+
+  const verifyEmailToken = useCallback(async (token) => {
+    try {
+      const { data } = await api.post("/auth/verify-email-token", { token });
+      return acceptSession(data);
+    } catch (e) { return { ok: false, error: formatError(e) }; }
+  }, [acceptSession]);
+
+  const verifyEmailCode = useCallback(async (code) => {
+    try {
+      const { data } = await api.post("/auth/verify-email-code", { code });
+      return acceptSession(data);
+    } catch (e) { return { ok: false, error: formatError(e) }; }
+  }, [acceptSession]);
+
   const logout = useCallback(async () => {
     localStorage.removeItem("png_token");
     setUser(false);
@@ -48,7 +69,7 @@ export function AuthProvider({ children }) {
     setUser((current) => current && ({ ...current, ...updates }));
   }, []);
 
-  const value = useMemo(() => ({ user, login, googleLogin, logout, updateUser }), [user, login, googleLogin, logout, updateUser]);
+  const value = useMemo(() => ({ user, login, googleLogin, register, verifyEmailToken, verifyEmailCode, logout, updateUser }), [user, login, googleLogin, register, verifyEmailToken, verifyEmailCode, logout, updateUser]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 

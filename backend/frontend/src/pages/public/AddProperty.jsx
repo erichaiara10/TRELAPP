@@ -51,7 +51,7 @@ export default function AddProperty() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const auth = params.get("auth");
-    if (auth === "login" || auth === "register" || auth === "forgot" || auth === "reset") {
+    if (["login", "register", "verify", "complete", "forgot", "reset"].includes(auth)) {
       setDialogTab(auth);
       setDialogOpen(true);
     }
