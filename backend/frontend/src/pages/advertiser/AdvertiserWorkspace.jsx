@@ -195,7 +195,7 @@ function AppShell({ children }) {
   };
   const signOut = async () => {
     await logout();
-    navigate("/add-property?auth=login");
+    navigate("/");
   };
   const continueSession = () => {
     setInactivityWarning(false);
@@ -215,7 +215,7 @@ function AppShell({ children }) {
       }, warningAfter);
       logoutTimer = window.setTimeout(async () => {
         await logout();
-        navigate("/add-property?auth=login&reason=inactive");
+        navigate("/");
       }, ADVERTISER_IDLE_TIMEOUT_MS);
     };
     const recordActivity = () => {
