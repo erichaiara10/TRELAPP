@@ -51,6 +51,13 @@ def status_token(value: Any) -> str:
     return re.sub(r"[\s-]+", "_", norm(value))
 
 
+def optional_number(value: Any) -> Optional[float]:
+    """Convert an optional browser-form value to a database-safe number."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return float(value)
+
+
 def advertiser_display_status(submission_status: Any, publication_status: Any = None,
                               lifecycle_status: Any = None) -> str:
     """Return the single advertiser-facing state used by lists and statistics."""
