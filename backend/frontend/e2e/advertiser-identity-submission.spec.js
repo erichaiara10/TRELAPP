@@ -21,7 +21,13 @@ const accountProperty = {
   created_at:"2026-08-26T00:00:00Z", updated_at:"2026-08-26T00:00:00Z",
 };
 
-async function mockAdvertiser(page, identityDocuments) {
+const soldProperty = {
+  ...accountProperty, id:"submission-sold", reference:"TREL-SOLD100",
+  submission_status:"APPROVED", publication_status:"UNPUBLISHED",
+  lifecycle_status:"SOLD", display_status:"Sold",
+};
+
+async function mockAdvertiser(page, identityDocuments, options = {}) {
   await page.addInitScript(() => window.localStorage.setItem("png_token", "test-advertiser-token"));
   await page.route("**/api/**", async route => {
     const request = route.request();
@@ -35,9 +41,9 @@ async function mockAdvertiser(page, identityDocuments) {
     if (path.endsWith("/drafts/current") && request.method() === "GET") {
       return json(route, {data:completeDraft,current_step:5});
     }
-    if (path.endsWith("/properties") && request.method() === "GET") return json(route, [accountProperty]);
+    if (path.endsWith("/properties") && request.method() === "GET") return json(route, options.properties || [accountProperty]);
     if (path.endsWith("/workspace-records") && request.method() === "GET") {
-      return json(route, {enquiries:[],inspections:[],documents:[],activity:[],reminders:[]});
+      return json(route, options.workspace || {enquiries:[],inspections:[],documents:[],activity:[],reminders:[],notifications:[]});
     }
     if (path.endsWith("/submissions") && request.method() === "GET") return json(route, []);
     if (path.endsWith("/drafts/current") && request.method() === "PUT") return json(route, {ok:true});
@@ -97,6 +103,21 @@ test("new advertiser has no shared enquiries inspections documents or activity",
   await expect(page.getByText("No matching enquiries.")).toBeVisible();
   await page.goto("/advertiser/documents");
   await expect(page.getByText("No matching documents.")).toBeVisible();
+});
+
+test("sold records are read-only and notifications are account scoped", async ({page}) => {
+  await mockAdvertiser(page, [], {properties:[soldProperty]});
+  await page.goto("/advertiser");
+  await expect(page.locator(".adv-icon-button i")).toHaveCount(0);
+  await page.getByRole("button", {name:"Notifications"}).click();
+  await expect(page.getByText("No notifications.")).toBeVisible();
+  await page.goto("/advertiser/properties?status=inactive");
+  await page.getByRole("row", {name:/TREL-SOLD100/}).click();
+  await page.getByRole("button", {name:"View Record"}).click();
+  const record = page.getByRole("dialog", {name:"Property Record #TREL-SOLD100"});
+  await expect(record.getByText("Sold", {exact:true})).toBeVisible();
+  await expect(record.getByRole("button", {name:"Edit Listing"})).toHaveCount(0);
+  await expect(record.getByRole("button", {name:"Close Record"})).toBeVisible();
 });
 
 test("inactive advertiser is warned, can continue, and is then signed out automatically", async ({page}) => {
