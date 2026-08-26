@@ -922,6 +922,13 @@ async def publication_decision(listing_reference: str, payload: DecisionIn, user
             500,
             f"Publication storage failed safely; reference {exc.failure_id}",
         ) from exc
+    except Exception as exc:
+        # This staff-only operation needs an actionable diagnostic while the
+        # integrated publication path is being commissioned in test.
+        raise HTTPException(
+            500,
+            f"Publication storage error ({type(exc).__name__}): {str(exc)[:300]}",
+        ) from exc
     timestamp = now_iso()
     if new_status == "PUBLISHED":
         deadlines = lifecycle_deadlines(timestamp)
