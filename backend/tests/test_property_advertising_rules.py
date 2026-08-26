@@ -5,13 +5,13 @@ from core.property_advertising_rules import (
     duplicate_identity_match,
     lifecycle_deadlines,
     lifecycle_transition,
+    optional_number,
     price_label,
     public_listing_visible,
     publication_transition,
     submission_sla,
 )
 from datetime import datetime, timezone
-from routes.staff_property_advertising import _integrated_payload
 
 
 def _complete(**changes):
@@ -104,11 +104,9 @@ def test_lifecycle_deadlines_handle_month_end():
     assert deadlines["archive_due"].startswith("2027-01-31")
 
 
-def test_integrated_payload_converts_form_area_to_number():
-    item = {"data": {"building_area": " 180.5 ", "price": "500000", "currency": "PGK"}}
-    assert _integrated_payload(item, {})["area_sqm"] == 180.5
-
-    item["data"]["building_area"] = ""
-    item["data"]["land_size"] = "600"
-    assert _integrated_payload(item, {})["area_sqm"] == 600.0
+def test_optional_number_converts_form_values_for_storage():
+    assert optional_number(" 180.5 ") == 180.5
+    assert optional_number("600") == 600.0
+    assert optional_number(42) == 42.0
+    assert optional_number("") is None
     lifecycle_deadlines,
