@@ -274,14 +274,16 @@ async def update_listing_lifecycle(
     existing = await db.advertiser_listing_lifecycle.find_one(
         {"user_id": user["id"], "listing_id": listing_id}, {"_id": 0}
     ) or {}
-    current = status_token(existing.get("status") or "LIVE")
+    current = status_token(existing.get("status") or "AVAILABLE")
+    workflow = status_token(existing.get("workflow_status") or "CURRENT")
     requested = status_token(payload.status)
     allowed = {
+        "AVAILABLE": {"WITHDRAWN", "SOLD", "LEASED"},
         "LIVE": {"WITHDRAWN", "SOLD", "LEASED"},
         "WITHDRAWN": {"REACTIVATION_REQUESTED"},
         "SOLD": set(), "LEASED": set(), "ARCHIVED": set(),
     }
-    if requested not in allowed.get(current, set()):
+    if workflow == "ARCHIVED" or requested not in allowed.get(current, set()):
         raise HTTPException(409, f"Listing cannot move from {current} to {requested}")
     listing = await db.listings.find_one(
         {"$or": [{"id": listing_id}, {"property_id": listing_id}, {"listing_reference": listing_id}]},
@@ -295,14 +297,18 @@ async def update_listing_lifecycle(
         if master.get("created_by") != user["id"] and not submission:
             raise HTTPException(403, "This listing does not belong to your account")
     timestamp = now_iso()
+    terminal_outcome = requested in {"WITHDRAWN", "SOLD", "LEASED"}
+    lifecycle_values = {"status": requested, "updated_at": timestamp}
+    if terminal_outcome:
+        lifecycle_values.update({"workflow_status": "ARCHIVED", "archived_at": timestamp})
     lifecycle_update = {
-        "$set": {"status": requested, "updated_at": timestamp},
+        "$set": lifecycle_values,
         "$setOnInsert": {
             "id": new_id(), "user_id": user["id"],
             "listing_id": listing_id, "created_at": timestamp,
         },
     }
-    if requested in {"WITHDRAWN", "SOLD", "LEASED"}:
+    if terminal_outcome:
         lifecycle_update["$unset"] = {
             "next_due": "", "unpublish_due": "", "archive_due": "",
             "next_reminder_due": "", "confirmation_requested_at": "",
@@ -319,7 +325,15 @@ async def update_listing_lifecycle(
         "new_status": requested, "status": requested,
         "created_at": timestamp,
     })
-    if listing and requested in {"WITHDRAWN", "SOLD", "LEASED"}:
+    if terminal_outcome:
+        await db.audit_events.insert_one({
+            "id": new_id(), "action": "ADVERTISER_LISTING_ARCHIVED",
+            "subject_type": "property_listing", "subject_id": listing_id,
+            "actor_id": user["id"], "previous_status": workflow,
+            "new_status": "ARCHIVED", "status": "ARCHIVED",
+            "reason": f"Listing closed as {requested}", "created_at": timestamp,
+        })
+    if listing and terminal_outcome:
         integrated_status = requested.lower()
         await db.listings.update_one({"id": listing["id"]}, {"$set": {
             "publication_status": integrated_status, "responsible_channel_active": False,
