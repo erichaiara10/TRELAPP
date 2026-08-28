@@ -39,6 +39,6 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --retry 6 --retry-delay 5 "$TEST_URL/api/" > /dev/null
-          flyctl ssh console
-          --app "$TEST_APP_NAME"
-          --command "python -c \"import base64;exec(base64.b64decode('$SCRIPT_B64'))\""
+          flyctl ssh console \
+            --app "$TEST_APP_NAME" \
+            --command "python -c \"import base64;exec(base64.b64decode('$SCRIPT_B64'))\""
