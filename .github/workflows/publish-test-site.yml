@@ -1,6 +1,9 @@
 name: Publish Test Site
 
 on:
+  push:
+    branches:
+      - codex/deploy-trelweb-test-20260828
   workflow_dispatch:
     inputs:
       confirmation:
@@ -24,7 +27,7 @@ jobs:
     env:
       TEST_APP_NAME: trelweb-test
       TEST_URL: https://trelweb-test.fly.dev
-      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation || 'PUBLISH_TRELWEB_TEST' }}
 
     steps:
       - name: Check confirmation
