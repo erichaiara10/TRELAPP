@@ -43,7 +43,7 @@ test("all Add Property fields connect to the integrated create request", async (
   await page.getByTestId("property-bedrooms-input").fill("3");
   await page.getByTestId("property-bathrooms-input").fill("2");
   await page.getByTestId("property-parking-input").fill("2");
-  await page.getByTestId("property-area_sqm-input").fill("180");
+  await page.getByTestId("property-building-area-ha").fill("0.018");
   await page.getByTestId("property-description").fill("Complete field connection test");
   await page.getByTestId("property-features").fill("Air conditioning, Security fence");
   await page.getByTestId("property-type").selectOption("House");
@@ -82,7 +82,7 @@ test("all Add Property fields connect to the integrated create request", async (
     owner_name:"Test Owner", owner_email:"owner@example.test", owner_phone:"70000000",
     authority_status:"VERIFIED", status:"active", tenure_type:"STATE_LEASE",
     address:"12 Waigani Drive", nearby_landmark:"Vision City", map_coords:"-9.4438,147.1803",
-    bedrooms:3, bathrooms:2, parking:2, area_sqm:180,
+    bedrooms:3, bathrooms:2, parking:2, building_area_ha:0.018, total_area_ha:0.08,
   });
   expect(capture.created.features).toEqual(["Air conditioning", "Security fence"]);
   expect(capture.created.images).toEqual(["https://images.test/house.jpg"]);
@@ -99,7 +99,7 @@ test("portion/customary screen prevents save without required district", async (
   await page.getByTestId("property-location-province").selectOption("province-1");
   await page.getByTestId("property-location-city").selectOption("city-1");
   await page.getByTestId("property-location-suburb").selectOption("suburb-1");
-  await page.getByTestId("property-full-portion-number").fill("2145C");
+  await page.getByTestId("property-full-portion-number").fill("2145");
   await page.getByTestId("property-owner-name").fill("Customary Owner");
   await page.getByTestId("property-price-input").fill("500000");
   await page.getByTestId("prop-save").click();
