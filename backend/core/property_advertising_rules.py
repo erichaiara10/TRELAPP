@@ -6,12 +6,11 @@ browser cannot bypass them by calling an endpoint directly.
 """
 from __future__ import annotations
 
-import re
 import calendar
-from datetime import datetime, timedelta, timezone
-from typing import Any
 import math
-import re, Iterable, Optional
+import re
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterable, Optional
 
 
 MIN_PROPERTY_PHOTOS = 2
