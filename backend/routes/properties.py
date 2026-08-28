@@ -1,4 +1,6 @@
 """Properties CRUD backed by the controlled integrated Property gateway."""
+import math
+import re
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.account_policy import STAFF, account_category, require_property_writer
@@ -69,7 +71,6 @@ def build_property_query(filters: dict) -> dict:
 def _public_property(document: dict) -> dict:
     safe = dict(document)
     for key in (
-        "map_coords", "address", "street_name", "nearby_landmark",
         "owner_name", "owner_email", "owner_phone", "owner_customer_id",
         "documents", "authority_status", "title_reference", "assigned_agent_id",
         "created_by", "street_id", "district_id", "local_area_id",
@@ -105,6 +106,27 @@ async def enforce_scheme(payload: dict, enforce_publication: bool = True) -> dic
         raise HTTPException(400, "A rental listing cannot have Sold status")
     if float(payload.get("price") or 0) <= 0:
         raise HTTPException(400, "Price must be greater than zero")
+    for key, label in (
+        ("allotment_number", "Lot Number"),
+        ("section_number", "Section Number"),
+        ("full_portion_number", "Portion Number"),
+    ):
+        value = payload.get(key)
+        if value not in {None, ""} and not re.fullmatch(r"\d+", str(value).strip()):
+            raise HTTPException(400, f"{label} must contain digits only")
+    for key, label in (
+        ("total_area_ha", "Total Area"),
+        ("building_area_ha", "Building / Floor Area"),
+    ):
+        value = payload.get(key)
+        if value in {None, ""}:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{label} must be a number in hectares (ha)")
+        if not math.isfinite(number) or number <= 0:
+            raise HTTPException(400, f"{label} must be greater than zero hectares (ha)")
 
     type_query = {"id": payload["property_type_id"]} if payload.get("property_type_id") else {
         "name": payload["property_type"].strip()
@@ -196,15 +218,25 @@ async def check_property_duplicates(
 
 
 @router.get("/properties/{pid}")
-async def get_property(pid: str, user=Depends(get_optional_user)):
+async def get_property(pid: str, public_view: bool = False, user=Depends(get_optional_user)):
     document = await repository.get(pid)
     if not document:
         raise HTTPException(404, "Property not found")
     privileged = bool(user and (account_category(user) == STAFF or document.get("created_by") == user.get("id")))
-    if privileged:
+    if privileged and not public_view:
         return document
     if not public_listing_visible("PUBLISHED", document.get("status")):
-        raise HTTPException(404, "Property not found")
+        availability = str(document.get("status") or "unavailable").upper()
+        if document.get("listing_reference"):
+            lifecycle = await db.advertiser_listing_lifecycle.find_one(
+                {"listing_id": document["listing_reference"]}, {"_id": 0, "status": 1}
+            )
+            availability = str((lifecycle or {}).get("status") or availability).upper()
+        raise HTTPException(410, {
+            "code": "PROPERTY_UNAVAILABLE",
+            "availability": availability,
+            "message": "This property is no longer available",
+        })
     return _public_property(document)
 
 
@@ -267,4 +299,14 @@ async def delete_property(
 ):
     if not await repository.delete(pid, user):
         raise HTTPException(404, "Property not found")
-    return {"ok": True}
+    return {"ok": True, "archived": True}
+
+
+@router.post("/properties/{pid}/restore")
+async def restore_property(
+    pid: str,
+    user: dict = Depends(require_property_writer),
+):
+    if not await repository.restore(pid, user):
+        raise HTTPException(404, "Archived property not found")
+    return {"ok": True, "restored": True}

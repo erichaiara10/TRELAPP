@@ -427,6 +427,11 @@ class IntegratedPropertyService:
             "bathrooms": int(payload.get("bathrooms") or 0),
             "parking": int(payload.get("parking") or 0),
             "area_sqm": payload.get("area_sqm"),
+            "building_area_ha": payload.get("building_area_ha"),
+            "furnished": payload.get("furnished"),
+            "condition": payload.get("condition"),
+            "year_built": payload.get("year_built"),
+            "special_features": payload.get("special_features"),
             "features": list(payload.get("features") or []),
             "created_at": timestamp,
             "updated_at": timestamp,
@@ -679,7 +684,7 @@ class IntegratedPropertyService:
         timestamp = now_iso()
         master_result = await self.db.master_properties.update_one(
             {"id": property_id},
-            {"$set": {"lifecycle_status": "deleted", "updated_at": timestamp}},
+            {"$set": {"lifecycle_status": "archived", "archived_at": timestamp, "updated_at": timestamp}},
         )
         await self.db.listings.update_many(
             {"property_id": property_id},
@@ -691,7 +696,23 @@ class IntegratedPropertyService:
         )
         if master_result.matched_count:
             await self.db.audit_events.insert_one({
-                "id": new_id(), "action": "PROPERTY_WITHDRAWN",
+                "id": new_id(), "action": "PROPERTY_ARCHIVED",
+                "subject_type": "master_property", "subject_id": property_id,
+                "actor_id": user["id"], "created_at": timestamp,
+            })
+            return True
+        return False
+
+    async def restore(self, property_id: str, user: Dict[str, Any]) -> bool:
+        timestamp = now_iso()
+        result = await self.db.master_properties.update_one(
+            {"id": property_id, "lifecycle_status": "archived"},
+            {"$set": {"lifecycle_status": "active", "updated_at": timestamp},
+             "$unset": {"archived_at": ""}},
+        )
+        if result.matched_count:
+            await self.db.audit_events.insert_one({
+                "id": new_id(), "action": "PROPERTY_RESTORED",
                 "subject_type": "master_property", "subject_id": property_id,
                 "actor_id": user["id"], "created_at": timestamp,
             })
@@ -759,6 +780,11 @@ class IntegratedPropertyService:
             "bathrooms": attributes.get("bathrooms", 0),
             "parking": attributes.get("parking", 0),
             "area_sqm": attributes.get("area_sqm"),
+            "building_area_ha": attributes.get("building_area_ha"),
+            "furnished": attributes.get("furnished"),
+            "condition": attributes.get("condition"),
+            "year_built": attributes.get("year_built"),
+            "special_features": attributes.get("special_features"),
             "location": address.get("city_name"),
             "city_id": address.get("city_id"),
             "suburb": address.get("suburb_name"),
@@ -771,7 +797,8 @@ class IntegratedPropertyService:
             "features": attributes.get("features", []),
             "images": [item["url"] for item in media],
             "documents": documents,
-            "status": listing.get("publication_status"),
+            "status": "archived" if master.get("lifecycle_status") == "archived" else listing.get("publication_status"),
+            "archived": master.get("lifecycle_status") == "archived",
             "featured": bool(listing.get("featured")),
             "verified": master.get("verification_status") == "VERIFIED",
             "full_portion_number": parcel.get("portion"),

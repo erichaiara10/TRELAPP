@@ -789,7 +789,11 @@ def _integrated_payload(item: dict, advertiser: dict) -> dict:
         "nearby_landmark": data.get("landmark"), "map_coords": map_coords,
         "allotment_number": data.get("lot"), "section_number": data.get("section"),
         "full_portion_number": data.get("portion"),
-        "area_sqm": optional_number(data.get("building_area") or data.get("land_size")),
+        "total_area_ha": optional_number(data.get("land_size")),
+        "building_area_ha": optional_number(data.get("building_area")),
+        "local_area": data.get("local_area"),
+        "furnished": data.get("furnished"), "condition": data.get("condition"),
+        "year_built": data.get("year_built"), "special_features": data.get("special_features"),
         "bedrooms": data.get("bedrooms") or 0, "bathrooms": data.get("bathrooms") or 0,
         "parking": data.get("parking") or 0, "features": data.get("features") or [],
         "images": _photo_urls(data), "price": amount, "currency": "PGK",
@@ -822,16 +826,18 @@ async def _sync_public_listing(item: dict, user: dict, new_status: str) -> dict:
     price_type = status_token(data.get("price_type") or data.get("currency") or "PGK")
     amount = float(data.get("price") or 0) if price_type == "PGK" else 0.0
     if existing:
+        service = IntegratedPropertyService(db, client)
+        updated = await service.update(
+            existing["property_id"], _integrated_payload(item, advertiser), advertiser
+        )
+        if not updated:
+            raise HTTPException(409, "Published property record no longer exists")
         await db.listings.update_one({"id": existing["id"]}, {"$set": {
             "publication_status": "active", "responsible_channel_active": True,
             "price_current": amount, "price_type": price_type, "price_label": price_label(data),
-            "service": data.get("service"), "title": data.get("title"),
-            "description": data.get("description") or "", "updated_at": timestamp,
+            "service": data.get("service"), "listing_reference": listing_reference,
+            "updated_at": timestamp,
         }})
-        await db.listing_status_history.insert_one({
-            "id": new_id(), "listing_id": existing["id"], "status": "active",
-            "changed_at": timestamp, "changed_by": user["id"],
-        })
         return {"property_id": existing["property_id"], "listing_id": existing["id"]}
     property_id = item.get("master_property_id")
     if property_id:

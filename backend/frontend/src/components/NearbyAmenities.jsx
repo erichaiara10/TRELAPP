@@ -24,6 +24,7 @@ export default function NearbyAmenities({ suburb = "", city = "", province = "",
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
 
   const canRun = Boolean(suburb || city);
 
@@ -37,14 +38,15 @@ export default function NearbyAmenities({ suburb = "", city = "", province = "",
         const res = await api.post("/ai/nearby-amenities", { suburb, city, province, property_type });
         setData(res.data);
       } catch (e) {
-        setError("Couldn't load nearby amenities. Please try again shortly.");
+        if (e?.response?.status === 503) setUnavailable(true);
+        else setError("Couldn't load nearby amenities. Please try again shortly.");
       } finally {
         setLoading(false);
       }
     }
   };
 
-  if (!canRun) return null;
+  if (!canRun || unavailable) return null;
 
   return (
     <div className="mt-6 rounded-2xl border border-border bg-white overflow-hidden" data-testid={testId}>

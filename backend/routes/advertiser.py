@@ -18,6 +18,7 @@ router = APIRouter(prefix="/property-advertising/advertiser")
 class DraftPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     current_step: int = Field(default=1, ge=1, le=5)
+    submission_id: str | None = None
 
 
 class ListingLifecyclePayload(BaseModel):
@@ -42,7 +43,8 @@ async def save_draft(payload: DraftPayload, user: dict = Depends(get_current_use
     require_advertiser(user)
     saved = {
         "user_id": user["id"], "data": payload.data,
-        "current_step": payload.current_step, "updated_at": now_iso(),
+        "current_step": payload.current_step, "submission_id": payload.submission_id,
+        "updated_at": now_iso(),
     }
     await db.advertiser_drafts.update_one(
         {"user_id": user["id"]},
@@ -86,16 +88,60 @@ async def submit_draft(payload: DraftPayload, user: dict = Depends(require_prope
         key: sorted(value) if isinstance(value, set) else value
         for key, value in identity.items()
     }
-    identifier = new_id()
-    submission = {
-        "id": identifier,
-        "reference": f"TREL-{identifier[:8].upper()}",
-        "user_id": user["id"],
-        "data": submitted_data,
-        "status": "Under Review",
-        "submitted_at": now_iso(),
-    }
-    await db.advertiser_submissions.insert_one(submission)
+    timestamp = now_iso()
+    if payload.submission_id:
+        existing = await db.advertiser_submissions.find_one(
+            {"id": payload.submission_id, "user_id": user["id"]}, {"_id": 0}
+        )
+        if not existing:
+            raise HTTPException(404, "Property submission not found")
+        await db.advertiser_submissions.update_one(
+            {"id": existing["id"], "user_id": user["id"]},
+            {"$set": {
+                "data": submitted_data, "status": "Under Review",
+                "submitted_at": timestamp, "updated_at": timestamp,
+            }},
+        )
+        existing_review = await db.staff_property_reviews.find_one(
+            {"subject_ref": existing["reference"]}, {"_id": 0}
+        ) or {}
+        await db.staff_property_reviews.update_one(
+            {"subject_ref": existing["reference"]},
+            {"$set": {
+                "submission_status": "Under Review",
+                "publication_status": "DRAFT",
+                "updated_at": timestamp,
+            }},
+        )
+        listing_reference = existing.get("listing_reference") or existing_review.get("listing_reference")
+        if listing_reference:
+            await db.listings.update_many(
+                {"listing_reference": listing_reference},
+                {"$set": {
+                    "publication_status": "withdrawn",
+                    "responsible_channel_active": False,
+                    "updated_at": timestamp,
+                }},
+            )
+        submission = {**existing, "data": submitted_data, "status": "Under Review",
+                      "submitted_at": timestamp, "updated_at": timestamp}
+        await db.audit_events.insert_one({
+            "id": new_id(), "action": "ADVERTISER_SUBMISSION_UPDATED",
+            "subject_type": "property_submission", "subject_id": existing["reference"],
+            "actor_id": user["id"], "previous_status": existing.get("status"),
+            "new_status": "Under Review", "created_at": timestamp,
+        })
+    else:
+        identifier = new_id()
+        submission = {
+            "id": identifier,
+            "reference": f"TREL-{identifier[:8].upper()}",
+            "user_id": user["id"],
+            "data": submitted_data,
+            "status": "Under Review",
+            "submitted_at": timestamp,
+        }
+        await db.advertiser_submissions.insert_one(submission)
     await db.advertiser_drafts.delete_one({"user_id": user["id"]})
     submission.pop("_id", None)
     return submission

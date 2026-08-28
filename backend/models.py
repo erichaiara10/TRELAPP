@@ -83,7 +83,8 @@ class Property(BaseModel):
     bedrooms: Optional[int] = 0
     bathrooms: Optional[int] = 0
     parking: Optional[int] = 0
-    area_sqm: Optional[float] = None
+    area_sqm: Optional[float] = None  # Legacy records only.
+    building_area_ha: Optional[float] = Field(default=None, gt=0)
     location: str
     suburb: Optional[str] = None
     province: Optional[str] = None
@@ -142,7 +143,8 @@ class PropertyCreate(BaseModel):
     bedrooms: Optional[int] = 0
     bathrooms: Optional[int] = 0
     parking: Optional[int] = 0
-    area_sqm: Optional[float] = None
+    area_sqm: Optional[float] = None  # Legacy imports only.
+    building_area_ha: Optional[float] = Field(default=None, gt=0)
     location: str
     suburb: Optional[str] = None
     province: Optional[str] = None

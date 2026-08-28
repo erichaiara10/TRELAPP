@@ -13,7 +13,7 @@ function PropertySpecs({ p }) {
       {p.bedrooms > 0 && <span className="flex items-center gap-1"><Bed className="w-4 h-4" />{p.bedrooms}</span>}
       {p.bathrooms > 0 && <span className="flex items-center gap-1"><Bath className="w-4 h-4" />{p.bathrooms}</span>}
       {p.parking > 0 && <span className="flex items-center gap-1"><Car className="w-4 h-4" />{p.parking}</span>}
-      {p.area_sqm && <span className="ml-auto text-xs text-muted-foreground">{p.area_sqm} sqm</span>}
+      {p.total_area_ha && <span className="ml-auto text-xs text-muted-foreground">{p.total_area_ha} ha</span>}
     </div>
   );
 }

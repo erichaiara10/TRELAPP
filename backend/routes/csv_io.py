@@ -34,7 +34,7 @@ PROPERTY_SCHEMA = [
     ("bedrooms",            "optional",    "Integer count."),
     ("bathrooms",           "optional",    "Integer count."),
     ("parking",             "optional",    "Integer count of parking bays."),
-    ("area_sqm",            "optional",    "Building/lot area in square metres."),
+    ("building_area_ha",   "optional",    "Building or floor area in hectares (ha). Numbers only, e.g. 0.065."),
     ("province",            "mandatory",   "e.g. National Capital District."),
     ("location",            "mandatory",   "City — e.g. Port Moresby, Lae, Madang."),
     ("suburb",              "mandatory",   "Neighbourhood — e.g. Waigani, Gordons."),
@@ -120,7 +120,7 @@ def _row_to_property(row: dict) -> dict:
     out["bedrooms"] = int(_to_number(row.get("bedrooms"), float, default=0))
     out["bathrooms"] = int(_to_number(row.get("bathrooms"), float, default=0))
     out["parking"] = int(_to_number(row.get("parking"), float, default=0))
-    out["area_sqm"] = _to_number(row.get("area_sqm"), float, default=0.0) or None
+    out["building_area_ha"] = _to_number(row.get("building_area_ha"), float, default=0.0) or None
     out["total_area_ha"] = _to_number(row.get("total_area_ha"), float, default=0.0) or None
     out["featured"] = _to_bool(row.get("featured"))
     out["verified"] = _to_bool(row.get("verified"))
