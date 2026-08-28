@@ -50,10 +50,23 @@ def test_serviced_locality_can_be_street_or_suburb():
 
 
 def test_large_portion_duplicate_requires_portion_and_location_or_town():
-    original = {"identity_scheme": "LARGE_PORTION", "portion": "2145C", "location": "Hula"}
-    assert duplicate_identity_match(original, {"full_portion_number": "2145c", "city": "HULA"})
-    assert not duplicate_identity_match(original, {"full_portion_number": "2145B", "city": "Hula"})
-    assert not duplicate_identity_match(original, {"full_portion_number": "2145C", "city": "Lae"})
+    original = {"identity_scheme": "LARGE_PORTION", "portion": "2145", "location": "Hula"}
+    assert duplicate_identity_match(original, {"full_portion_number": "2145", "city": "HULA"})
+    assert not duplicate_identity_match(original, {"full_portion_number": "2146", "city": "Hula"})
+    assert not duplicate_identity_match(original, {"full_portion_number": "2145", "city": "Lae"})
+
+
+def test_land_identifiers_are_digits_only():
+    assert "Allotment number must contain digits only" in content_blockers(_complete(lot="Lot 15"))
+    assert "Section number must contain digits only" in content_blockers(_complete(section="Section 42"))
+    portion = _complete(identity_scheme="LARGE_PORTION", portion="2145C", location="Hula")
+    assert "Portion number must contain digits only" in content_blockers(portion)
+
+
+def test_future_area_values_are_positive_hectares():
+    assert content_blockers(_complete(land_size="0.065", building_area="0.012")) == []
+    assert "Land area must be greater than zero hectares (ha)" in content_blockers(_complete(land_size="0"))
+    assert "Building / floor area must be a number in hectares (ha)" in content_blockers(_complete(building_area="ten"))
 
 
 def test_publication_content_requires_two_valid_photos():

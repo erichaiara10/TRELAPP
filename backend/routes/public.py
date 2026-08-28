@@ -2,6 +2,8 @@
 from fastapi import APIRouter, HTTPException
 
 from core.db import db
+from core.property_advertising_rules import public_listing_visible
+from core.property_repository import PropertyRepository
 from core.notify import auto_assign_agent, notify
 from core.security import captcha_encode, captcha_pair, captcha_verify, honeypot_check
 from models import (
@@ -9,6 +11,14 @@ from models import (
 )
 
 router = APIRouter()
+properties = PropertyRepository(db)
+
+
+async def _public_property(property_id: str) -> dict:
+    prop = await properties.get(property_id)
+    if not prop or not public_listing_visible("PUBLISHED", prop.get("status")):
+        raise HTTPException(404, "Property not found")
+    return prop
 
 
 @router.get("/public/challenge")
@@ -24,9 +34,9 @@ async def public_create_lead(payload: LeadCreate):
     p = payload.model_dump()
     prop_title = None
     if p.get("property_id"):
-        prop = await db.properties.find_one({"id": p["property_id"]}, {"_id": 0, "title": 1})
-        if prop:
-            prop_title = prop["title"]
+        prop = await _public_property(p["property_id"])
+        p["property_id"] = prop["id"]
+        prop_title = prop["title"]
     role = "leasing_agent" if p["source"] == "management_form" else "sales_agent"
     lead = Lead(source=p["source"], name=p["name"], email=p.get("email"),
                 phone=p.get("phone"), message=p.get("message", ""),
@@ -37,7 +47,7 @@ async def public_create_lead(payload: LeadCreate):
     if payload.name:
         ctype = {"sell_form": "seller", "wanted_form": "buyer",
                  "corporate_form": "corporate", "management_form": "landlord",
-                 "inspection_form": "buyer", "contact_form": "buyer"}.get(p["source"], "buyer")
+                 "inspection_form": "buyer", "contact_form": "buyer", "property_enquiry": "buyer"}.get(p["source"], "buyer")
         cust = Customer(name=payload.name, email=payload.email, phone=payload.phone,
                         customer_type=ctype, source=p["source"],
                         assigned_agent_id=lead["assigned_agent_id"]).model_dump()
@@ -64,10 +74,8 @@ async def public_create_lead(payload: LeadCreate):
 async def public_create_inspection(payload: InspectionCreate):
     honeypot_check(payload.hp_website)
     captcha_verify(payload.verification_token, payload.verification_answer)
-    prop = await db.properties.find_one({"id": payload.property_id}, {"_id": 0, "title": 1})
-    if not prop:
-        raise HTTPException(404, "Property not found")
-    ins = Inspection(property_id=payload.property_id, property_title=prop["title"],
+    prop = await _public_property(payload.property_id)
+    ins = Inspection(property_id=prop["id"], property_title=prop["title"],
                      customer_name=payload.customer_name,
                      customer_phone=payload.customer_phone,
                      customer_email=payload.customer_email,
@@ -76,7 +84,7 @@ async def public_create_inspection(payload: InspectionCreate):
     await db.inspections.insert_one(ins)
     lead = Lead(source="inspection_form", name=payload.customer_name,
                 email=payload.customer_email, phone=payload.customer_phone,
-                property_id=payload.property_id, property_title=prop["title"],
+                property_id=prop["id"], property_title=prop["title"],
                 payload={"preferred_date": payload.preferred_date},
                 assigned_agent_id=ins["assigned_agent_id"]).model_dump()
     await db.leads.insert_one(lead)

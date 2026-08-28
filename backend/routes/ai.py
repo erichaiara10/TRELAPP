@@ -83,7 +83,7 @@ LOCATION:
 
     key = os.environ.get("EMERGENT_LLM_KEY")
     if not key:
-        raise HTTPException(500, "AI service is not configured")
+        raise HTTPException(503, "Nearby amenities are not configured")
 
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage

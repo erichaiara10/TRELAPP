@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
-from core.db import client
+from core.db import client, now_iso
 from core.integrated_property_service import IntegratedPropertyService
 
 MODE_INTEGRATED = "integrated"
@@ -64,7 +64,21 @@ class PropertyRepository:
         return await self.db.properties.find_one({"id": property_id}, {"_id": 0})
 
     async def delete(self, property_id: str, user: Dict[str, Any]) -> bool:
+        """Archive a property without destroying its record."""
         if self.storage_mode == MODE_INTEGRATED:
             return await self.integrated.delete(property_id, user)
-        result = await self.db.properties.delete_one({"id": property_id})
-        return bool(result.deleted_count)
+        result = await self.db.properties.update_one(
+            {"id": property_id},
+            {"$set": {"status": "archived", "archived_at": now_iso(), "updated_at": now_iso()}},
+        )
+        return bool(result.matched_count)
+
+    async def restore(self, property_id: str, user: Dict[str, Any]) -> bool:
+        if self.storage_mode == MODE_INTEGRATED:
+            return await self.integrated.restore(property_id, user)
+        result = await self.db.properties.update_one(
+            {"id": property_id, "status": "archived"},
+            {"$set": {"status": "withdrawn", "updated_at": now_iso()},
+             "$unset": {"archived_at": ""}},
+        )
+        return bool(result.matched_count)

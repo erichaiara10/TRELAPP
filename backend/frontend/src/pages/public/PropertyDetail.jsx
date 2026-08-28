@@ -23,7 +23,7 @@ export default function PropertyDetail() {
   const contactCaptchaRef = useRef(null);
 
   useEffect(() => {
-    api.get(`/properties/${id}`).then((r) => setP(r.data)).catch(() => setP(false));
+    api.get(`/properties/${id}`, { params: { public_view: true } }).then((r) => setP(r.data)).catch((error) => setP(error?.response?.status === 410 ? { unavailable: true, availability: error.response.data?.detail?.availability } : false));
     api.get("/content/site").then((r) => r.data?.value && setSite((s) => ({ ...s, ...r.data.value })));
   }, [id]);
 
@@ -35,6 +35,7 @@ export default function PropertyDetail() {
 
   if (p === null) return <div className="container-tight py-10 text-muted-foreground">Loading…</div>;
   if (p === false) return <div className="container-tight py-10">Property not found. <Link to="/buy" className="text-pine-500 underline">Back to search</Link></div>;
+  if (p.unavailable) return <div className="container-tight py-10"><h1 className="font-serif text-3xl">Property no longer available</h1><p className="mt-2 text-muted-foreground">This property has been {String(p.availability||"removed").toLowerCase().replace("_"," ")} and is not accepting enquiries or inspections.</p><Link to="/buy" className="inline-block mt-4 text-pine-500 underline">View available properties</Link></div>;
 
   const requestInspection = async (e) => {
     e.preventDefault();
@@ -49,7 +50,7 @@ export default function PropertyDetail() {
     e.preventDefault();
     if (!contactCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
-      await api.post("/public/leads", { source: "contact_form", ...contact, property_id: p.id, ...contactCaptchaRef.current.getPayload() });
+      await api.post("/public/leads", { source: "property_enquiry", ...contact, property_id: p.id, ...contactCaptchaRef.current.getPayload() });
       setContactSent(true);
     } catch (e) { toast.error(formatError(e)); contactCaptchaRef.current?.refresh(); }
   };
@@ -68,7 +69,7 @@ export default function PropertyDetail() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
           {p.images?.slice(0, 4).map((src, i) => (
-            <button key={i} onClick={() => setImgIdx(i)} data-testid={`thumb-${i}`}
+            <button key={i} type="button" onClick={() => setImgIdx(i)} aria-label={`View image ${i + 1} of ${p.images.length}`} aria-pressed={imgIdx===i} data-testid={`thumb-${i}`}
               className={`aspect-video overflow-hidden rounded-lg ${imgIdx===i?"ring-2 ring-pine-500":""}`}>
               <img src={src} alt="" className="w-full h-full object-cover" />
             </button>
@@ -123,7 +124,8 @@ export default function PropertyDetail() {
             {p.bedrooms > 0 && <span className="flex items-center gap-2"><Bed className="w-4 h-4" /><b>{p.bedrooms}</b> bedrooms</span>}
             {p.bathrooms > 0 && <span className="flex items-center gap-2"><Bath className="w-4 h-4" /><b>{p.bathrooms}</b> bathrooms</span>}
             {p.parking > 0 && <span className="flex items-center gap-2"><Car className="w-4 h-4" /><b>{p.parking}</b> parking</span>}
-            {p.area_sqm && <span><b>{p.area_sqm}</b> sqm</span>}
+            {p.total_area_ha && <span><b>{p.total_area_ha}</b> ha land</span>}
+            {p.building_area_ha && <span><b>{p.building_area_ha}</b> ha building / floor area</span>}
           </div>
           <div className="mt-6">
             <h2 className="font-serif text-2xl mb-2">Description</h2>
@@ -200,8 +202,8 @@ export default function PropertyDetail() {
                   <input required type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} data-testid="contact-email" className="w-full border border-border rounded-lg px-3 py-2" />
                   <PhoneInput value={contact.phone} onChange={(v) => setContact({ ...contact, phone: v })} testId="contact-phone" />
                   <textarea placeholder="Message" rows={3} value={contact.message} onChange={(e) => setContact({ ...contact, message: e.target.value })} data-testid="contact-msg" className="w-full border border-border rounded-lg px-3 py-2" />
-                  <HumanVerification ref={contactCaptchaRef} />
-                  <button className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
+                  <HumanVerification key="property-enquiry-verification" ref={contactCaptchaRef} />
+                  <button type="submit" className="w-full py-2.5 rounded-full bg-ink-900 hover:bg-ink-700 text-white" data-testid="contact-submit">Send enquiry</button>
                 </>
               )}
             </form>
@@ -225,8 +227,8 @@ export default function PropertyDetail() {
                 <PhoneInput value={form.customer_phone} onChange={(v) => setForm({ ...form, customer_phone: v })} testId="insp-phone" />
                 <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
                 <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-                <HumanVerification ref={inspectionCaptchaRef} />
-                <button className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
+                <HumanVerification key="property-inspection-verification" ref={inspectionCaptchaRef} />
+                <button type="submit" className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
               </div>
             )}
           </form>

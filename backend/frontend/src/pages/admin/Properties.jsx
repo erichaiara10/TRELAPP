@@ -9,7 +9,7 @@ import { normalizePhotos } from "@/components/admin/PropertyModalFields";
 import PropertiesTable from "@/components/admin/PropertiesTable";
 import CsvToolbar from "@/components/admin/CsvToolbar";
 
-const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, area_sqm:0, location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"draft", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"", district:"", local_area:"", tenure_type:"", title_reference:"", property_type_id:"", province_id:"", city_id:"", suburb_id:"", district_id:"", local_area_id:"", street_id:"", owner_name:"", owner_email:"", owner_phone:"", owner_relationship:"OWNER", authority_status:"PENDING", documents:[], duplicate_override:false };
+const EMPTY = { title:"", listing_type:"sale", property_type:"", price:0, currency:"PGK", bedrooms:0, bathrooms:0, parking:0, building_area_ha:"", location:"", suburb:"", province:"", description:"", features:"", photos:[], status:"draft", featured:false, verified:false, allotment_number:"", section_number:"", street_name:"", full_portion_number:"", total_area_ha:"", nearby_landmark:"", address:"", map_coords:"", district:"", local_area:"", tenure_type:"", title_reference:"", property_type_id:"", province_id:"", city_id:"", suburb_id:"", district_id:"", local_area_id:"", street_id:"", owner_name:"", owner_email:"", owner_phone:"", owner_relationship:"OWNER", authority_status:"PENDING", documents:[], duplicate_override:false };
 
 export default function Properties({ scope = "all" } = {}) {
   const [items, setItems] = useState([]);
@@ -76,9 +76,21 @@ export default function Properties({ scope = "all" } = {}) {
     finally { setSaving(false); }
   };
 
-  const del = async (id) => {
-    if (!window.confirm("Delete?")) return;
-    await api.delete(`/properties/${id}`); load();
+  const archive = async (id) => {
+    if (!window.confirm("Archive this property? It will be removed from public listings and can be restored.")) return;
+    try {
+      await api.delete(`/properties/${id}`);
+      toast.success("Property archived");
+      load();
+    } catch (e) { toast.error(formatError(e)); }
+  };
+
+  const restore = async (id) => {
+    try {
+      await api.post(`/properties/${id}/restore`);
+      toast.success("Property restored as unpublished");
+      load();
+    } catch (e) { toast.error(formatError(e)); }
   };
 
   return (
@@ -90,7 +102,7 @@ export default function Properties({ scope = "all" } = {}) {
         </button>
       </div>
       <CsvToolbar entity="properties" entityLabel="Properties" onImported={load} />
-      <PropertiesTable items={items} onEdit={openEdit} onDelete={del} />
+      <PropertiesTable items={items} onEdit={openEdit} onArchive={archive} onRestore={restore} />
       {modal && <PropertyModal modal={modal} setModal={setModal} onSave={save} onDuplicateCheck={checkDuplicates} checking={checking} saving={saving} onClose={() => setModal(null)} />}
     </div>
   );

@@ -274,7 +274,7 @@ async def public_upload(file: UploadFile = File(...)):
     record = {
         "id": file_id,
         "storage_path": result["path"],
-        "public_url": result["url"],
+        "public_url": f"/api/files/{file_id}",
         "original_filename": file.filename,
         "content_type": content_type,
         "size": result["size"],
@@ -299,7 +299,7 @@ async def public_upload(file: UploadFile = File(...)):
     return {
         "ok": True,
         "id": file_id,
-        "url": result["url"],
+        "url": f"/api/files/{file_id}",
         "storage_path": result["path"],
         "size": result["size"],
         "content_type": content_type,
@@ -429,6 +429,7 @@ async def download_file(file_id: str):
         {
             "id": file_id,
             "is_deleted": False,
+            "source": "public_upload",
         },
         {
             "_id": 0,

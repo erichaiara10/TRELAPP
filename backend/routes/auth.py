@@ -234,7 +234,7 @@ async def google_auth(payload: GoogleAuthIn, response: Response):
     }
     await db.users.insert_one(user)
     await db.advertiser_profiles.insert_one({
-        "id": new_id(), "user_id": user["id"],
+        "id": new_id(), "user_id": user["id"], "display_name": user["name"],
         "relationship_type": None, "terms_accepted": False,
         "status": "INCOMPLETE", "created_at": now_iso(), "updated_at": now_iso(),
     })
@@ -261,7 +261,7 @@ async def public_register(payload: PublicRegisterIn, request: Request, response:
     }
     await db.users.insert_one(user)
     await db.advertiser_profiles.insert_one({
-        "id": new_id(), "user_id": user["id"],
+        "id": new_id(), "user_id": user["id"], "display_name": user["name"],
         "relationship_type": None, "terms_accepted": False,
         "status": "INCOMPLETE", "created_at": now_iso(), "updated_at": now_iso(),
     })
@@ -494,9 +494,17 @@ async def me(user: dict = Depends(get_current_user)):
 @router.put("/auth/me")
 async def update_me(payload: SelfProfileUpdate, user: dict = Depends(get_current_user)):
     values = payload.model_dump(exclude_none=True)
+    if "name" in values:
+        values["name"] = " ".join(values["name"].split())
+        if len(values["name"]) < 2:
+            raise HTTPException(400, "Full name is required")
     user_updates = {key: values.pop(key) for key in ("name", "phone") if key in values}
     if user_updates:
         await db.users.update_one({"id": user["id"]}, {"$set": user_updates})
+        if "name" in user_updates and account_category(user) == "PROPERTY_ADVERTISER":
+            await db.advertiser_profiles.update_one(
+                {"user_id": user["id"]}, {"$set": {"display_name": user_updates["name"], "updated_at": now_iso()}}
+            )
     if values and account_category(user) == "PROPERTY_ADVERTISER":
         await db.advertiser_profiles.update_one(
             {"user_id": user["id"]},

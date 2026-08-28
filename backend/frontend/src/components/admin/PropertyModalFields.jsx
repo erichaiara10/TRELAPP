@@ -10,7 +10,8 @@ import { sanitizeDigits } from "@/lib/validators";
 import { usePropertyTypes, isPortionScheme } from "@/lib/usePropertyTypes";
 import { FileText, ScrollText, Wallet, MapPin, ShieldCheck, UserRound } from "lucide-react";
 
-const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "area_sqm", "price", "total_area_ha"];
+const NUMERIC_FIELDS = ["bedrooms", "bathrooms", "parking", "price"];
+const HECTARE_FIELDS = ["total_area_ha", "building_area_ha"];
 const STATUSES = ["draft", "active", "under_offer", "sold", "leased", "withdrawn"];
 const LISTING_TYPES = [{ value: "sale", label: "Sale" }, { value: "rent", label: "Rent" }];
 
@@ -40,6 +41,7 @@ export function serializeProperty(modal) {
   const out = { ...modal, features: toArray(modal.features), images: photosToUrls(modal.photos) };
   delete out.photos;
   NUMERIC_FIELDS.forEach((k) => { out[k] = Number(out[k]) || 0; });
+  HECTARE_FIELDS.forEach((k) => { out[k] = out[k] === "" || out[k] == null ? null : Number(out[k]); });
   return out;
 }
 
@@ -53,6 +55,12 @@ export function validateProperty(modal, isPortion) {
   if (!(Number(modal.price) > 0)) return "Price must be greater than zero";
   if (modal.listing_type === "sale" && !(Number(modal.total_area_ha) > 0)) return "Total area is required for sale listings";
   if (isPortion && !String(modal.full_portion_number || "").trim()) return "Portion number is required";
+  for (const [value, label] of [[modal.allotment_number, "Lot"], [modal.section_number, "Section"], [modal.full_portion_number, "Portion"]]) {
+    if (value && !/^\d+$/.test(String(value))) return `${label} number must contain digits only`;
+  }
+  for (const [value, label] of [[modal.total_area_ha, "Total area"], [modal.building_area_ha, "Building / floor area"]]) {
+    if (value !== "" && value != null && (!/^\d+(\.\d+)?$/.test(String(value)) || Number(value) <= 0)) return `${label} must be a positive number in hectares (ha)`;
+  }
   if (isPortion && !String(modal.district || modal.district_id || "").trim()) return "District is required";
   if (!isPortion && modal.property_type) {
     if (!String(modal.allotment_number || "").trim()) return "Lot number is required";
@@ -75,6 +83,8 @@ function TextField({ label, testId, value, onChange, digitsOnly = false, require
       <input
         value={value ?? ""}
         placeholder={placeholder}
+        inputMode={digitsOnly ? "numeric" : undefined}
+        pattern={digitsOnly ? "[0-9]*" : undefined}
         onChange={digitsOnly
           ? (e) => onChange({ ...e, target: { ...e.target, value: sanitizeDigits(e.target.value, { notify: true }) } })
           : onChange}
@@ -124,7 +134,14 @@ export default function PropertyModalFields({ modal, setModal }) {
           <TextField label="Bedrooms" testId="property-bedrooms-input" value={modal.bedrooms} onChange={set("bedrooms")} digitsOnly />
           <TextField label="Bathrooms" testId="property-bathrooms-input" value={modal.bathrooms} onChange={set("bathrooms")} digitsOnly />
           <TextField label="Parking" testId="property-parking-input" value={modal.parking} onChange={set("parking")} digitsOnly />
-          <TextField label="Area (sqm)" testId="property-area_sqm-input" value={modal.area_sqm} onChange={set("area_sqm")} digitsOnly span="md:col-span-2" />
+          <label className="block md:col-span-2">
+            <span className={LABEL_CLS}>Building / floor area</span>
+            <div className="mt-1 flex items-center gap-2">
+              <input type="text" inputMode="decimal" value={modal.building_area_ha ?? ""} onChange={(e) => setModal({ ...modal, building_area_ha: e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1") })} data-testid="property-building-area-ha" className={FIELD_CLS.replace("mt-1 ", "")} />
+              <b aria-hidden="true">ha</b>
+            </div>
+            <small className="text-muted-foreground">Enter area in hectares (ha). Enter numbers only, for example: 0.065.</small>
+          </label>
           <label className="block md:col-span-2">
             <span className={LABEL_CLS}>Description</span>
             <textarea rows={3} value={modal.description || ""} onChange={set("description")} data-testid="property-description" className={FIELD_CLS} />
@@ -147,15 +164,19 @@ export default function PropertyModalFields({ modal, setModal }) {
           </label>
           <label className="block">
             <span className={LABEL_CLS}>Total area (hectares){isSale && <span className="text-destructive ml-0.5">*</span>}</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={modal.total_area_ha ?? ""}
-              onChange={(e) => setModal({ ...modal, total_area_ha: e.target.value.replace(/[^0-9.]/g, "") })}
-              placeholder={isPortion ? "e.g. 12.5" : "e.g. 0.0824"}
-              data-testid="property-total-area-ha"
-              className={FIELD_CLS}
-            />
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={modal.total_area_ha ?? ""}
+                onChange={(e) => setModal({ ...modal, total_area_ha: e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1") })}
+                placeholder={isPortion ? "e.g. 12.5" : "e.g. 0.0824"}
+                data-testid="property-total-area-ha"
+                className={FIELD_CLS.replace("mt-1 ", "")}
+              />
+              <b aria-hidden="true">ha</b>
+            </div>
+            <small className="text-muted-foreground">Enter area in hectares (ha). Enter numbers only, for example: 0.065.</small>
           </label>
 
           <div className="md:col-span-2">
@@ -192,14 +213,14 @@ export default function PropertyModalFields({ modal, setModal }) {
 
           {modal.property_type && !isPortion && (
             <>
-              <TextField label="Lot number" testId="property-allotment-number" value={modal.allotment_number} onChange={set("allotment_number")} placeholder="e.g. 15" required />
-              <TextField label="Section number" testId="property-section-number" value={modal.section_number} onChange={set("section_number")} placeholder="e.g. 42" required />
+              <TextField label="Lot number" testId="property-allotment-number" value={modal.allotment_number} onChange={set("allotment_number")} placeholder="e.g. 15" digitsOnly required />
+              <TextField label="Section number" testId="property-section-number" value={modal.section_number} onChange={set("section_number")} placeholder="e.g. 42" digitsOnly required />
               <TextField label="Street name" testId="property-street-name" value={modal.street_name} onChange={set("street_name")} placeholder="e.g. Waigani Drive" required span="md:col-span-2" />
             </>
           )}
 
           {modal.property_type && isPortion && (
-            <TextField label="Portion number" testId="property-full-portion-number" value={modal.full_portion_number} onChange={set("full_portion_number")} placeholder="e.g. 2145C" required span="md:col-span-2" />
+            <TextField label="Portion number" testId="property-full-portion-number" value={modal.full_portion_number} onChange={set("full_portion_number")} placeholder="e.g. 2145" digitsOnly required span="md:col-span-2" />
           )}
         </div>
       </FormSection>

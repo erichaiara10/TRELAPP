@@ -6,8 +6,9 @@ browser cannot bypass them by calling an endpoint directly.
 """
 from __future__ import annotations
 
-import re
 import calendar
+import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
@@ -217,16 +218,38 @@ def identity_blockers(data: dict) -> list[str]:
         blockers = []
         if not identity["portion"]:
             blockers.append("Portion number is required")
+        elif not re.fullmatch(r"\d+", str(first(data, "portion", "portion_number", "full_portion_number")).strip()):
+            blockers.append("Portion number must contain digits only")
         if not identity["localities"]:
             blockers.append("Location or town is required")
         return blockers
     blockers = []
     if not identity["allotment"]:
         blockers.append("Allotment number is required")
+    elif not re.fullmatch(r"\d+", str(first(data, "lot", "allotment_number")).strip()):
+        blockers.append("Allotment number must contain digits only")
     if not identity["section"]:
         blockers.append("Section number is required")
+    elif not re.fullmatch(r"\d+", str(first(data, "section", "section_number")).strip()):
+        blockers.append("Section number must contain digits only")
     if not identity["localities"]:
         blockers.append("Town, suburb or street is required")
+    return blockers
+
+
+def measurement_blockers(data: dict) -> list[str]:
+    blockers = []
+    for key, label in (("land_size", "Land area"), ("building_area", "Building / floor area")):
+        value = data.get(key)
+        if value in {None, ""}:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            blockers.append(f"{label} must be a number in hectares (ha)")
+            continue
+        if not math.isfinite(number) or number <= 0:
+            blockers.append(f"{label} must be greater than zero hectares (ha)")
     return blockers
 
 
@@ -323,6 +346,7 @@ def content_blockers(data: dict, *, require_photos: bool = True) -> list[str]:
     if property_class and property_type and allowed is not None and property_type not in allowed:
         blockers.append("Property type does not belong to the selected property class")
     blockers.extend(identity_blockers(data))
+    blockers.extend(measurement_blockers(data))
     blockers.extend(price_blockers(data))
     if require_photos:
         count = len(valid_photos(data))
