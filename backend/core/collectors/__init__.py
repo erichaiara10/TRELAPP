@@ -76,6 +76,7 @@ def registered() -> list[dict]:
 # Import concrete collectors so their `@register` decorators run.
 from core.collectors import (                                              # noqa: F401,E402
     dac,
+    generic_web,
     hausples_png,
     ljhookerpng,
     marketmeri,
