@@ -1,18 +1,18 @@
-name: Temporary Repair TEST_IT24 Record
+name: Temporary Sell and Archive A260001
 
 on:
   push:
     branches:
       - codex/test-record-repair-it24
     paths:
-      - backend/scripts/repair_test_it24.py
+      - backend/scripts/sell_archive_test_it24.py
       - .github/workflows/temporary-inspect-test-it24.yml
 
 permissions:
   contents: read
 
 jobs:
-  repair:
+  sell-archive:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     environment: fly-test
@@ -32,11 +32,11 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Repair exact TEST_IT24 record
+      - name: Sell and archive exact A260001 record
         shell: bash
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           set -euo pipefail
-          payload="$(base64 -w0 backend/scripts/repair_test_it24.py)"
+          payload="$(base64 -w0 backend/scripts/sell_archive_test_it24.py)"
           flyctl ssh console             --app "$TEST_APP_NAME"             --command "python -c \"import base64;exec(base64.b64decode('$payload'))\""
