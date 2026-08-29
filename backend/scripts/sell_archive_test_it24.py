@@ -7,60 +7,9 @@ EXPECTED_REFERENCE = "A260001"
 EXPECTED_TITLE = "TEST_IT24_legal_lp"
 
 
-async def allow_archived_master_status():
-    info = await db.command(
-        {"listCollections": 1, "filter": {"name": "master_properties"}}
-    )
-    entries = (info.get("cursor") or {}).get("firstBatch") or []
-    if len(entries) != 1:
-        raise RuntimeError("master_properties validator lookup failed")
-
-    options = entries[0].get("options") or {}
-    validator = options.get("validator")
-    if not validator:
-        raise RuntimeError("master_properties validator is missing")
-
-    lifecycle = (
-        validator.get("$jsonSchema", {})
-        .get("properties", {})
-        .get("lifecycle_status", {})
-    )
-    allowed = lifecycle.get("enum")
-    if not isinstance(allowed, list):
-        raise RuntimeError("master_properties lifecycle enum is missing")
-
-    if "archived" not in allowed:
-        lifecycle["enum"] = [*allowed, "archived"]
-        command = {
-            "collMod": "master_properties",
-            "validator": validator,
-        }
-        if options.get("validationLevel"):
-            command["validationLevel"] = options["validationLevel"]
-        if options.get("validationAction"):
-            command["validationAction"] = options["validationAction"]
-        await db.command(command)
-
-    verified = await db.command(
-        {"listCollections": 1, "filter": {"name": "master_properties"}}
-    )
-    verified_options = verified["cursor"]["firstBatch"][0].get("options") or {}
-    verified_enum = (
-        verified_options.get("validator", {})
-        .get("$jsonSchema", {})
-        .get("properties", {})
-        .get("lifecycle_status", {})
-        .get("enum", [])
-    )
-    if "archived" not in verified_enum:
-        raise RuntimeError("archived lifecycle validator update did not persist")
-
-
 async def main():
     if DB_NAME != "trel_test":
         raise RuntimeError(f"Refusing to modify non-test database: {DB_NAME}")
-
-    await allow_archived_master_status()
 
     listing = await db.listings.find_one(
         {"property_id": PROPERTY_ID, "property_reference": EXPECTED_REFERENCE},
@@ -157,7 +106,7 @@ async def main():
                 {"id": PROPERTY_ID},
                 {
                     "$set": {
-                        "lifecycle_status": "archived",
+                        "lifecycle_status": "sold",
                         "archived_at": timestamp,
                         "updated_at": timestamp,
                     }
@@ -210,7 +159,7 @@ async def main():
         "responsible_channel_active": False,
     }:
         raise RuntimeError(f"Listing verification failed: {final_listing}")
-    if (final_master or {}).get("lifecycle_status") != "archived":
+    if (final_master or {}).get("lifecycle_status") != "sold":
         raise RuntimeError(f"Master archive verification failed: {final_master}")
     if final_lifecycle != {"status": "SOLD", "workflow_status": "ARCHIVED"}:
         raise RuntimeError(f"Lifecycle verification failed: {final_lifecycle}")
@@ -222,7 +171,7 @@ async def main():
                 "property_reference": EXPECTED_REFERENCE,
                 "listing_status": "sold",
                 "workflow_status": "ARCHIVED",
-                "master_status": "archived",
+                "master_status": "sold",
                 "database": DB_NAME,
             }
         )
