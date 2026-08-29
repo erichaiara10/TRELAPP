@@ -12,6 +12,7 @@ const TABS = [
   { key: "probable", label: "Probable" },
   { key: "possible", label: "Possible" },
   { key: "conflict", label: "Conflicts" },
+  { key: "masters", label: "Master Properties" },
 ];
 
 function bandColor(band) {
@@ -33,6 +34,8 @@ export default function DuplicateMatches() {
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [selectedCase, setSelectedCase] = useState(null);
   const [showIngest, setShowIngest] = useState(false);
+  const [masters, setMasters] = useState([]);
+  const [masterSearch, setMasterSearch] = useState("");
 
   const loadCommon = async () => {
     const s = await api.get("/admin/market/summary"); setSummary(s.data || {});
@@ -42,9 +45,16 @@ export default function DuplicateMatches() {
 
   useEffect(() => {
     if (tab === "confirmed") return;
+    if (tab === "masters") {
+      api.get(`/admin/market/master-properties?limit=500&search=${encodeURIComponent(masterSearch)}`)
+        .then((r) => setMasters(r.data || [])).catch((e) => {
+          setMasters([]); toast.error(formatError(e));
+        });
+      return;
+    }
     api.get(`/admin/market/review-cases?status=open&case_type=${tab}&limit=100`)
       .then((r) => setCases(r.data || [])).catch(() => setCases([]));
-  }, [tab]);
+  }, [tab, masterSearch]);
 
   const detachMatch = async (id) => {
     if (!window.confirm("Detach this match? It becomes reversible history.")) return;
@@ -87,7 +97,37 @@ export default function DuplicateMatches() {
 
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          {tab === "confirmed" ? (
+          {tab === "masters" ? (
+            <Section title="Master properties" testid="master-properties-section">
+              <div className="mb-3">
+                <input value={masterSearch} onChange={(e) => setMasterSearch(e.target.value)}
+                       placeholder="Search property ID, address or type"
+                       className="w-full border border-border rounded px-3 py-2 text-sm"
+                       data-testid="master-search" />
+              </div>
+              {masters.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-6 text-center">No master properties match this search.</div>
+              ) : (
+                <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                      <th className="py-2 pr-3">Master ID</th><th className="py-2 pr-3">Address</th>
+                      <th className="py-2 pr-3">Type</th><th className="py-2 pr-3">Source listings</th><th className="py-2 pr-3">Updated</th>
+                    </tr></thead>
+                    <tbody>{masters.map((m) => (
+                      <tr key={m.id} className="border-b border-border/60" data-testid={`master-row-${m.id}`}>
+                        <td className="py-2 pr-3 font-mono text-xs">{m.id}</td>
+                        <td className="py-2 pr-3">{m.canonical_address || m.address || "—"}</td>
+                        <td className="py-2 pr-3">{m.property_type || "—"}</td>
+                        <td className="py-2 pr-3 tabular-nums">{m.source_listing_count || 0}</td>
+                        <td className="py-2 pr-3 text-xs">{(m.updated_at || "").slice(0, 10) || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
+          ) : tab === "confirmed" ? (
             <Section title="Confirmed matches" testid="dup-confirmed-section">
               {matches.length === 0 ? (
                 <div className="text-sm text-muted-foreground py-6 text-center">No matches yet — use "Ingest Test Listing" to drive the matcher.</div>
