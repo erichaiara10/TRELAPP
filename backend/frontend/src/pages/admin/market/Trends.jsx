@@ -17,7 +17,7 @@ export default function MarketTrends() {
   useEffect(() => {
     api.get(`/admin/market/analytics/median-by-suburb?purpose=${purpose}`).then((r) => setSuburbs(r.data || [])).catch(() => {});
     api.get(`/admin/market/analytics/price-trends?purpose=${purpose}&months=12`).then((r) => setTrend(r.data || [])).catch(() => {});
-    api.get(`/admin/market/analytics/heatmap?purpose=${purpose}&months=12`).then((r) => setHeatmap(r.data || {})).catch(() => {});
+    api.get(`/admin/market/analytics/heatmap?purpose=${purpose}&months=12`).then((r) => { const d = r.data || {}; setHeatmap({ months: Array.isArray(d.months) ? d.months : [], suburbs: Array.isArray(d.suburbs) ? d.suburbs : [], cells: Array.isArray(d.cells) ? d.cells : [] }); }).catch(() => {});
   }, [purpose]);
 
   const heatMax = Math.max(0, ...heatmap.cells.flatMap((row) => heatmap.months.map((m) => Number(row[m] || 0))));
