@@ -1,0 +1,42 @@
+name: Temporary Inspect TEST_IT24 Record
+
+on:
+  push:
+    branches:
+      - codex/test-record-repair-it24
+    paths:
+      - backend/scripts/inspect_test_it24.py
+      - .github/workflows/temporary-inspect-test-it24.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment: fly-test
+    env:
+      TEST_APP_NAME: trelweb-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard test-only target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$TEST_APP_NAME" = "trelweb-test"
+          grep -Eq '^app = "trelweb-test"$' fly.test.toml
+          grep -Eq '^  DB_NAME = "trel_test"$' fly.test.toml
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Inspect exact TEST_IT24 record
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          payload="$(base64 -w0 backend/scripts/inspect_test_it24.py)"
+          flyctl ssh console             --app "$TEST_APP_NAME"             --command "python -c \"import base64;exec(base64.b64decode('$payload'))\""
