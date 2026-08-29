@@ -49,6 +49,15 @@ async function mockApi(page, payloads) {
     const url = new URL(request.url());
     const path = url.pathname;
     if (path === "/api/content/site") return json(route, { key: "site", value: {} });
+    if (path === "/api/page/home") return json(route, { page: "home", sections: { hero: {
+      image: "https://images.test/h01-hero.jpg",
+      kicker: "PAPUA NEW GUINEA REAL ESTATE",
+      heading: "Find a place you're proud to call home.",
+      sub: "Browse verified properties across PNG.",
+      cta_primary: { label: "Browse homes for sale", href: "/buy" },
+      cta_secondary: { label: "Explore rentals", href: "/rent" },
+    }, featured_intro: { heading: "Featured Properties" },
+    why_us: { heading: "How TRELPNG Helps", items: [] } } });
     if (path.startsWith("/api/page/")) return json(route, { sections: {} });
     if (path === "/api/property-types") return json(route, [{ id: "house", name: "House" }]);
     if (path === "/api/locations/provinces") return json(route, [{ id: "ncd", name: "National Capital District" }]);

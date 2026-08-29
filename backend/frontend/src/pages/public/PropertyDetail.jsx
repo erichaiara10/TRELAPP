@@ -13,7 +13,6 @@ import PhoneInput from "@/components/PhoneInput";
 export default function PropertyDetail() {
   const { id } = useParams();
   const [p, setP] = useState(null);
-  const [site, setSite] = useState({ phone: "+675 76281552", whatsapp: "+675 8138 3302" });
   const [imgIdx, setImgIdx] = useState(0);
   const [form, setForm] = useState({ customer_name: "", customer_phone: "", customer_email: "", preferred_date: "" });
   const [contact, setContact] = useState({ name: "", email: "", phone: "", message: "" });
@@ -24,7 +23,6 @@ export default function PropertyDetail() {
 
   useEffect(() => {
     api.get(`/properties/${id}`, { params: { public_view: true } }).then((r) => setP(r.data)).catch((error) => setP(error?.response?.status === 410 ? { unavailable: true, availability: error.response.data?.detail?.availability } : false));
-    api.get("/content/site").then((r) => r.data?.value && setSite((s) => ({ ...s, ...r.data.value })));
   }, [id]);
 
   useEffect(() => {
@@ -41,7 +39,8 @@ export default function PropertyDetail() {
     e.preventDefault();
     if (!inspectionCaptchaRef.current?.isValid()) { toast.error("Please complete the human verification"); return; }
     try {
-      await api.post("/public/inspections", { property_id: p.id, ...form, ...inspectionCaptchaRef.current.getPayload() });
+      const { data } = await api.post("/public/inspections", { property_id: p.id, ...form, ...inspectionCaptchaRef.current.getPayload() });
+      if (data.preferred_date !== form.preferred_date) throw new Error("Inspection date was not saved");
       setInspectionSent(true);
     } catch (e) { toast.error(formatError(e)); inspectionCaptchaRef.current?.refresh(); }
   };
@@ -55,8 +54,8 @@ export default function PropertyDetail() {
     } catch (e) { toast.error(formatError(e)); contactCaptchaRef.current?.refresh(); }
   };
 
-  const wa = (site.whatsapp || "").replace(/\D/g, "");
-  const waLink = `https://wa.me/${wa}?text=${encodeURIComponent(`Hi TREL, I'm interested in "${p.title}" (${window.location.href})`)}`;
+  const wa = (p.advertiser_whatsapp || "").replace(/\D/g, "");
+  const waLink = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" (${window.location.href})`)}` : "";
   // Show precise Google Maps link only when the property has parseable coords.
   const mapLink = mapsUrlFromCoords(p.map_coords);
 
@@ -65,7 +64,7 @@ export default function PropertyDetail() {
       {/* Gallery */}
       <div className="grid md:grid-cols-3 gap-2 rounded-2xl overflow-hidden">
         <div className="md:col-span-2 aspect-[16/10] bg-sand-100 overflow-hidden">
-          <img src={p.images?.[imgIdx] || p.images?.[0]} alt={p.title} className="w-full h-full object-cover" data-testid="detail-hero-img" />
+          {p.images?.length ? <img src={p.images[imgIdx] || p.images[0]} alt={p.title} className="w-full h-full object-cover" data-testid="detail-hero-img" /> : <div className="w-full h-full grid place-items-center text-muted-foreground" data-testid="detail-image-placeholder">No property image available</div>}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
           {p.images?.slice(0, 4).map((src, i) => (
@@ -86,7 +85,7 @@ export default function PropertyDetail() {
             </span>
             {p.verified && <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-terracotta-50 text-terracotta-600"><ShieldCheck className="w-3 h-3" />Verified</span>}
           </div>
-          <h1 className="font-serif text-4xl mt-3">{p.title}</h1>
+          <h1 className="font-serif text-4xl mt-3">{p.property_reference ? `${p.property_reference} — ` : ""}{p.title}</h1>
           <div className="flex items-center gap-3 text-sm text-muted-foreground mt-2 flex-wrap">
             <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {p.suburb ? `${p.suburb}, ` : ""}{p.location}</span>
             {mapLink ? (
@@ -178,12 +177,12 @@ export default function PropertyDetail() {
           <div className="bg-white rounded-2xl border border-border p-6">
             <h3 className="font-serif text-xl">Contact agent</h3>
             <div className="mt-4 flex flex-col gap-2">
-              <a href={`tel:${site.phone}`} className="px-4 py-2.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-center flex items-center justify-center gap-2" data-testid="detail-call-btn">
-                <Phone className="w-4 h-4" /> Call {site.phone}
-              </a>
-              <a href={waLink} target="_blank" rel="noreferrer" className="px-4 py-2.5 rounded-full bg-terracotta-500 hover:bg-terracotta-600 text-white text-center flex items-center justify-center gap-2" data-testid="detail-whatsapp-btn">
+              {p.advertiser_phone ? <a href={`tel:${p.advertiser_phone}`} className="px-4 py-2.5 rounded-full bg-pine-500 hover:bg-pine-600 text-white text-center flex items-center justify-center gap-2" data-testid="detail-call-btn">
+                <Phone className="w-4 h-4" /> Call {p.advertiser_phone}
+              </a> : <p className="text-sm text-muted-foreground">No phone number for this advertiser.</p>}
+              {waLink ? <a href={waLink} target="_blank" rel="noreferrer" className="px-4 py-2.5 rounded-full bg-terracotta-500 hover:bg-terracotta-600 text-white text-center flex items-center justify-center gap-2" data-testid="detail-whatsapp-btn">
                 <MessageCircle className="w-4 h-4" /> WhatsApp
-              </a>
+              </a> : <p className="text-sm text-muted-foreground" data-testid="detail-whatsapp-empty">No WhatsApp number for this advertiser.</p>}
             </div>
             <form onSubmit={submitEnquiry} className="mt-6 space-y-2" data-testid="detail-contact-form">
               {contactSent ? (
@@ -226,7 +225,7 @@ export default function PropertyDetail() {
                 <NameInput value={form.customer_name} onChange={(v) => setForm({ ...form, customer_name: v })} testId="insp-name" placeholder="Your name" />
                 <PhoneInput value={form.customer_phone} onChange={(v) => setForm({ ...form, customer_phone: v })} testId="insp-phone" />
                 <input type="email" placeholder="Email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} data-testid="insp-email" className="w-full rounded-lg px-3 py-2 text-ink-900" />
-                <input type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
+                <input required type="date" value={form.preferred_date} onChange={(e) => setForm({ ...form, preferred_date: e.target.value })} data-testid="insp-date" className="w-full rounded-lg px-3 py-2 text-ink-900" />
                 <HumanVerification key="property-inspection-verification" ref={inspectionCaptchaRef} />
                 <button type="submit" className="w-full py-2.5 rounded-full bg-white text-pine-500 font-medium hover:bg-sand-50" data-testid="insp-submit">Request inspection</button>
               </div>

@@ -89,6 +89,7 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
   const [verificationCode, setVerificationCode] = useState("");
   const [changingEmail, setChangingEmail] = useState(false);
   const [mobile, setMobile] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
   const [resetSignal, setResetSignal] = useState(0);
   const [error, setError] = useState("");
@@ -197,7 +198,9 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       if (!termsAccepted) { setError("Accept the Terms of Use and Privacy Policy before continuing."); return; }
       setSubmitting(true);
       try {
-        await api.put("/auth/complete-advertiser-profile", { phone: mobile.trim(), advertiser_relationship_type: relationship, terms_accepted: true });
+        const profilePayload = { phone: mobile.trim(), advertiser_relationship_type: relationship, terms_accepted: true };
+        if (whatsapp.trim()) profilePayload.whatsapp = whatsapp.trim();
+        await api.put("/auth/complete-advertiser-profile", profilePayload);
         updateUser({ profile_complete: true });
         onClose();
         navigate(destinationForUser({ ...user, profile_complete: true }, next), { replace: true, state: { selectedService } });
@@ -320,7 +323,8 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
           {changingEmail && <div className="flex gap-2"><input required type="email" placeholder="Correct email address" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="account-access-change-email" className="h-12 min-w-0 flex-1 rounded-lg border border-sky-200 px-3 text-sm" /><button type="button" disabled={submitting || !email.trim()} onClick={changePendingEmail} className="rounded-lg bg-sky-100 px-4 text-sm font-semibold text-sky-800">Update</button></div>}
         </> : tab === "complete" ? <>
           <p className="text-sm text-slate-600">Add the required details below to continue to your advertiser dashboard.</p>
-          <input required type="tel" placeholder="Mobile number +675" value={mobile} onChange={(event) => setMobile(event.target.value)} data-testid="account-access-complete-mobile" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
+          <input required type="tel" placeholder="Voice call number +675" value={mobile} onChange={(event) => setMobile(event.target.value)} data-testid="account-access-complete-mobile" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
+          <input type="tel" placeholder="WhatsApp number (optional)" value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} data-testid="account-access-complete-whatsapp" className="h-14 w-full rounded-lg border border-sky-200 px-4 text-sm outline-none focus:border-[#0398FC] focus:ring-2 focus:ring-sky-100" />
           <fieldset className="rounded-lg border border-sky-200 p-3" data-testid="account-access-complete-relationship"><legend className="px-1 text-sm text-slate-600">Relationship to the property</legend><div className="grid gap-2 sm:grid-cols-2">{[["OWNER", "Owner"], ["JOINT_OWNER", "Joint owner"], ["AUTHORISED_AGENT", "Authorized agent"], ["AUTHORISED_REPRESENTATIVE", "Authorized representative"]].map(([value, label]) => <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${relationship === value ? "border-sky-500 bg-sky-50" : "border-slate-200"}`}><input type="radio" name="advertiser-relationship" value={value} checked={relationship === value} onChange={(event) => setRelationship(event.target.value)} />{label}</label>)}</div></fieldset>
           <label className="flex items-start gap-3 py-1 text-xs text-slate-600"><input required type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-0.5 h-4 w-4" data-testid="account-access-complete-terms" /><span>I accept the <Link to="/terms" className="text-sky-700">Terms of Use</Link> and <Link to="/privacy" className="text-sky-700">Privacy Policy</Link>.</span></label>
           {notice && <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700" role="status" data-testid="account-access-notice">{notice}</p>}

@@ -58,6 +58,7 @@ class GoogleAuthIn(BaseModel):
 
 class AdvertiserProfileCompletionIn(BaseModel):
     phone: str = Field(min_length=5, max_length=40, pattern=r"^\+?[0-9\s-]{5,40}$")
+    whatsapp: Optional[str] = Field(default=None, max_length=40, pattern=r"^$|^\+?[0-9\s-]{5,40}$")
     advertiser_relationship_type: Literal[
         "OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"
     ]
@@ -75,6 +76,7 @@ class PendingEmailChangeIn(BaseModel):
 class SelfProfileUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     phone: Optional[str] = Field(default=None, min_length=5, max_length=40)
+    whatsapp: Optional[str] = Field(default=None, max_length=40, pattern=r"^$|^\+?[0-9\s-]{5,40}$")
     preferred_communication: Optional[Literal["WhatsApp", "Email", "Both"]] = None
     residential_address: Optional[str] = Field(default=None, max_length=300)
     business_name: Optional[str] = Field(default=None, max_length=160)
@@ -392,6 +394,7 @@ async def complete_advertiser_profile(payload: AdvertiserProfileCompletionIn,
     await db.advertiser_profiles.update_one(
         {"user_id": user["id"]},
         {"$set": {"relationship_type": payload.advertiser_relationship_type,
+                  "whatsapp": (payload.whatsapp or "").strip(),
                   "terms_accepted": True, "status": "PENDING", "updated_at": timestamp},
          "$setOnInsert": {"id": new_id(), "created_at": timestamp}},
         upsert=True,
@@ -537,6 +540,7 @@ async def list_users(user: dict = Depends(require_staff)):
             profile = await db.advertiser_profiles.find_one({"user_id": item["id"]}, {"_id": 0}) or {}
             item["advertiser_relationship_type"] = profile.get("relationship_type")
             item["advertiser_profile_status"] = profile.get("status")
+            item["whatsapp"] = profile.get("whatsapp")
             item["identity_documents"] = await db.identity_documents.find(
                 {"user_id": item["id"]},
                 {"_id": 0, "id": 1, "document_type": 1, "status": 1, "url": 1},
@@ -590,6 +594,7 @@ async def update_user(uid: str, payload: UserUpdate,
         "advertiser_relationship_type",
         existing_profile.get("relationship_type"),
     )
+    whatsapp = updates.pop("whatsapp", existing_profile.get("whatsapp"))
     _validate_account_role(
         category,
         updates.get("role", existing["role"]),
@@ -600,13 +605,14 @@ async def update_user(uid: str, payload: UserUpdate,
     if category == "PROPERTY_ADVERTISER":
         await db.advertiser_profiles.update_one(
             {"user_id": uid},
-            {"$set": {"relationship_type": relationship, "updated_at": now_iso()},
+            {"$set": {"relationship_type": relationship, "whatsapp": whatsapp, "updated_at": now_iso()},
              "$setOnInsert": {"id": new_id(), "status": "PENDING", "created_at": now_iso()}},
             upsert=True,
         )
     output = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
     if category == "PROPERTY_ADVERTISER":
         output["advertiser_relationship_type"] = relationship
+        output["whatsapp"] = whatsapp
     return output
 
 

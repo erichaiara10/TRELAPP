@@ -12,7 +12,7 @@ const CATEGORY_ROLES = {
 };
 
 function EditUserModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "", account_category: user.account_category || "UNASSIGNED", status: user.status || "ACTIVE", advertiser_relationship_type: user.advertiser_relationship_type || "OWNER" });
+  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role, phone: user.phone || "", whatsapp: user.whatsapp || "", account_category: user.account_category || "UNASSIGNED", status: user.status || "ACTIVE", advertiser_relationship_type: user.advertiser_relationship_type || "OWNER" });
   const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [profileStatus, setProfileStatus] = useState(user.advertiser_profile_status || "PENDING");
@@ -80,8 +80,10 @@ function EditUserModal({ user, onClose, onSaved }) {
             <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2">Government ID</div>
             {identityDocuments.length ? identityDocuments.map((doc)=><div key={doc.id} className="flex justify-between gap-2 items-center text-xs border rounded p-2"><a href={doc.url} target="_blank" rel="noreferrer" className="text-pine-700">{doc.document_type}</a><span>{doc.status}</span><span className="flex gap-1"><button onClick={()=>reviewIdentity(doc.id,"VERIFIED")} disabled={busy} className="text-pine-700">Verify</button><button onClick={()=>reviewIdentity(doc.id,"REJECTED")} disabled={busy} className="text-destructive">Reject</button></span></div>) : <div className="text-xs text-muted-foreground">No government ID submitted.</div>}
           </div>}
-          <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Phone</span>
+          <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">Voice call number</span>
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="edit-user-phone" className="mt-1 w-full border border-border rounded px-2 py-1.5" /></label>
+          {form.account_category === "PROPERTY_ADVERTISER" && <label className="block"><span className="text-xs uppercase tracking-widest text-muted-foreground">WhatsApp number</span>
+            <input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} data-testid="edit-user-whatsapp" className="mt-1 w-full border border-border rounded px-2 py-1.5" /></label>}
           <div className="pt-3 mt-3 border-t border-border">
             <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><KeyRound className="w-3.5 h-3.5" /> Reset password</div>
             <div className="flex items-center gap-2">

@@ -36,7 +36,15 @@ async function mockPublicApi(page) {
       phone: "+675 76281552",
       whatsapp: "+675 8138 3302",
     }});
-    if (path === "/api/page/home") return json(route, { page: "home", sections: { hero: { image: "https://images.test/h01-hero.jpg" } } });
+    if (path === "/api/page/home") return json(route, { page: "home", sections: { hero: {
+      image: "https://images.test/h01-hero.jpg",
+      kicker: "PAPUA NEW GUINEA REAL ESTATE",
+      heading: "Find a place you're proud to call home.",
+      sub: "Browse verified properties across PNG.",
+      cta_primary: { label: "Browse homes for sale", href: "/buy" },
+      cta_secondary: { label: "Explore rentals", href: "/rent" },
+    }, featured_intro: { heading: "Featured Properties" },
+    why_us: { heading: "How TRELPNG Helps", items: [] } } });
     if (path.startsWith("/api/page/")) return json(route, { sections: {} });
     if (path === "/api/locations/cities") return json(route, [{ id: "city-1", name: "Port Moresby" }]);
     if (path === "/api/locations/suburbs") return json(route, [{ id: "suburb-1", name: "Boroko" }]);

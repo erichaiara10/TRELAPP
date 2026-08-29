@@ -343,6 +343,11 @@ async def update_listing_lifecycle(
             "id": new_id(), "listing_id": listing["id"], "status": integrated_status,
             "changed_at": timestamp, "changed_by": user["id"],
         })
+        await db.master_properties.update_one(
+            {"id": listing["property_id"]},
+            {"$set": {"lifecycle_status": "archived", "archived_at": timestamp,
+                      "updated_at": timestamp}},
+        )
         if submission:
             await db.staff_property_reviews.update_one(
                 {"subject_ref": submission["reference"]},

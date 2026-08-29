@@ -29,6 +29,7 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[str] = None
     phone: Optional[str] = None
+    whatsapp: Optional[str] = None
     account_category: Optional[Literal["STAFF", "PROPERTY_ADVERTISER", "REFERRAL_PARTNER"]] = None
     status: Optional[Literal["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"]] = None
     advertiser_relationship_type: Optional[Literal["OWNER", "JOINT_OWNER", "AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"]] = None
@@ -370,7 +371,7 @@ class Lead(BaseModel):
 
 class LeadCreate(BaseModel):
     source: str
-    name: str
+    name: str = Field(min_length=1, max_length=25, pattern=r"^[A-Za-z\s\'-]+$")
     email: Optional[str] = None
     phone: Optional[str] = None
     message: Optional[str] = ""
@@ -398,10 +399,10 @@ class Inspection(BaseModel):
 
 class InspectionCreate(BaseModel):
     property_id: str
-    customer_name: str
+    customer_name: str = Field(min_length=1, max_length=25, pattern=r"^[A-Za-z\s\'-]+$")
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
-    preferred_date: Optional[str] = None
+    preferred_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     feedback: Optional[str] = ""
     verification_token: Optional[str] = None
     verification_answer: Optional[str] = None
