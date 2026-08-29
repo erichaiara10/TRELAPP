@@ -198,7 +198,9 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       if (!termsAccepted) { setError("Accept the Terms of Use and Privacy Policy before continuing."); return; }
       setSubmitting(true);
       try {
-        await api.put("/auth/complete-advertiser-profile", { phone: mobile.trim(), whatsapp: whatsapp.trim(), advertiser_relationship_type: relationship, terms_accepted: true });
+        const profilePayload = { phone: mobile.trim(), advertiser_relationship_type: relationship, terms_accepted: true };
+        if (whatsapp.trim()) profilePayload.whatsapp = whatsapp.trim();
+        await api.put("/auth/complete-advertiser-profile", profilePayload);
         updateUser({ profile_complete: true });
         onClose();
         navigate(destinationForUser({ ...user, profile_complete: true }, next), { replace: true, state: { selectedService } });
