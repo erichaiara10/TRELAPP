@@ -63,7 +63,7 @@ async def create_source(payload: dict, user: dict = Depends(require_staff)):
         "base_url": payload.get("base_url") or f"https://{domain}",
         "description": payload.get("description"), "active": bool(payload.get("active", True)),
         "is_trel_owned": bool(payload.get("is_trel_owned", False)),
-        "collector_key": payload.get("collector") or payload.get("collector_key"),
+        "collector_key": payload.get("collector") or payload.get("collector_key") or "generic_web",
         "collection_frequency": payload.get("collection_frequency") or "manual",
         "allow_source_auto_match": bool(payload.get("allow_source_auto_match", True)),
         "parser_version": payload.get("parser_version") or "1.0",

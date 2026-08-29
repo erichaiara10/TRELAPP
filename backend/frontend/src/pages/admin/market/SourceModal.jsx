@@ -3,7 +3,7 @@
 // "Discover Pages" results on the RIGHT, collector/frequency/parser on the
 // bottom row, and a "What happens next?" reassurance card. The scraper uses
 // the EXACT confirmed URLs from listing_pages — no reconstruction anywhere.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2, ChevronRight, ExternalLink, Globe, Info, Key, Save, X,
@@ -14,7 +14,7 @@ import { api, formatError } from "@/lib/api";
 const emptyForm = {
   name: "", base_url: "", description: "",
   allow_source_auto_match: true, active: true,
-  collector: "hausples_png",
+  collector: "generic_web",
   collection_frequency: "daily",
   parser_version: "1.0",
   listing_pages: [],
@@ -51,15 +51,11 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
     }
   }, [initial]);
 
-  const httpCollectors = useMemo(
-    () => collectors.filter((c) => c.default_config),
-    [collectors],
-  );
-  const canDiscover = !!form.base_url && httpCollectors.some((c) => c.key === form.collector);
+  const canDiscover = !!form.base_url;
 
   const runDiscovery = async () => {
     if (!canDiscover) {
-      toast.error("Enter a base URL and pick an HTTP collector first");
+      toast.error("Enter a website base URL first");
       return;
     }
     setDiscovering(true); setDiscovery(null);
@@ -211,18 +207,8 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
             </div>
 
             <div className="lg:col-span-5 border border-border rounded-lg p-4">
-              <div className="font-medium text-sm mb-3">Collector Settings</div>
-              <div className="grid grid-cols-3 gap-3">
-                <FieldWithLabel label="Collector Type" required testid="src-collector">
-                  <select value={form.collector}
-                          onChange={(e) => setForm({ ...form, collector: e.target.value })}
-                          className="w-full border border-border rounded px-2 py-1.5 text-sm"
-                          data-testid="select-source-collector">
-                    {collectors.map((c) => (
-                      <option key={c.key} value={c.key}>{c.label}</option>
-                    ))}
-                  </select>
-                </FieldWithLabel>
+              <div className="font-medium text-sm mb-3">Collection Settings</div>
+              <div className="grid grid-cols-2 gap-3">
                 <FieldWithLabel label="Collection Frequency" required testid="src-freq">
                   <select value={form.collection_frequency}
                           onChange={(e) => setForm({ ...form, collection_frequency: e.target.value })}

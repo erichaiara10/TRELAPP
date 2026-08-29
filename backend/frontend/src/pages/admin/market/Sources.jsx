@@ -306,7 +306,21 @@ export default function DataSources() {
                     <tr key={r.id} className="border-b border-border/60" data-testid={`source-row-${r.id}`}>
                       <td className="py-2 pr-3">
                         <div className="font-medium">{r.name}</div>
-                        {r.base_url && <div className="text-xs text-muted-foreground">{r.base_url}</div>}
+                        {r.base_url && (
+                          <a href={r.base_url} target="_blank" rel="noopener noreferrer"
+                             className="text-xs text-[#2A5B46] underline break-all">{r.base_url}</a>
+                        )}
+                        {(r.listing_pages || []).length > 0 && (
+                          <ul className="mt-1 space-y-0.5" data-testid={`source-pages-${r.id}`}>
+                            {r.listing_pages.map((page, index) => (
+                              <li key={page.listing_url || index} className="text-[11px] text-muted-foreground">
+                                <span className="font-medium">{page.category_label || page.category || "Listing page"}:</span>{" "}
+                                <a href={page.listing_url} target="_blank" rel="noopener noreferrer"
+                                   className="text-[#2A5B46] underline break-all">{page.listing_url}</a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </td>
                       <td className="py-2 pr-3">{r.collection_frequency || "manual"}</td>
                       <td className="py-2 pr-3 text-xs">{r.parser_version || "—"}</td>
