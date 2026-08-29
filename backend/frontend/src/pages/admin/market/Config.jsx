@@ -16,6 +16,22 @@ const HEALTH_LED_DEFAULTS = {
   amber_min_success_pct: 90,
   red_consecutive_failures: 2,
 };
+const DEFAULT_PARAMETERS = {
+  certain_min_score: 95, auto_match_threshold: 85, probable_threshold: 70, possible_threshold: 50,
+  exact_gps_support_m: 20, exact_gps_conflict_m: 150,
+  land_close_tolerance_pct: 10, land_broad_tolerance_pct: 25, building_close_tolerance_pct: 15,
+  signal_weights: { gps: 30, lot_section: 25, address: 20, name: 10, land_size: 10, building_size: 5 },
+  unit_weights: { building: 30, unit: 30, address: 20, gps: 20 },
+  location_same_street_factor: 1, location_same_local_area_factor: 0.85, location_same_suburb_factor: 0.7,
+  recency_0_6_factor: 1, recency_7_12_factor: 0.85, recency_13_24_factor: 0.65,
+  current_months: 6, relevant_months: 12, historical_support_months: 24,
+  quality_min_usable: 40, quality_reasonable_min: 60, quality_close_min: 80,
+  size_similarity_bands: { close: 10, reasonable: 25, broad: 50 },
+  min_direct_for_formal_range: 3, limited_max_count: 2, moderate_max_count: 5, strong_min_count: 6,
+  iqr_outlier_multiplier: 1.5, indicative_lower_percentile: 25, indicative_upper_percentile: 75,
+  confidence_weights: { evidence_count: 35, similarity: 35, recency: 20, quality: 10 },
+  cqs_baseline: 60, retention: RETENTION_DEFAULTS, health_led: HEALTH_LED_DEFAULTS,
+};
 
 const TABS = [
   { key: "duplicate", label: "Duplicate Matching" },
@@ -95,14 +111,17 @@ export default function MarketConfig() {
     ]);
     setVersions(list || []);
     setActive(a);
-    if (a) {
-      const p = JSON.parse(JSON.stringify(a.parameters));
-      p.retention = { ...RETENTION_DEFAULTS, ...(p.retention || {}) };
-      p.health_led = { ...HEALTH_LED_DEFAULTS, ...(p.health_led || {}) };
-      setParams(p);
-    }
+    const p = JSON.parse(JSON.stringify(a?.parameters || DEFAULT_PARAMETERS));
+    p.retention = { ...RETENTION_DEFAULTS, ...(p.retention || {}) };
+    p.health_led = { ...HEALTH_LED_DEFAULTS, ...(p.health_led || {}) };
+    setParams(p);
   };
-  useEffect(() => { load().catch(() => {}); }, []);
+  useEffect(() => {
+    load().catch((e) => {
+      toast.error(`Configuration could not be loaded: ${formatError(e)}`);
+      setParams(JSON.parse(JSON.stringify(DEFAULT_PARAMETERS)));
+    });
+  }, []);
 
   const patch = (k, v) => setParams((p) => ({ ...p, [k]: v }));
   const patchNested = (parent, key, v) => setParams((p) => ({ ...p, [parent]: { ...(p[parent] || {}), [key]: v } }));
