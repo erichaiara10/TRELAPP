@@ -21,10 +21,19 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
     setBusy(true); setReport(null);
     try {
       const { data } = await api.post("/admin/market/sources/rediscover-all");
-      setReport(data);
-      const changes = data.with_changes || 0;
+      const safe = {
+        total: Number(data?.total || 0), with_changes: Number(data?.with_changes || 0),
+        errors: Number(data?.errors || 0), unchanged: Number(data?.unchanged || 0),
+        skipped: Number(data?.skipped || 0),
+        diffs: Array.isArray(data?.diffs) ? data.diffs.map((d) => ({
+          ...d, added: d?.added || [], removed: d?.removed || [],
+          unchanged: d?.unchanged || [], suggested: d?.suggested || [], before: d?.before || d?.existing || [],
+        })) : [],
+      };
+      setReport(safe);
+      const changes = safe.with_changes;
       if (changes === 0) {
-        toast.success(`Scan complete — no changes across ${data.total} sources`);
+        toast.success(`Scan complete — no changes across ${safe.total} sources`);
       } else {
         toast.info(`Scan complete — ${changes} source${changes === 1 ? "" : "s"} changed`);
       }
@@ -64,7 +73,7 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
 
   const applyAll = async () => {
     if (!report?.diffs) return;
-    const targets = report.diffs.filter((d) => d.ok && (d.added.length || d.removed.length));
+    const targets = report.diffs.filter((d) => d.ok && ((d.added || []).length || (d.removed || []).length));
     if (!targets.length) return;
     for (const d of targets) {
       // Serial so toasts read in a natural order + backend stays polite.
@@ -79,7 +88,7 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
     const score = (d) => {
       if (!d.ok && !d.skipped) return 1;                    // errored
       if (d.skipped) return 4;
-      if (d.added.length || d.removed.length) return 0;    // changed
+      if ((d.added || []).length || (d.removed || []).length) return 0;    // changed
       return 3;                                             // unchanged
     };
     return [...report.diffs].sort((a, b) => score(a) - score(b));
@@ -143,7 +152,7 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
                 </thead>
                 <tbody>
                   {sorted.map((d) => {
-                    const changed = d.added.length + d.removed.length;
+                    const changed = (d.added || []).length + (d.removed || []).length;
                     const isOpen = !!expanded[d.source_id];
                     const rowStatus = d.skipped ? "skipped"
                                     : !d.ok ? "error"
@@ -154,7 +163,7 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
                         <tr className="border-t border-border/60"
                             data-testid={`rediscover-row-${d.source_id}`}>
                           <td className="py-2 pl-4 pr-2">
-                            {(d.added.length || d.removed.length || d.candidates?.length) ? (
+                            {((d.added || []).length || (d.removed || []).length || d.candidates?.length) ? (
                               <button onClick={() => setExpanded((s) => ({ ...s, [d.source_id]: !s[d.source_id] }))}
                                       className="text-muted-foreground hover:text-foreground"
                                       data-testid={`rediscover-toggle-${d.source_id}`}>
@@ -168,10 +177,10 @@ export default function BulkRediscoverModal({ onClose, onApplied }) {
                             <StatusPill status={rowStatus} error={d.error} reason={d.reason} />
                           </td>
                           <td className="py-2 pr-3 text-right tabular-nums text-emerald-700">
-                            {d.added.length ? `+${d.added.length}` : "0"}
+                            {(d.added || []).length ? `+${(d.added || []).length}` : "0"}
                           </td>
                           <td className="py-2 pr-3 text-right tabular-nums text-red-700">
-                            {d.removed.length ? `−${d.removed.length}` : "0"}
+                            {(d.removed || []).length ? `−${(d.removed || []).length}` : "0"}
                           </td>
                           <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{d.unchanged.length}</td>
                           <td className="py-2 pr-3 pr-4 text-right">
@@ -277,11 +286,11 @@ function DiffDetail({ diff }) {
   }
   return (
     <div className="space-y-3 text-xs">
-      {diff.added.length > 0 && (
+      {(diff.added || []).length > 0 && (
         <UrlList title="Added" icon={PlusCircle} tone="emerald"
                  urls={diff.added} candidates={diff.suggested || []} testid="added" />
       )}
-      {diff.removed.length > 0 && (
+      {(diff.removed || []).length > 0 && (
         <UrlList title="Removed" icon={MinusCircle} tone="red"
                  urls={diff.removed} candidates={diff.before || []} testid="removed" />
       )}
@@ -289,7 +298,7 @@ function DiffDetail({ diff }) {
         <UrlList title="Unchanged" icon={CheckCircle2} tone="muted"
                  urls={diff.unchanged} candidates={diff.suggested || []} testid="unchanged" />
       )}
-      {!diff.added.length && !diff.removed.length && !diff.unchanged.length && (
+      {!(diff.added || []).length && !(diff.removed || []).length && !diff.unchanged.length && (
         <div className="text-muted-foreground">No candidates match the auto-confirm threshold on this scan.</div>
       )}
     </div>
