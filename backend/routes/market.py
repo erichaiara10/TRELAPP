@@ -119,10 +119,16 @@ async def update_source(source_site_id: str, payload: dict, user: dict = Depends
 
 @router.delete("/admin/market/sources/{source_site_id}")
 async def delete_source(source_site_id: str, user: dict = Depends(require_staff)):
+    source = await db.source_sites.find_one({"id": source_site_id}, {"_id": 0})
     result = await db.source_sites.delete_one({"id": source_site_id})
     if not result.deleted_count:
         raise HTTPException(404, "Source not found")
-    return {"ok": True}
+    await db.audit_events.insert_one({
+        "id": new_id(), "subject_type": "market_source", "subject_id": source_site_id,
+        "action": "SOURCE_DELETED_LISTINGS_RETAINED", "actor_id": user["id"],
+        "payload": {"name": (source or {}).get("name")}, "created_at": now_iso(),
+    })
+    return {"ok": True, "listings_retained": True}
 
 
 @router.post("/admin/market/listings")
@@ -497,8 +503,15 @@ async def active_config(algorithm: str = "combined", user: dict = Depends(requir
 
 @router.post("/admin/market/config")
 async def create_config(payload: dict, user: dict = Depends(require_staff)):
-    row = {"id": new_id(), "kind": "market_configuration", "active": False, "created_at": now_iso(), **payload}
+    activate = bool(payload.pop("activate", False))
+    row = {"id": new_id(), "kind": "market_configuration", "active": activate, "created_at": now_iso(), **payload}
+    if activate:
+        await db.system_settings.update_many({"kind": "market_configuration"}, {"$set": {"active": False}})
     await db.system_settings.insert_one(row)
+    await db.audit_events.insert_one({
+        "id": new_id(), "subject_type": "market_configuration", "subject_id": row["id"],
+        "action": "CONFIGURATION_PUBLISHED", "actor_id": user["id"], "created_at": now_iso(),
+    })
     row.pop("_id", None)
     return row
 
