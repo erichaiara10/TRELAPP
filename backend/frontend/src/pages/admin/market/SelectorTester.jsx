@@ -19,12 +19,10 @@ function pickSelectorFields(cfg) {
   return out;
 }
 
-function firstSearchUrl(cfg, sourceBase) {
-  const base = (sourceBase || cfg?.base_url || "").replace(/\/$/, "");
-  const path = (cfg?.search_paths || [])[0] || "/property-for-sale";
-  const tpl = cfg?.page_url_template;
-  if (tpl) return tpl.replace("{base}", base).replace("{path}", path).replace("{page}", 1);
-  return `${base}${path}`;
+function firstSearchUrl(cfg, source) {
+  const confirmed = (source?.listing_pages || []).find((p) => p?.listing_url)?.listing_url;
+  if (confirmed) return confirmed;
+  return source?.base_url || cfg?.base_url || "";
 }
 
 export default function SelectorTester({ source, collectorMeta, onClose }) {
@@ -57,14 +55,14 @@ export default function SelectorTester({ source, collectorMeta, onClose }) {
         ...pickSelectorFields(cfg),
         ...pickSelectorFields(source?.parser_config || {}),
       });
-      setUrl(firstSearchUrl(cfg, source?.base_url));
+      setUrl(firstSearchUrl(cfg, source));
     };
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectorKey]);
 
-  const searchPaths = useMemo(() => defaults?.search_paths || [], [defaults]);
+  const searchPaths = useMemo(() => (source?.listing_pages || []).map((p) => p.listing_url).filter(Boolean), [source]);
 
   const runTest = async () => {
     if (!collectorKey) return;
@@ -147,7 +145,7 @@ export default function SelectorTester({ source, collectorMeta, onClose }) {
               Quick paths:{" "}
               {searchPaths.map((p, i) => (
                 <button key={p} type="button"
-                        onClick={() => setUrl(firstSearchUrl({ ...defaults, search_paths: [p] }, source?.base_url))}
+                        onClick={() => setUrl(p)}
                         className="underline mr-2 hover:text-foreground"
                         data-testid={`tester-path-${i}`}>
                   {p}
