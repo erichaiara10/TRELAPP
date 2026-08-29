@@ -43,7 +43,7 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
             "property_type_id": STRING,
             "property_type_name": STRING,
             "title": STRING,
-            "lifecycle_status": {"enum": ["draft", "active", "under_offer", "sold", "leased", "withdrawn", "deleted"]},
+            "lifecycle_status": {"enum": ["draft", "active", "under_offer", "sold", "leased", "withdrawn", "archived", "deleted"]},
             "verification_status": {"enum": ["UNVERIFIED", "PENDING", "VERIFIED", "REJECTED"]},
             "parent_property_id": NULLABLE_STRING,
             "created_by": STRING,
