@@ -345,7 +345,7 @@ async def update_listing_lifecycle(
         })
         await db.master_properties.update_one(
             {"id": listing["property_id"]},
-            {"$set": {"lifecycle_status": "archived", "archived_at": timestamp,
+            {"$set": {"lifecycle_status": integrated_status, "archived_at": timestamp,
                       "updated_at": timestamp}},
         )
         if submission:
