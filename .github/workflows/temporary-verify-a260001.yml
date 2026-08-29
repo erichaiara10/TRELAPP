@@ -1,0 +1,37 @@
+name: Temporary Verify A260001 Public Removal
+
+on:
+  push:
+    branches:
+      - codex/test-record-repair-it24
+    paths:
+      - .github/workflows/temporary-verify-a260001.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public-removal:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify public detail is unavailable
+        shell: bash
+        run: |
+          set -euo pipefail
+          detail_url="https://trelweb-test.fly.dev/api/properties/a4de4cc0-5f50-50c8-9f4b-ff75aadb5ec5?public_view=true"
+          status="$(curl --silent --show-error --output detail.json --write-out '%{http_code}' "$detail_url")"
+          test "$status" = "410"
+          grep -q '"availability":"SOLD"' detail.json
+          grep -q '"PROPERTY_UNAVAILABLE"' detail.json
+
+      - name: Verify active public list excludes A260001
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail "https://trelweb-test.fly.dev/api/properties?listing_type=sale&limit=1000" > properties.json
+          if grep -q 'a4de4cc0-5f50-50c8-9f4b-ff75aadb5ec5' properties.json; then
+            echo "A260001 is still present in the active public list" >&2
+            exit 1
+          fi
+          echo "A260001_PUBLIC_REMOVAL_VERIFIED=true"
