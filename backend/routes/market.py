@@ -1,7 +1,7 @@
 """Staff-only Property Data Aggregation and Master Property link endpoints."""
 import statistics
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -36,12 +36,34 @@ def _source_view(row: dict) -> dict:
     return item
 
 
+def _normalized_base_url(payload: dict) -> str:
+    raw = str(payload.get("base_url") or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(400, "Enter a valid public http or https website address")
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/") or "", "", "", ""))
+
+
 def _domain(payload: dict) -> str:
     raw = str(payload.get("domain") or "").strip().lower()
     if raw:
         return raw.removeprefix("www.")
-    base = str(payload.get("base_url") or "").strip()
-    return (urlparse(base if "://" in base else f"https://{base}").hostname or "").lower().removeprefix("www.")
+    base = _normalized_base_url(payload)
+    return (urlparse(base).hostname or "").lower().removeprefix("www.")
+
+
+def _listing_pages(pages) -> list:
+    clean, seen = [], set()
+    for page in pages or []:
+        url = str((page or {}).get("listing_url") or "").strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or url in seen:
+            continue
+        seen.add(url)
+        clean.append({**page, "listing_url": url})
+    return clean
 
 
 @router.get("/admin/market/sources")
@@ -60,14 +82,14 @@ async def create_source(payload: dict, user: dict = Depends(require_staff)):
     timestamp = now_iso()
     document = {
         "id": new_id(), "name": str(payload["name"]).strip(), "domain": domain,
-        "base_url": payload.get("base_url") or f"https://{domain}",
+        "base_url": _normalized_base_url(payload),
         "description": payload.get("description"), "active": bool(payload.get("active", True)),
         "is_trel_owned": bool(payload.get("is_trel_owned", False)),
         "collector_key": payload.get("collector") or payload.get("collector_key") or "generic_web",
         "collection_frequency": payload.get("collection_frequency") or "manual",
         "allow_source_auto_match": bool(payload.get("allow_source_auto_match", True)),
         "parser_version": payload.get("parser_version") or "1.0",
-        "listing_pages": payload.get("listing_pages") or [],
+        "listing_pages": _listing_pages(payload.get("listing_pages")),
         "parser_config": payload.get("parser_config") or {},
         "created_at": timestamp, "updated_at": timestamp,
     }
@@ -82,6 +104,10 @@ async def update_source(source_site_id: str, payload: dict, user: dict = Depends
     if not existing:
         raise HTTPException(404, "Source not found")
     patch = dict(payload)
+    if "base_url" in patch:
+        patch["base_url"] = _normalized_base_url(patch)
+    if "listing_pages" in patch:
+        patch["listing_pages"] = _listing_pages(patch["listing_pages"])
     if "collector" in patch:
         patch["collector_key"] = patch.pop("collector")
     patch["domain"] = _domain({**existing, **patch})
@@ -135,7 +161,15 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
                 run["records_matched"] += 1
             elif result["match"]["status"] == "REVIEW_REQUIRED":
                 run["records_review_required"] += 1
-        run.update(status="SUCCESS", finished_at=now_iso())
+        diagnostics = getattr(collector, "diagnostics", None) or {
+            "pages_visited": [], "cards_seen": run["records_seen"],
+            "cards_accepted": run["records_ingested"],
+            "cards_rejected": max(0, run["records_seen"] - run["records_ingested"]),
+            "rejection_reasons": {}, "records_passed_to_ingestion": run["records_seen"],
+            "records_inserted": run["records_ingested"], "records_updated": 0,
+            "pagination_end_reason": "collector_complete",
+        }
+        run.update(status="SUCCESS", finished_at=now_iso(), diagnostics=diagnostics, errors=[])
     except Exception as exc:
         run.update(status="FAILED", finished_at=now_iso(), error=str(exc)[:1000])
         await db.collection_runs.update_one({"id": run["id"]}, {"$set": run})
@@ -215,26 +249,58 @@ async def rediscover_all(user: dict = Depends(require_staff)):
     rows = await list_sources(user)
     diffs = []
     for source in rows:
+        before = _listing_pages(source.get("listing_pages"))
         if not source.get("base_url") or not source.get("collector"):
+            diffs.append({"source_id": source["id"], "source_name": source["name"], "base_url": source.get("base_url"),
+                          "ok": False, "skipped": True, "error": "Source has no website or collector",
+                          "before": before, "existing": before, "suggested": [], "added": [], "removed": [], "unchanged": []})
             continue
-        discovered = await discover_listing_pages(source["base_url"], source["collector"], source.get("parser_config"))
-        suggested = discovered.get("candidates") or []
-        old_urls = {p.get("listing_url") for p in source.get("listing_pages") or []}
-        new_urls = {p.get("listing_url") for p in suggested}
-        diffs.append({"source_id": source["id"], "source_name": source["name"], "base_url": source.get("base_url"),
-                      "existing": source.get("listing_pages") or [], "suggested": suggested,
-                      "added": sorted(new_urls - old_urls), "removed": sorted(old_urls - new_urls),
-                      "changed": old_urls != new_urls})
-    return {"total": len(rows), "diffs": diffs}
+        try:
+            discovered = await discover_listing_pages(source["base_url"], source["collector"], source.get("parser_config"))
+            suggested = _listing_pages(discovered.get("candidates"))
+            old_urls = {p.get("listing_url") for p in before}
+            new_urls = {p.get("listing_url") for p in suggested}
+            diffs.append({"source_id": source["id"], "source_name": source["name"], "base_url": source.get("base_url"),
+                          "ok": True, "skipped": False, "error": None, "before": before, "existing": before,
+                          "suggested": suggested, "added": sorted(new_urls - old_urls),
+                          "removed": sorted(old_urls - new_urls), "unchanged": sorted(old_urls & new_urls),
+                          "changed": old_urls != new_urls})
+        except Exception as exc:
+            diffs.append({"source_id": source["id"], "source_name": source["name"], "base_url": source.get("base_url"),
+                          "ok": False, "skipped": False, "error": str(exc)[:500], "before": before,
+                          "existing": before, "suggested": [], "added": [], "removed": [], "unchanged": []})
+    return {
+        "total": len(rows), "diffs": diffs,
+        "with_changes": sum(1 for d in diffs if d.get("ok") and (d["added"] or d["removed"])),
+        "errors": sum(1 for d in diffs if not d.get("ok") and not d.get("skipped")),
+        "unchanged": sum(1 for d in diffs if d.get("ok") and not d["added"] and not d["removed"]),
+        "skipped": sum(1 for d in diffs if d.get("skipped")),
+    }
 
 
 @router.put("/admin/market/sources/{source_site_id}/listing-pages")
 async def save_listing_pages(source_site_id: str, payload: dict, user: dict = Depends(require_staff)):
-    pages = payload.get("listing_pages") or payload.get("pages") or []
+    pages = _listing_pages(payload.get("listing_pages") or payload.get("pages"))
     result = await db.source_sites.update_one({"id": source_site_id}, {"$set": {"listing_pages": pages, "updated_at": now_iso()}})
     if not result.matched_count:
         raise HTTPException(404, "Source not found")
     return {"ok": True, "listing_pages": pages}
+
+
+@router.get("/admin/market/master-properties")
+async def list_master_properties(search: str = "", limit: int = Query(default=200, ge=1, le=500), user: dict = Depends(require_staff)):
+    query = {"lifecycle_status": {"$ne": "deleted"}}
+    if search.strip():
+        term = search.strip()
+        query["$or"] = [
+            {"id": {"$regex": term, "$options": "i"}},
+            {"canonical_address": {"$regex": term, "$options": "i"}},
+            {"property_type": {"$regex": term, "$options": "i"}},
+        ]
+    rows = await db.master_properties.find(query, {"_id": 0}).sort("updated_at", -1).limit(limit).to_list(limit)
+    for row in rows:
+        row["source_listing_count"] = await db.source_listings.count_documents({"master_property_id": row.get("id")})
+    return rows
 
 
 @router.get("/admin/market/listings")
