@@ -73,6 +73,13 @@ def registered() -> list[dict]:
             for c in _REGISTRY.values()]
 
 
-
-# Import the supported collector so its ``@register`` decorator runs.
-from core.collectors import hausples_png  # noqa: F401,E402
+# Import concrete collectors so their `@register` decorators run.
+from core.collectors import (                                              # noqa: F401,E402
+    dac,
+    hausples_png,
+    ljhookerpng,
+    marketmeri,
+    mypnghome,
+    seed,
+    sre,
+)
