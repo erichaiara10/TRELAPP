@@ -17,6 +17,7 @@ async def main():
     if DB_NAME != "trel_test":
         raise RuntimeError(f"Refusing to inspect non-test database: {DB_NAME}")
 
+    master = await db.master_properties.find_one({"id": PROPERTY_ID}, {"_id": 0})
     listing = await db.listings.find_one(
         {"property_id": PROPERTY_ID},
         {"_id": 0},
@@ -28,16 +29,18 @@ async def main():
         {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1,
          "account_category": 1, "status": 1},
     )
+    advertiser_id = (advertiser or {}).get("id")
     profile = await db.advertiser_profiles.find_one(
-        {"user_id": (advertiser or {}).get("id")},
+        {"user_id": advertiser_id},
         {"_id": 0, "user_id": 1, "status": 1, "whatsapp": 1,
          "advertiser_relationship_type": 1},
     ) if advertiser else None
 
     result = {
         "database": DB_NAME,
-        "master": clean(await db.master_properties.find_one(
-            {"id": PROPERTY_ID}, {"_id": 0}
+        "master": clean(master),
+        "property_type": clean(await db.property_types.find_one(
+            {"id": (master or {}).get("property_type_id")}, {"_id": 0}
         )),
         "listing": clean(listing),
         "address": clean(await db.property_addresses.find_one(
@@ -62,6 +65,11 @@ async def main():
         ] if listing_id else [],
         "advertiser_candidate": clean(advertiser),
         "advertiser_profile": clean(profile),
+        "advertiser_identity_documents": [
+            clean(row) for row in await db.identity_documents.find(
+                {"user_id": advertiser_id}, {"_id": 0, "id": 1, "document_type": 1, "status": 1}
+            ).to_list(20)
+        ] if advertiser_id else [],
     }
     print("IT24_INSPECTION=" + json.dumps(result, default=str, sort_keys=True))
     client.close()
