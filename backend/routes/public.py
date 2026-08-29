@@ -33,10 +33,13 @@ async def public_create_lead(payload: LeadCreate):
     captcha_verify(payload.verification_token, payload.verification_answer)
     p = payload.model_dump()
     prop_title = None
+    notification_recipient = payload.email
     if p.get("property_id"):
         prop = await _public_property(p["property_id"])
         p["property_id"] = prop["id"]
         prop_title = prop["title"]
+        p.setdefault("payload", {})["advertiser_id"] = prop.get("advertiser_id")
+        notification_recipient = prop.get("advertiser_email")
     role = "leasing_agent" if p["source"] == "management_form" else "sales_agent"
     lead = Lead(source=p["source"], name=p["name"], email=p.get("email"),
                 phone=p.get("phone"), message=p.get("message", ""),
@@ -66,7 +69,7 @@ async def public_create_lead(payload: LeadCreate):
         await db.requirements.insert_one(req)
         await db.leads.update_one({"id": lead["id"]}, {"$set": {"requirement_id": req["id"]}})
     await notify(f"New {p['source']} enquiry from {payload.name}",
-                 payload.message or "See lead in dashboard", payload.email)
+                 payload.message or "See lead in dashboard", notification_recipient)
     return {"ok": True, "lead_id": lead["id"]}
 
 
@@ -85,9 +88,10 @@ async def public_create_inspection(payload: InspectionCreate):
     lead = Lead(source="inspection_form", name=payload.customer_name,
                 email=payload.customer_email, phone=payload.customer_phone,
                 property_id=prop["id"], property_title=prop["title"],
-                payload={"preferred_date": payload.preferred_date},
+                payload={"preferred_date": payload.preferred_date,
+                         "advertiser_id": prop.get("advertiser_id")},
                 assigned_agent_id=ins["assigned_agent_id"]).model_dump()
     await db.leads.insert_one(lead)
     await notify(f"New inspection request: {prop['title']}",
-                 payload.customer_name, payload.customer_email)
-    return {"ok": True, "inspection_id": ins["id"]}
+                 payload.customer_name, prop.get("advertiser_email"))
+    return {"ok": True, "inspection_id": ins["id"], "preferred_date": ins["preferred_date"]}

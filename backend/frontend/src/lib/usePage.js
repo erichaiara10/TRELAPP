@@ -3,8 +3,8 @@ import { api } from "@/lib/api";
 
 /**
  * Fetch editable per-page content from /api/page/{slug}.
- * Returns { sections, loading }. Defaults are already merged server-side,
- * so callers get a fully-populated `sections` object even if never edited.
+ * Returns { sections, loading }. The home page is intentionally returned
+ * without static defaults so staff-managed content remains authoritative.
  */
 export function usePage(slug) {
   const [sections, setSections] = useState({});

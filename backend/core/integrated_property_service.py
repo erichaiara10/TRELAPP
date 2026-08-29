@@ -740,12 +740,19 @@ class IntegratedPropertyService:
         authority = await self.db.advertiser_authorities.find_one(
             {"property_id": property_id}, {"_id": 0}, session=session
         ) or {}
+        submitter_id = authority.get("submitted_by_user_id") or master.get("created_by")
+        advertiser = await self.db.users.find_one(
+            {"id": submitter_id, "account_category": "PROPERTY_ADVERTISER"},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1}, session=session,
+        ) if submitter_id else {}
+        advertiser_profile = await self.db.advertiser_profiles.find_one(
+            {"user_id": submitter_id}, {"_id": 0, "whatsapp": 1}, session=session,
+        ) if advertiser else {}
         # Compute "owner verified" flag — the property was submitted by a
         # Property Advertiser whose profile AND at least one government ID are
         # both VERIFIED. Used to display the "Verified Owner" badge on the
         # public property card.
         owner_verified = False
-        submitter_id = authority.get("submitted_by_user_id") or master.get("created_by")
         if submitter_id:
             profile_verified = await self.db.advertiser_profiles.find_one(
                 {"user_id": submitter_id, "status": "VERIFIED"},
@@ -775,6 +782,7 @@ class IntegratedPropertyService:
             "price_type": listing.get("price_type") or "PGK",
             "price_label": listing.get("price_label"),
             "listing_reference": listing.get("listing_reference"),
+            "property_reference": listing.get("property_reference"),
             "service": listing.get("service"),
             "bedrooms": attributes.get("bedrooms", 0),
             "bathrooms": attributes.get("bathrooms", 0),
@@ -819,6 +827,11 @@ class IntegratedPropertyService:
             "owner_relationship": authority.get("authority_basis") or (owner_link or {}).get("relationship_type"),
             "authority_status": authority.get("status") or (owner_link or {}).get("authority_status"),
             "owner_verified": owner_verified,
+            "advertiser_id": (advertiser or {}).get("id"),
+            "advertiser_name": (advertiser or {}).get("name"),
+            "advertiser_email": (advertiser or {}).get("email"),
+            "advertiser_phone": (advertiser or {}).get("phone"),
+            "advertiser_whatsapp": (advertiser_profile or {}).get("whatsapp"),
             "created_at": listing.get("created_at"),
             "updated_at": listing.get("updated_at"),
         }

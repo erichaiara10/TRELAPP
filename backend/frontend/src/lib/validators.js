@@ -22,6 +22,10 @@ export function warnOnce(message) {
 
 // ---- Sanitisers -------------------------------------------------------------
 export const NAME_MAX = 25;
+export function isValidName(raw) {
+  const value = String(raw ?? "");
+  return value.length > 0 && value.length <= NAME_MAX && /^[A-Za-z\s\'-]+$/.test(value);
+}
 export function sanitizeName(raw, opts = {}) {
   const src = String(raw ?? "");
   let cleaned = src.replace(/[^A-Za-z\s'-]/g, "");

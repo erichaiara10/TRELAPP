@@ -31,22 +31,22 @@ const PAGE_SCHEMAS = [
     key: "home", label: "Home page", endpoint: "page",
     sections: [
       { key: "hero", label: "Hero", type: "group", fields: [
-        { key: "image", label: "Hero image", type: "image" },
-        { key: "kicker", label: "Kicker (small tagline)" },
-        { key: "heading", label: "Main heading" },
-        { key: "sub", label: "Sub-heading", type: "textarea" },
-        { key: "cta_primary.label", label: "Primary CTA label" },
-        { key: "cta_primary.href", label: "Primary CTA link" },
-        { key: "cta_secondary.label", label: "Secondary CTA label" },
-        { key: "cta_secondary.href", label: "Secondary CTA link" },
+        { key: "image", label: "Hero image *", type: "image", required: true },
+        { key: "kicker", label: "Kicker (small tagline) *", required: true },
+        { key: "heading", label: "Main heading *", required: true },
+        { key: "sub", label: "Sub-heading *", type: "textarea", required: true },
+        { key: "cta_primary.label", label: "Primary CTA label *", required: true },
+        { key: "cta_primary.href", label: "Primary CTA link *", required: true },
+        { key: "cta_secondary.label", label: "Secondary CTA label *", required: true },
+        { key: "cta_secondary.href", label: "Secondary CTA link *", required: true },
       ]},
       { key: "featured_intro", label: "Featured section intro", type: "group", fields: [
         { key: "kicker", label: "Kicker" },
-        { key: "heading", label: "Heading" },
+        { key: "heading", label: "Heading *", required: true },
         { key: "sub", label: "Sub-text", type: "textarea" },
       ]},
       { key: "why_us", label: "Why choose us", type: "group", fields: [
-        { key: "heading", label: "Heading" },
+        { key: "heading", label: "Heading *", required: true },
       ]},
       { key: "why_us.items", label: "Why-us items", type: "list", itemFields: [
         { key: "title", label: "Title" },
@@ -231,14 +231,14 @@ function TextInput({ field, value, onChange, testId }) {
     return (
       <label className="block">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">{field.label}</span>
-        <textarea rows={4} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testId} className={cls} />
+        <textarea required={field.required} rows={4} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testId} className={cls} />
       </label>
     );
   }
   return (
     <label className="block">
       <span className="text-xs uppercase tracking-widest text-muted-foreground">{field.label}</span>
-      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testId} className={cls} />
+      <input required={field.required} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testId} className={cls} />
     </label>
   );
 }

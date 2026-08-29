@@ -42,6 +42,8 @@ async def get_page_content(page: str):
         raise HTTPException(404, f"Unknown page '{page}'")
     doc = await db.page_content.find_one({"page": page}, {"_id": 0}) or {}
     stored = doc.get("sections", {})
+    if page == "home":
+        return {"page": page, "sections": stored}
     defaults = DEFAULT_PAGE_CONTENT.get(page, {})
     return {"page": page, "sections": _deep_merge(defaults, stored)}
 
@@ -53,6 +55,22 @@ async def set_page_content(page: str, payload: dict, user: dict = Depends(get_cu
     sections = payload.get("sections") if isinstance(payload, dict) and "sections" in payload else payload
     if not isinstance(sections, dict):
         raise HTTPException(400, "sections must be an object")
+    if page == "home":
+        required = {
+            "hero.image": ((sections.get("hero") or {}).get("image")),
+            "hero.kicker": ((sections.get("hero") or {}).get("kicker")),
+            "hero.heading": ((sections.get("hero") or {}).get("heading")),
+            "hero.sub": ((sections.get("hero") or {}).get("sub")),
+            "hero.cta_primary.label": (((sections.get("hero") or {}).get("cta_primary") or {}).get("label")),
+            "hero.cta_primary.href": (((sections.get("hero") or {}).get("cta_primary") or {}).get("href")),
+            "hero.cta_secondary.label": (((sections.get("hero") or {}).get("cta_secondary") or {}).get("label")),
+            "hero.cta_secondary.href": (((sections.get("hero") or {}).get("cta_secondary") or {}).get("href")),
+            "featured_intro.heading": ((sections.get("featured_intro") or {}).get("heading")),
+            "why_us.heading": ((sections.get("why_us") or {}).get("heading")),
+        }
+        missing = [path for path, value in required.items() if not str(value or "").strip()]
+        if missing:
+            raise HTTPException(400, f"Home page content is required: {', '.join(missing)}")
     await db.page_content.update_one(
         {"page": page},
         {"$set": {"page": page, "sections": sections,

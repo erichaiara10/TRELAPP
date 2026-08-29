@@ -14,6 +14,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 
 from core.account_policy import require_staff
 from core.db import client, db, new_id, now_iso
@@ -79,6 +80,7 @@ async def ensure_indexes() -> None:
     await db.advertiser_listing_lifecycle.create_index("next_due", sparse=True)
     await db.advertiser_listing_lifecycle.create_index("unpublish_due", sparse=True)
     await db.advertiser_listing_lifecycle.create_index("archive_due", sparse=True)
+    await db.listings.create_index("property_reference", unique=True, sparse=True)
 
 
 class DecisionIn(BaseModel):
@@ -805,6 +807,36 @@ def _integrated_payload(item: dict, advertiser: dict) -> dict:
     }
 
 
+def property_reference_counter_key(service: str, timestamp: str) -> str:
+    prefix = "T" if str(service or "").strip().lower().startswith("trel") else "A"
+    year = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).strftime("%y")
+    return f"{prefix}{year}"
+
+
+async def _ensure_property_reference(listing_id: str, service: str, timestamp: str) -> str:
+    existing = await db.listings.find_one({"id": listing_id}, {"_id": 0, "property_reference": 1})
+    if (existing or {}).get("property_reference"):
+        return existing["property_reference"]
+    counter_key = property_reference_counter_key(service, timestamp)
+    counter = await db.property_reference_counters.find_one_and_update(
+        {"id": counter_key},
+        {"$inc": {"sequence": 1},
+         "$setOnInsert": {"id": counter_key, "created_at": timestamp}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    sequence = int(counter["sequence"])
+    if sequence > 9999:
+        raise HTTPException(409, f"Property reference capacity reached for {counter_key}")
+    reference = f"{counter_key}{sequence:04d}"
+    await db.listings.update_one(
+        {"id": listing_id, "property_reference": {"$exists": False}},
+        {"$set": {"property_reference": reference, "updated_at": timestamp}},
+    )
+    stored = await db.listings.find_one({"id": listing_id}, {"_id": 0, "property_reference": 1})
+    return stored["property_reference"]
+
+
 async def _sync_public_listing(item: dict, user: dict, new_status: str) -> dict:
     listing_reference = item["listing_reference"]
     existing = await db.listings.find_one({"listing_reference": listing_reference}, {"_id": 0})
@@ -838,7 +870,9 @@ async def _sync_public_listing(item: dict, user: dict, new_status: str) -> dict:
             "service": data.get("service"), "listing_reference": listing_reference,
             "updated_at": timestamp,
         }})
-        return {"property_id": existing["property_id"], "listing_id": existing["id"]}
+        property_reference = await _ensure_property_reference(existing["id"], data.get("service"), timestamp)
+        return {"property_id": existing["property_id"], "listing_id": existing["id"],
+                "property_reference": property_reference}
     property_id = item.get("master_property_id")
     if property_id:
         if not await db.master_properties.find_one({"id": property_id}, {"_id": 0, "id": 1}):
@@ -877,6 +911,7 @@ async def _sync_public_listing(item: dict, user: dict, new_status: str) -> dict:
             "listing_reference": listing_reference, "service": data.get("service"),
             "price_type": price_type, "price_label": price_label(data),
         }})
+    property_reference = await _ensure_property_reference(listing_id, data.get("service"), timestamp)
     await db.staff_property_reviews.update_one(
         {"subject_ref": item["reference"]},
         {"$set": {"master_property_id": property_id, "integrated_listing_id": listing_id,
@@ -886,7 +921,8 @@ async def _sync_public_listing(item: dict, user: dict, new_status: str) -> dict:
         {"id": item["id"]}, {"$set": {"master_property_id": property_id,
                                         "integrated_listing_id": listing_id, "updated_at": timestamp}},
     )
-    return {"property_id": property_id, "listing_id": listing_id}
+    return {"property_id": property_id, "listing_id": listing_id,
+            "property_reference": property_reference}
 
 
 @router.get("/publications")

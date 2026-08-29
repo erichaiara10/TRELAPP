@@ -3,21 +3,19 @@ import { Link, useNavigate } from "react-router-dom";
 import { Search, MapPin, Home as HomeIcon, Bed, Bath, Car, Ruler, Users, ArrowRight, RefreshCw } from "lucide-react";
 import { api, money } from "@/lib/api";
 import PriceCompareButton from "@/components/PriceCompareButton";
-
-const H01_HERO = "/images/h01-authoritative-hero.png";
-const FALLBACK_PROPERTY = "https://images.pexels.com/photos/1974596/pexels-photo-1974596.jpeg";
+import { usePage } from "@/lib/usePage";
 
 function ListingCard({ property }) {
   const rent = property.listing_type === "rent";
   return <article className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden" data-testid={`featured-property-${property.id}`}>
     <Link to={`/property/${property.id}`} className="block group">
       <div className="relative aspect-[16/8.5] overflow-hidden bg-slate-100">
-        <img src={property.images?.[0] || FALLBACK_PROPERTY} alt={property.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+        {property.images?.[0] ? <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <div className="w-full h-full grid place-items-center text-sm text-slate-500">No property image available</div>}
         <span className="absolute top-3 left-3 rounded-lg bg-white/95 px-2.5 py-1 text-xs text-[#075C36] font-semibold">{rent ? "For Rent" : "For Sale"}</span>
       </div>
       <div className="p-4">
         <div className="flex items-center gap-1 text-xs text-slate-600"><MapPin className="w-3.5 h-3.5" />{[property.suburb, property.location].filter(Boolean).join(", ")}</div>
-        <h3 className="mt-2 text-lg font-semibold leading-snug line-clamp-1">{property.title}</h3>
+        <h3 className="mt-2 text-lg font-semibold leading-snug line-clamp-1">{property.property_reference ? `${property.property_reference} — ` : ""}{property.title}</h3>
         <div className="mt-1 text-lg font-bold text-[#075C36]">{property.price_label||money(property.price, property.currency || "PGK")}{rent&&(!property.price_type||property.price_type==="PGK") ? " / month" : ""}</div>
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
           <span className="flex gap-1"><Bed className="w-4 h-4" />{property.bedrooms ? `${property.bedrooms} Bedrooms` : "-"}</span><span className="flex gap-1"><Bath className="w-4 h-4" />{property.bathrooms ? `${property.bathrooms} Bathrooms` : "-"}</span>
@@ -41,6 +39,7 @@ function ListingCard({ property }) {
 
 export default function Home() {
   const navigate = useNavigate();
+  const { sections: content, loading: contentLoading } = usePage("home");
   const [intent, setIntent] = useState("sale");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ locations: [], types: [], listings: [] });
@@ -110,13 +109,23 @@ export default function Home() {
     </button>; })}
   </div> : null;
 
+  if (contentLoading) return <div className="container-tight py-10 text-muted-foreground">Loading home page…</div>;
+  const hero = content.hero || {};
+  const homeReady = hero.image && hero.kicker && hero.heading && hero.sub && hero.cta_primary?.label && hero.cta_primary?.href && hero.cta_secondary?.label && hero.cta_secondary?.href;
+  if (!homeReady) return <div className="container-tight py-10"><h1 className="text-2xl font-semibold">Home page content is not configured</h1><p className="mt-2 text-muted-foreground">A staff member must complete the Home page content before it can be published.</p></div>;
+  const featuredIntro = content.featured_intro || {};
+  const whyItems = Array.isArray(content.why_us?.items) ? content.why_us.items : [];
+  const whyIcons = [Search, HomeIcon, Users];
+
   return <div className="bg-white">
     <section className="relative min-h-[390px] md:min-h-[430px] flex items-center justify-center overflow-hidden">
-      <img src={H01_HERO} alt="Papua New Guinea residential property" className="absolute inset-0 w-full h-full object-cover" />
+      <img src={hero.image} alt={hero.heading} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-0 bg-black/30" />
       <div className="relative z-10 w-full max-w-3xl px-5 text-white text-center">
-        <h1 className="text-4xl md:text-5xl font-semibold leading-tight">Find a place you’re<br />proud to call home.</h1>
-        <p className="mt-3 text-base">Browse quality properties for sale and rent across Papua New Guinea.</p>
+        <p className="text-sm uppercase tracking-widest">{hero.kicker}</p>
+        <h1 className="mt-2 text-4xl md:text-5xl font-semibold leading-tight">{hero.heading}</h1>
+        <p className="mt-3 text-base">{hero.sub}</p>
+        <div className="mt-4 flex flex-wrap justify-center gap-3"><Link to={hero.cta_primary.href} className="rounded-full bg-[#075C36] px-5 py-2.5 font-semibold">{hero.cta_primary.label}</Link><Link to={hero.cta_secondary.href} className="rounded-full border border-white bg-white/10 px-5 py-2.5 font-semibold">{hero.cta_secondary.label}</Link></div>
         <form onSubmit={submitSearch} className="mt-4" data-testid="home-search-form">
           <div className="flex justify-center"><div className="bg-white rounded-full p-1 flex text-sm text-slate-900">
             <button type="button" onClick={() => setIntent("sale")} className={`px-5 py-2 rounded-full ${intent === "sale" ? "bg-[#075C36] text-white" : ""}`}>Buy</button>
@@ -134,11 +143,13 @@ export default function Home() {
     </section>
 
     <section className="container-tight py-5" data-testid="featured-properties">
-      <div className="flex flex-wrap items-end gap-8 mb-4"><h2 className="text-3xl font-semibold">Featured Properties</h2>
+      {featuredIntro.kicker && <p className="text-sm uppercase tracking-widest text-[#075C36]">{featuredIntro.kicker}</p>}
+      <div className="flex flex-wrap items-end gap-8 mb-2"><h2 className="text-3xl font-semibold">{featuredIntro.heading}</h2>
         <button onClick={() => setFeaturedIntent("sale")} className={`pb-1 ${featuredIntent === "sale" ? "text-[#075C36] border-b-2 border-[#075C36]" : ""}`}>For Sale</button>
         <button onClick={() => setFeaturedIntent("rent")} className={`pb-1 ${featuredIntent === "rent" ? "text-[#075C36] border-b-2 border-[#075C36]" : ""}`}>For Rent</button>
         <Link to={featuredIntent === "sale" ? "/buy" : "/rent"} className="ml-auto text-sm text-[#075C36] flex items-center gap-1">View all properties <ArrowRight className="w-4 h-4" /></Link>
       </div>
+      {featuredIntro.sub && <p className="mb-4 text-slate-600">{featuredIntro.sub}</p>}
       {loading && <div className="grid md:grid-cols-3 gap-5" aria-label="Loading featured properties">{[1,2,3].map((i) => <div key={i} className="h-72 rounded-2xl bg-slate-100 animate-pulse" />)}</div>}
       {!loading && error && <div className="rounded-xl bg-red-50 p-5 text-red-800 flex justify-between">{error}<button onClick={() => loadFeatured()} className="inline-flex gap-1"><RefreshCw className="w-4 h-4" />Retry</button></div>}
       {!loading && !error && featured.length === 0 && <div className="rounded-xl bg-slate-50 p-8 text-center text-slate-600">No featured properties are available right now. Please view all properties or check again soon.</div>}
@@ -147,9 +158,9 @@ export default function Home() {
 
     <section className="container-tight pb-6">
       <div className="relative border rounded-2xl pt-5">
-        <h2 className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xl font-semibold whitespace-nowrap">How TRELPNG Helps</h2>
+        <h2 className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xl font-semibold whitespace-nowrap">{content.why_us?.heading}</h2>
         <div className="grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x">
-          {[{ icon: Search, title: "Search Properties", body: "Find the right property for sale or rent across PNG with ease.", to: "/buy" }, { icon: HomeIcon, title: "Add Property", body: "List your property quickly and reach thousands of buyers or tenants.", to: "/add-property" }, { icon: Users, title: "Connect with Buyers/Tenants", body: "Connect directly with interested buyers or tenants you can trust.", to: "/contact" }].map(({icon: Icon, title, body, to}) => <Link key={title} to={to} className="p-5 flex items-center gap-5"><span className="w-14 h-14 rounded-full bg-blue-100 text-[#168CF5] grid place-items-center"><Icon className="w-7 h-7" /></span><span><strong className="block text-lg">{title}</strong><span className="text-sm text-slate-600">{body}</span></span></Link>)}
+          {whyItems.map(({ title, body }, index) => { const Icon = whyIcons[index % whyIcons.length]; return <div key={`${title}-${index}`} className="p-5 flex items-center gap-5"><span className="w-14 h-14 rounded-full bg-blue-100 text-[#168CF5] grid place-items-center"><Icon className="w-7 h-7" /></span><span><strong className="block text-lg">{title}</strong><span className="text-sm text-slate-600">{body}</span></span></div>; })}
         </div>
       </div>
     </section>

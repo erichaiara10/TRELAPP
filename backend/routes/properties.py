@@ -73,7 +73,7 @@ def _public_property(document: dict) -> dict:
     for key in (
         "owner_name", "owner_email", "owner_phone", "owner_customer_id",
         "documents", "authority_status", "title_reference", "assigned_agent_id",
-        "created_by", "street_id", "district_id", "local_area_id",
+        "created_by", "advertiser_id", "advertiser_email", "street_id", "district_id", "local_area_id",
     ):
         safe.pop(key, None)
     return safe
@@ -164,8 +164,11 @@ async def enforce_scheme(payload: dict, enforce_publication: bool = True) -> dic
         raise HTTPException(400, "Total Area (hectares) is required for sale listings")
     if repository.storage_mode == "integrated" and not str(payload.get("owner_name") or "").strip():
         raise HTTPException(400, "Owner name is required")
-    if enforce_publication and payload.get("status") in {"active", "under_offer"} and payload.get("authority_status") != "VERIFIED":
-        raise HTTPException(400, "Authority must be verified before a listing can be active")
+    if enforce_publication and payload.get("status") in {"active", "under_offer"}:
+        if payload.get("authority_status") != "VERIFIED":
+            raise HTTPException(400, "Authority must be verified before a listing can be active")
+        if not any(str(item or "").strip() for item in payload.get("images") or []):
+            raise HTTPException(400, "At least one valid property image is required before publication")
     document_types = {item.get("document_type") for item in payload.get("documents") or []}
     if payload.get("owner_relationship") in {"AUTHORISED_AGENT", "AUTHORISED_REPRESENTATIVE"} \
             and "AUTHORITY_LETTER" not in document_types:
