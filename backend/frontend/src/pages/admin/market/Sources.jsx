@@ -61,8 +61,7 @@ function RunRow({ run }) {
           <td colSpan={6} className="py-3 px-4">
             {!d ? (
               <div className="text-xs text-muted-foreground italic">
-                Diagnostics unavailable — this run was recorded before structured
-                diagnostics were introduced.
+                No structured diagnostics were returned for this run.
               </div>
             ) : (
               <div className="space-y-4 text-xs">
@@ -197,6 +196,7 @@ export default function DataSources() {
   const [editingSource, setEditingSource] = useState(null);           // full row or "new"
   const [testerSource, setTesterSource] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [loadErrors, setLoadErrors] = useState([]);
 
   const load = async () => {
     // Promise.allSettled — a single failing endpoint must NOT blank the whole
@@ -213,6 +213,7 @@ export default function DataSources() {
     const val = (i, fallback) => results[i].status === "fulfilled" ? results[i].value.data : fallback;
     setRows(val(0, [])); setHealth(val(1, [])); setRuns(val(2, []));
     setSummary(val(3, {})); setCollectors(val(4, [])); setSched(val(5, null));
+    setLoadErrors(results.map((r, i) => r.status === "rejected" ? ["Sources", "Health", "Runs", "Summary", "Collectors", "Scheduler"][i] : null).filter(Boolean));
   };
   useEffect(() => { load().catch(() => {}); }, []);
 
@@ -234,7 +235,7 @@ export default function DataSources() {
 
   const remove = async (row) => {
     if (!window.confirm(`Delete source "${row.name}"? Its listings will remain.`)) return;
-    try { await api.delete(`/admin/market/sources/${row.id}`); toast.success("Deleted"); load(); }
+    try { await api.delete(`/admin/market/sources/${row.id}`); toast.success("Source deleted; previously collected listings were retained"); load(); }
     catch (e) { toast.error(formatError(e)); }
   };
 
@@ -273,6 +274,11 @@ export default function DataSources() {
         }
       />
 
+      {loadErrors.length > 0 && (
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800" role="alert">
+          Could not load: {loadErrors.join(", ")}. Other Data Sources functions remain available.
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <KpiCard label="Active Sources" value={summary.active_sources} testid="kpi-sources-active" />
         <KpiCard label="Total Sources" value={summary.sources} testid="kpi-sources-total" />
@@ -317,6 +323,7 @@ export default function DataSources() {
                                 <span className="font-medium">{page.category_label || page.category || "Listing page"}:</span>{" "}
                                 <a href={page.listing_url} target="_blank" rel="noopener noreferrer"
                                    className="text-[#2A5B46] underline break-all">{page.listing_url}</a>
+                                <span className="ml-2">{page.cards_found == null ? "not collected yet" : `${page.cards_found} cards found`}</span>
                               </li>
                             ))}
                           </ul>
