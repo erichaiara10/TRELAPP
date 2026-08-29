@@ -50,17 +50,15 @@ import {
   LifecycleReview,
 } from "@/pages/admin/property-advertising/StaffPropertyAdvertising";
 import MarketEvidence from "@/pages/admin/market/Evidence";
-import {
-  MarketOverview,
-  ComparableProperties,
-  PriceTrends,
-  DataSources,
-  DuplicateMatches,
-  PriceCompareResults,
-  ReviewCases,
-  MarketConfiguration,
-  MarketAuditLog,
-} from "@/pages/admin/market/Workspace";
+import MarketOverview from "@/pages/admin/market/Overview";
+import ComparableProperties from "@/pages/admin/market/Comparables";
+import PriceTrends from "@/pages/admin/market/Trends";
+import DataSources from "@/pages/admin/market/Sources";
+import DuplicateMatches from "@/pages/admin/market/Duplicates";
+import PriceCompareResults from "@/pages/admin/market/PriceCompareResults";
+import ReviewCases from "@/pages/admin/market/ReviewCases";
+import MarketConfiguration from "@/pages/admin/market/Config";
+import MarketAuditLog from "@/pages/admin/market/AuditLog";
 import { ReferralPartnerWorkspace } from "@/pages/account/Workspaces";
 import AdvertiserWorkspace from "@/pages/advertiser/AdvertiserWorkspace";
 import Register from "@/pages/account/Register";
