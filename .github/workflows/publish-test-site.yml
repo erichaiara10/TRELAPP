@@ -7,6 +7,9 @@ on:
         description: Enter PUBLISH_TRELWEB_TEST
         required: true
         type: string
+  push:
+    branches:
+      - codex/test-deploy-seven-scoped-fixes
 
 permissions:
   contents: read
@@ -24,7 +27,7 @@ jobs:
     env:
       TEST_APP_NAME: trelweb-test
       TEST_URL: https://trelweb-test.fly.dev
-      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      DEPLOY_CONFIRMATION: ${{ github.event_name == 'push' && 'PUBLISH_TRELWEB_TEST' || inputs.confirmation }}
 
     steps:
       - name: Check confirmation
