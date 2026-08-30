@@ -299,14 +299,14 @@ function DiscoveryPanel({ discovering, discovery, discovered, confirmed,
         </div>
         <div className="text-xs text-muted-foreground mt-1">
           {hasResults
-            ? "We scanned the website and found the following property listing pages."
+            ? `Scanned ${discovery?.pages_scanned ?? "the"} website pages and verified the following listing candidates.`
             : "Enter a base URL and click Discover Pages to scan the site's real navigation."}
         </div>
       </div>
 
       {discovering && (
         <div className="p-8 text-center text-sm text-muted-foreground" data-testid="discovery-loading">
-          Scanning website navigation and verifying each candidate URL…
+          Intelligently traversing website pages and subpages, then verifying property listing grids…
         </div>
       )}
 
@@ -327,6 +327,7 @@ function DiscoveryPanel({ discovering, discovery, discovered, confirmed,
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Cards Found</th>
                 <th className="py-3 px-4 text-right">Detail Links</th>
+                <th className="py-3 px-4">AI Assessment</th>
                 <th className="py-3 px-4 text-center">Confirm</th>
               </tr>
             </thead>
@@ -376,6 +377,15 @@ function DiscoveryPanel({ discovering, discovery, discovered, confirmed,
                     </td>
                     <td className="py-3 px-4 text-right tabular-nums">{c.cards_found ?? 0}</td>
                     <td className="py-3 px-4 text-right tabular-nums">{c.detail_links ?? 0}</td>
+                    <td className="py-3 px-4 text-xs">
+                      <div className={c.canonical ? "text-emerald-700 font-medium" : "text-muted-foreground"}>
+                        {c.canonical ? "Canonical" : c.verified_listing_page ? "Covered subpage" : "Low confidence"}
+                        {typeof c.confidence === "number" ? ` · ${c.confidence}%` : ""}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground max-w-[190px]">
+                        {c.selection_reason || (c.covered_by ? `Covered by ${c.covered_by}` : "Staff review required")}
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-center">
                       <input type="checkbox"
                              checked={!!confirmed[c.listing_url]}
@@ -388,7 +398,7 @@ function DiscoveryPanel({ discovering, discovery, discovered, confirmed,
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 px-4 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="py-6 px-4 text-center text-sm text-muted-foreground">
                     <ChevronRight className="w-4 h-4 inline mr-1" />
                     Discovery ran but found no navigation links matching a property category.
                   </td>
@@ -402,7 +412,12 @@ function DiscoveryPanel({ discovering, discovery, discovered, confirmed,
       {hasResults && (
         <div className="p-3 border-t border-border bg-[#FAFBFA] flex items-center gap-2 text-xs text-muted-foreground">
           <Info className="w-3.5 h-3.5" />
-          Only confirmed categories will be saved for collection.
+          Canonical listing pages are selected automatically. Covered type and location subpages remain visible but unselected to prevent duplicate collection.
+          {discovery?.scan_truncated && (
+            <span className="ml-1 text-amber-700">
+              Scan reached its safety limit of {discovery.scan_limit} pages; results may be incomplete.
+            </span>
+          )}
         </div>
       )}
     </div>
