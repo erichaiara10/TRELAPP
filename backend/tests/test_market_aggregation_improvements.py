@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException
 
-from routes.market import CollectionRunContext, _domain, _listing_pages, _normalized_base_url, _run_view, _source_view
+from routes.market import CollectionRunContext, _domain, _listing_pages, _normalized_base_url, _run_heartbeat_expired, _run_view, _source_view
 from core.collectors.discovery import _canonicalise
 
 
@@ -81,3 +83,10 @@ def test_only_highest_level_verified_page_is_auto_confirmed():
     assert rows[0]["auto_confirm"] is True
     assert rows[1]["auto_confirm"] is False
     assert rows[1]["covered_by"] == rows[0]["listing_url"]
+
+
+def test_missing_or_old_run_heartbeat_is_recoverable():
+    now = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    assert _run_heartbeat_expired({}, now) is True
+    assert _run_heartbeat_expired({"started_at": (now - timedelta(minutes=11)).isoformat()}, now) is True
+    assert _run_heartbeat_expired({"heartbeat_at": (now - timedelta(minutes=1)).isoformat()}, now) is False
