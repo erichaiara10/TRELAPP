@@ -35,11 +35,28 @@ export default function MarketEvidence() {
   const [listings, setListings] = useState([]);
   const [summary, setSummary] = useState({});
   const [selected, setSelected] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const sourceId = new URLSearchParams(window.location.search).get("source_id");
+
+  const loadEvidence = async () => {
+    setRefreshing(true);
+    try {
+      const query = sourceId
+        ? `/admin/market/listings?limit=500&source_id=${encodeURIComponent(sourceId)}`
+        : "/admin/market/listings?limit=100";
+      const [records, totals] = await Promise.all([
+        api.get(query), api.get("/admin/market/summary"),
+      ]);
+      setListings(records.data || []);
+      setSummary(totals.data || {});
+    } finally { setRefreshing(false); }
+  };
 
   useEffect(() => {
-    api.get("/admin/market/listings?limit=100").then((r) => setListings(r.data || [])).catch(() => {});
-    api.get("/admin/market/summary").then((r) => setSummary(r.data)).catch(() => {});
-  }, []);
+    loadEvidence().catch(() => {});
+    const timer = window.setInterval(() => loadEvidence().catch(() => {}), 10000);
+    return () => window.clearInterval(timer);
+  }, [sourceId]);
 
   // ESC closes the inspector — small quality-of-life win for ops who
   // spend all day paging through listings.
