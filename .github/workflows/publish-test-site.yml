@@ -85,6 +85,10 @@ jobs:
           print(f"{len(tests)} Property Advertising business-rule tests passed")
           PY
 
+      - name: Install backend test dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
       - name: Verify Property Data Aggregation changes
         working-directory: backend
         shell: bash
