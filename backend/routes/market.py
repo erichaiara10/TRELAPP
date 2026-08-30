@@ -227,6 +227,17 @@ async def _mark_stale_runs() -> None:
         )
 
 
+def _run_heartbeat_expired(run: dict, current_time: datetime | None = None) -> bool:
+    heartbeat = run.get("heartbeat_at") or run.get("started_at")
+    try:
+        stamp = datetime.fromisoformat(str(heartbeat).replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        return stamp < (current_time or datetime.now(timezone.utc)) - timedelta(minutes=_STALE_RUN_MINUTES)
+    except (TypeError, ValueError):
+        return True
+
+
 async def _clear_orphaned_source_lock(source_site_id: str) -> None:
     """Release a source lock when its run is missing, finished, or expired."""
     source = await db.source_sites.find_one(
@@ -238,14 +249,7 @@ async def _clear_orphaned_source_lock(source_site_id: str) -> None:
     run = await db.collection_runs.find_one({"id": lock_id}, {"_id": 0})
     release = not run or str(run.get("status") or "").upper() != "RUNNING"
     if run and not release:
-        heartbeat = run.get("heartbeat_at") or run.get("started_at")
-        try:
-            stamp = datetime.fromisoformat(str(heartbeat).replace("Z", "+00:00"))
-            if stamp.tzinfo is None:
-                stamp = stamp.replace(tzinfo=timezone.utc)
-            release = stamp < datetime.now(timezone.utc) - timedelta(minutes=_STALE_RUN_MINUTES)
-        except (TypeError, ValueError):
-            release = True
+        release = _run_heartbeat_expired(run)
     if not release:
         return
     if run and str(run.get("status") or "").upper() == "RUNNING":
