@@ -53,16 +53,25 @@ async def root():
 
 
 _lifecycle_task = None
+_market_startup_task = None
+
+
+async def _initialize_market_runtime():
+    """Run aggregation recovery without preventing the web service from starting."""
+    try:
+        await market.ensure_market_indexes()
+        await market.resume_pending_collection_runs()
+    except Exception:
+        logger.exception("Property Data Aggregation startup recovery failed")
 
 
 @app.on_event("startup")
 async def on_startup():
-    global _lifecycle_task
+    global _lifecycle_task, _market_startup_task
     files.init_storage()
     await run_startup()
     await ensure_login_guard_indexes()
-    await market.ensure_market_indexes()
-    await market.resume_pending_collection_runs()
+    _market_startup_task = asyncio.create_task(_initialize_market_runtime())
     await staff_property_advertising.ensure_indexes()
     await staff_property_advertising.run_lifecycle_maintenance()
     _lifecycle_task = asyncio.create_task(staff_property_advertising.lifecycle_maintenance_loop())
