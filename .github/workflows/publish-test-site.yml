@@ -98,14 +98,15 @@ jobs:
           fi
 
       - name: Commit generated dependency lock
-        if: ${{ hashFiles('backend/frontend/yarn.lock') == '' }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/frontend/yarn.lock
-          git commit -m "build(frontend): lock resolved dependency versions"
-          git push origin HEAD:codex/aggregation-18-improvements
+          if [ -n "$(git status --porcelain -- backend/frontend/yarn.lock)" ]; then
+            git add backend/frontend/yarn.lock
+            git commit -m "build(frontend): lock resolved dependency versions"
+            git push origin HEAD:codex/aggregation-18-improvements
+          fi
 
       - name: Build frontend
         working-directory: backend/frontend
