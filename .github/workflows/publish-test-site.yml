@@ -93,14 +93,12 @@ jobs:
           corepack enable
           yarn install --non-interactive
 
-      - name: Identify frontend dependency incompatibilities
-        working-directory: backend/frontend
-        shell: bash
-        run: |
-          echo "Files referencing Paperclip:"
-          grep -R -l --exclude='*.map' --include='*.js' --include='*.jsx' "Paperclip" src node_modules 2>/dev/null | head -100 || true
-          echo "Installed lucide-react version:"
-          node -p "require('lucide-react/package.json').version"
+      - name: Preserve resolved frontend dependency lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-yarn-lock
+          path: backend/frontend/yarn.lock
+          retention-days: 1
 
       - name: Build frontend
         working-directory: backend/frontend
