@@ -552,7 +552,9 @@ class HttpListingCollector(CollectorBase):
         while current_url and page_no < ceiling:
             _check_cancelled(run)
             page_no += 1
+            _record(run, "page_fetch_started", url=current_url)
             html, status = await _fetch_with_retries(client, current_url)
+            _record(run, "page_fetched", url=current_url, status=status)
             if not html:
                 _record(run, "page_fetch_failed", url=current_url, status=status)
                 _record_page(run, current_url, cards_seen=0,
@@ -580,7 +582,10 @@ class HttpListingCollector(CollectorBase):
 
                 # Enrich from the detail page (best-effort)
                 if cfg["crawl_details"] and row.get("source_url"):
-                    _record(run, "detail_page_attempted", inc="detail_pages_attempted")
+                    _record(
+                        run, "detail_page_attempted",
+                        inc="detail_pages_attempted", url=row["source_url"],
+                    )
                     enriched, ok = await self._enrich(
                         client, row["source_url"], cfg,
                         detail_sem, delay_ms, run)

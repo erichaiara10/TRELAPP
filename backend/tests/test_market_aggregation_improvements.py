@@ -60,6 +60,10 @@ def test_run_view_distinguishes_no_data_cancelled_and_stale():
 
 def test_run_context_reports_pages_rejections_and_progress():
     run = CollectionRunContext("r1")
+    run.record_diag("page_fetch_started", url="https://example.com/buy")
+    assert run.diagnostics["phase"] == "FETCHING_LIST_PAGE"
+    assert run.diagnostics["current_url"] == "https://example.com/buy"
+    assert run.diagnostics["cards_seen"] == 0
     run.record_diag("no_numeric_price")
     run.record_diag("duplicate_source_id_within_run")
     run.record_page("https://example.com/buy?page=1", 20, 18, 2, final=True)

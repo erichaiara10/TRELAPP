@@ -1,6 +1,7 @@
 """Staff-only Property Data Aggregation and Master Property link endpoints."""
 import asyncio
 import statistics
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 
@@ -158,10 +159,24 @@ class CollectionRunContext:
             "detail_pages_failed": 0, "records_passed_to_ingestion": 0,
             "records_inserted": 0, "records_updated": 0,
             "pagination_end_reason": None,
+            "phase": "STARTING", "current_url": None, "current_status": None,
         }
 
     def record_diag(self, reason: str, *, inc: str | None = None,
                     url: str | None = None, status: int | None = None) -> None:
+        phase_by_reason = {
+            "page_fetch_started": "FETCHING_LIST_PAGE",
+            "page_fetched": "PARSING_LIST_PAGE",
+            "detail_page_attempted": "FETCHING_DETAIL_PAGE",
+            "card_accepted": "PROCESSING_LISTINGS",
+            "page_fetch_failed": "LIST_PAGE_FAILED",
+        }
+        if reason in phase_by_reason:
+            self.diagnostics["phase"] = phase_by_reason[reason]
+        if url:
+            self.diagnostics["current_url"] = url
+        if status is not None:
+            self.diagnostics["current_status"] = status
         if reason in {"card_accepted"}:
             self.diagnostics["cards_accepted"] += 1
         elif reason in {"no_url_in_card", "no_numeric_price", "duplicate_source_id_within_run"}:
@@ -186,9 +201,12 @@ class CollectionRunContext:
         })
         self.diagnostics["cards_seen"] += cards_seen
         self.diagnostics["pagination_pages_followed"] = len(self.diagnostics["pages_visited"])
+        self.diagnostics["phase"] = "PAGE_COMPLETE"
+        self.diagnostics["current_url"] = url
 
     def record_pagination_end(self, reason: str) -> None:
         self.diagnostics["pagination_end_reason"] = reason
+        self.diagnostics["phase"] = "PAGINATION_COMPLETE"
 
     def request_cancel(self) -> None:
         self.cancel_requested = True
@@ -288,8 +306,16 @@ async def _persist_progress(run: dict, context: CollectionRunContext) -> None:
     }})
 
 
+async def _progress_heartbeat(run: dict, context: CollectionRunContext) -> None:
+    """Persist live diagnostics while the collector is waiting on network I/O."""
+    while True:
+        await _persist_progress(run, context)
+        await asyncio.sleep(2)
+
+
 async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> None:
     context = CollectionRunContext(run["id"])
+    heartbeat = asyncio.create_task(_progress_heartbeat(run, context))
     try:
         collector_class = get_collector(source.get("collector_key") or "")
         collector = collector_class(source)
@@ -317,15 +343,21 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
             "WARNING" if run["records_rejected"] or context.diagnostics.get("errors") else "COMPLETED"
         )
         run.update(status="SUCCESS", outcome=outcome, finished_at=now_iso(), error=None)
+        context.diagnostics["phase"] = "COMPLETED"
     except asyncio.CancelledError:
         context.request_cancel()
         run.update(
             status="FAILED", outcome="CANCELLED", finished_at=now_iso(),
             error="Cancelled by staff; all collection work for this run was stopped.",
         )
+        context.diagnostics["phase"] = "CANCELLED"
     except Exception as exc:
         run.update(status="FAILED", outcome="FAILED", finished_at=now_iso(), error=str(exc)[:1000])
+        context.diagnostics["phase"] = "FAILED"
     finally:
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await heartbeat
         context.diagnostics["records_passed_to_ingestion"] = run["records_seen"]
         context.diagnostics["records_inserted"] = run["records_new"]
         context.diagnostics["records_updated"] = run["records_updated"]

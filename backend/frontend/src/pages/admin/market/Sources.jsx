@@ -80,6 +80,17 @@ function RunRow({ run, onCancel }) {
               </div>
             ) : (
               <div className="space-y-4 text-xs">
+                {["running", "cancelling"].includes(run.status) && (
+                  <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-blue-900">
+                    <span className="font-semibold">Current activity:</span>{" "}
+                    {String(d.phase || "STARTING").replaceAll("_", " ").toLowerCase()}
+                    {d.current_url && (
+                      <span className="ml-2 break-all text-blue-700">
+                        {d.current_url}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {/* Counter grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <DiagStat label="Cards seen" value={d.cards_seen} />
