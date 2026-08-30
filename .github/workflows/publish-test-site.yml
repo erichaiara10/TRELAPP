@@ -93,6 +93,15 @@ jobs:
           corepack enable
           yarn install --non-interactive
 
+      - name: Identify frontend dependency incompatibilities
+        working-directory: backend/frontend
+        shell: bash
+        run: |
+          echo "Files referencing Paperclip:"
+          grep -R -l --exclude='*.map' --include='*.js' --include='*.jsx' "Paperclip" src node_modules 2>/dev/null | head -100 || true
+          echo "Installed lucide-react version:"
+          node -p "require('lucide-react/package.json').version"
+
       - name: Build frontend
         working-directory: backend/frontend
         env:
