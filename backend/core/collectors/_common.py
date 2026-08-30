@@ -550,6 +550,7 @@ class HttpListingCollector(CollectorBase):
         page_no = 0
         ceiling = int(cfg["max_pages_safety_ceiling"])
         while current_url and page_no < ceiling:
+            _check_cancelled(run)
             page_no += 1
             html, status = await _fetch_with_retries(client, current_url)
             if not html:
@@ -561,6 +562,7 @@ class HttpListingCollector(CollectorBase):
             cards = self._select_cards(html, cfg)
             accepted = 0; rejected = 0
             for card in cards:
+                _check_cancelled(run)
                 row, reject_reason = self._parse_card(
                     card, cfg, purpose, base, category_page_url=current_url,
                 )
@@ -764,6 +766,14 @@ class HttpListingCollector(CollectorBase):
 # =====================================================================
 # Diagnostic helpers — safe when `run` is None
 # =====================================================================
+def _check_cancelled(run) -> None:
+    if run is None:
+        return
+    fn = getattr(run, "raise_if_cancelled", None)
+    if fn:
+        fn()
+
+
 def _record(run, reason: str, *, inc: str | None = None,
              url: str | None = None, status: int | None = None) -> None:
     if run is None:
