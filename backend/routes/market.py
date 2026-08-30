@@ -227,6 +227,41 @@ async def _mark_stale_runs() -> None:
         )
 
 
+async def _clear_orphaned_source_lock(source_site_id: str) -> None:
+    """Release a source lock when its run is missing, finished, or expired."""
+    source = await db.source_sites.find_one(
+        {"id": source_site_id}, {"_id": 0, "collection_lock": 1}
+    )
+    lock_id = (source or {}).get("collection_lock")
+    if not lock_id:
+        return
+    run = await db.collection_runs.find_one({"id": lock_id}, {"_id": 0})
+    release = not run or str(run.get("status") or "").upper() != "RUNNING"
+    if run and not release:
+        heartbeat = run.get("heartbeat_at") or run.get("started_at")
+        try:
+            stamp = datetime.fromisoformat(str(heartbeat).replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            release = stamp < datetime.now(timezone.utc) - timedelta(minutes=_STALE_RUN_MINUTES)
+        except (TypeError, ValueError):
+            release = True
+    if not release:
+        return
+    if run and str(run.get("status") or "").upper() == "RUNNING":
+        try:
+            await db.collection_runs.update_one({"id": lock_id}, {"$set": {
+                "status": "FAILED", "outcome": "STALE", "finished_at": now_iso(),
+                "error": "Orphaned source lock was automatically recovered.",
+            }})
+        except Exception:
+            await db.collection_runs.delete_one({"id": lock_id})
+    await db.source_sites.update_one(
+        {"id": source_site_id, "collection_lock": lock_id},
+        {"$unset": {"collection_lock": "", "collection_lock_at": ""}},
+    )
+
+
 async def _persist_progress(run: dict, context: CollectionRunContext) -> None:
     context.raise_if_cancelled()
     control = await db.collection_runs.find_one(
@@ -303,6 +338,7 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
 @router.post("/admin/market/sources/{source_site_id}/collect", status_code=202)
 async def collect_source(source_site_id: str, user: dict = Depends(require_staff)):
     await _mark_stale_runs()
+    await _clear_orphaned_source_lock(source_site_id)
     source = await db.source_sites.find_one({"id": source_site_id}, {"_id": 0})
     if not source or not source.get("active", True):
         raise HTTPException(404, "Active source site not found")
