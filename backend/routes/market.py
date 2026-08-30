@@ -514,8 +514,15 @@ async def list_master_properties(search: str = "", limit: int = Query(default=20
 
 
 @router.get("/admin/market/listings")
-async def list_market_listings(limit: int = Query(default=100, ge=1, le=500), user: dict = Depends(require_staff)):
-    return await service.list_evidence(limit)
+async def list_market_listings(
+    limit: int = Query(default=100, ge=1, le=500),
+    source_id: str | None = None,
+    user: dict = Depends(require_staff),
+):
+    rows = await service.list_evidence(500 if source_id else limit)
+    if source_id:
+        rows = [row for row in rows if row.get("source_site_id") == source_id]
+    return rows[:limit]
 
 
 @router.get("/admin/market/summary")
