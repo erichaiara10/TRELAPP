@@ -66,10 +66,12 @@ def test_run_context_reports_pages_rejections_and_progress():
     assert run.diagnostics["cards_seen"] == 0
     run.record_diag("no_numeric_price")
     run.record_diag("duplicate_source_id_within_run")
+    run.record_diag("unpriced_listing")
     run.record_page("https://example.com/buy?page=1", 20, 18, 2, final=True)
     run.record_pagination_end("no_next_link")
     assert run.diagnostics["cards_seen"] == 20
-    assert run.diagnostics["cards_rejected"] == 2
+    assert run.diagnostics["cards_rejected"] == 3
+    assert run.diagnostics["cards_unpriced"] == 1
     assert run.diagnostics["duplicate_source_ids_within_run"] == 1
     assert run.diagnostics["pagination_end_reason"] == "no_next_link"
 

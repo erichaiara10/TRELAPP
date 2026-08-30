@@ -1,7 +1,11 @@
 import asyncio
 
 from core.collectors import get_collector
-from core.collectors._common import parse_area, parse_price, parse_rent_period
+from core.collectors._common import (
+    _canonical_listing_pages, _page_key, parse_area, parse_price,
+    parse_rent_period, smart_price_text,
+)
+from selectolax.parser import HTMLParser
 
 
 def test_strict_price_rejection_survives_other_numbers():
@@ -59,3 +63,52 @@ def test_hausples_detail_enrichment(monkeypatch):
     assert result["building_name"] == "Pinnacle Apartments"
     assert result["street"] == "Davetari Road"
     assert result["suburb"] == "Boroko"
+
+
+
+def test_adaptive_hausples_card_profile_extracts_price_and_identity():
+    card = HTMLParser("""
+      <article class="s3-rcard">
+        <a class="s3-cardlink" href="/buy/alotau/gehua-estate-32141/">
+          <h2 class="s3-hl">Land for Sale in Alotau</h2>
+          <div class="s3-pr">K800,000</div>
+          <div class="s3-ad">Alotau, Milne Bay</div>
+        </a>
+      </article>
+    """).css_first("article")
+    collector = get_collector("generic_web")({
+        "base_url": "https://www.hausples.com.pg",
+        "parser_config": {},
+    })
+    row, reason = collector._parse_card(
+        card, collector._config(), "sale",
+        "https://www.hausples.com.pg",
+        "https://www.hausples.com.pg/buy/",
+    )
+    assert reason is None
+    assert row["source_listing_id"] == "gehua-estate-32141"
+    assert row["price"] == 800000
+    assert row["raw_fields"]["title"] == "Land for Sale in Alotau"
+
+
+def test_legacy_listing_pages_collapse_to_canonical_sale_and_rent():
+    pages = _canonical_listing_pages([
+        {"listing_url": "https://example.com/buy/", "purpose": "sale"},
+        {"listing_url": "https://example.com/buy/house/", "purpose": "sale"},
+        {"listing_url": "https://example.com/rent/", "purpose": "rent"},
+        {"listing_url": "https://example.com/rent/apartment/", "purpose": "rent"},
+    ])
+    assert [p["listing_url"] for p in pages] == [
+        "https://example.com/buy/", "https://example.com/rent/"
+    ]
+
+
+def test_page_key_detects_equivalent_pagination_urls():
+    assert _page_key("https://EXAMPLE.com/buy/?b=2&a=1#top") == (
+        "https://example.com/buy?a=1&b=2"
+    )
+
+
+def test_semantic_price_fallback_supports_short_site_classes():
+    tree = HTMLParser('<article><div class="s3-pr">PGK 1,250,000</div></article>')
+    assert smart_price_text(tree, ".missing") == "PGK 1,250,000"

@@ -26,10 +26,10 @@ class HausplesCollector(HttpListingCollector):
         # The card `url` selector below is now advisory only — the shared
         # `_identify_detail_url` picks the most-likely detail anchor from
         # each card using host + path-below-category + slug/id heuristics.
-        "card": ".listing-card, .property-card, article, .property, .card",
+        "card": ".s3-rcard, .listing-card, .property-card, article, .property, .card",
         "url":   "a[href]",              # advisory — real logic in _identify_detail_url
         "title": ".listing-title, .card-title, h3, h2, .title",
-        "price": ".listing-price, .price, .card-price, [class*='price']",
+        "price": ".s3-pr, .listing-price, .price, .card-price, [itemprop='price'], [data-price], [class*='price']",
         "address": ".listing-address, .address, .card-address, .location",
         "description": ".listing-description, .card-description, .description",
         "beds":  ".listing-beds, .beds, [class*='bed']",

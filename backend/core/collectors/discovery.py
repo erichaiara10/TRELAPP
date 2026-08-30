@@ -14,6 +14,7 @@ Zero URL guessing:
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Optional
@@ -22,7 +23,10 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from core.collectors import get_collector
-from core.collectors._common import HttpListingCollector, _identify_detail_url
+from core.collectors._common import (
+    HttpListingCollector, _identify_detail_url, price_status,
+    smart_field_text, smart_price_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,17 +220,82 @@ def _canonicalise(candidates: list[dict]) -> None:
                 item["selection_reason"] = "Subcategory/location page covered by the canonical page"
 
 
-def _count_cards(html: str, card_selector: str, base_url: str,
-                 category_url: str) -> tuple[int, int]:
+def _structured_listing_count(html: str) -> int:
+    """Count listing-like JSON-LD objects without trusting them for ingestion."""
     if not html or not _HAVE_SELECTOLAX:
-        return 0, 0
+        return 0
     tree = HTMLParser(html)
-    cards = tree.css(card_selector or "article, .listing, .property")
-    detail_links = sum(
-        1 for card in cards
-        if _identify_detail_url(card, base_url, category_url)
-    )
-    return len(cards), detail_links
+    accepted = {
+        "realestatelisting", "residence", "house", "apartment",
+        "singlefamilyresidence", "product", "accommodation",
+    }
+    count = 0
+
+    def walk(value):
+        nonlocal count
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, dict):
+            raw_type = value.get("@type")
+            types = raw_type if isinstance(raw_type, list) else [raw_type]
+            if any(str(item or "").lower() in accepted for item in types):
+                count += 1
+            for key in ("@graph", "itemListElement", "mainEntity", "offers"):
+                if key in value:
+                    walk(value[key])
+
+    for node in tree.css("script[type='application/ld+json']"):
+        try:
+            walk(json.loads(node.text() or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return count
+
+
+def _count_cards(html: str, card_selector: str, base_url: str,
+                 category_url: str, cfg: dict | None = None) -> dict:
+    """Select the strongest repeated-card shape and validate usable fields."""
+    if not html or not _HAVE_SELECTOLAX:
+        return {"cards": 0, "links": 0, "priced": 0, "unpriced": 0,
+                "titles": 0, "selector": card_selector, "structured": 0}
+    tree = HTMLParser(html)
+    cfg = cfg or {}
+    selectors = []
+    for selector in (
+        card_selector, ".s3-rcard", "[itemtype*='RealEstateListing']",
+        "[itemtype*='Product']", ".listing-card", ".property-card",
+        "article", ".listing", ".property", ".card",
+    ):
+        if selector and selector not in selectors:
+            selectors.append(selector)
+    best = None
+    for selector in selectors:
+        try:
+            cards = tree.css(selector)
+        except Exception:
+            continue
+        if not cards:
+            continue
+        links = sum(bool(_identify_detail_url(card, base_url, category_url)) for card in cards)
+        statuses = [price_status(smart_price_text(card, cfg.get("price"))) for card in cards]
+        priced = statuses.count("PRICED")
+        unpriced = statuses.count("UNPRICED")
+        titles = sum(bool(smart_field_text(card, cfg.get("title"), "title")) for card in cards)
+        # Prefer complete fields and link density, then the more specific shape.
+        score = (
+            links / len(cards), (priced + unpriced) / len(cards),
+            titles / len(cards), -len(cards) if links == 0 else links,
+        )
+        result = {"cards": len(cards), "links": links, "priced": priced,
+                  "unpriced": unpriced, "titles": titles,
+                  "selector": selector, "structured": 0, "score": score}
+        if best is None or score > best["score"]:
+            best = result
+    result = best or {"cards": 0, "links": 0, "priced": 0, "unpriced": 0,
+                      "titles": 0, "selector": card_selector, "score": (0, 0, 0, 0)}
+    result["structured"] = _structured_listing_count(html)
+    return result
 
 
 async def discover_listing_pages(base_url: str, collector_key: str,
@@ -276,21 +345,36 @@ async def discover_listing_pages(base_url: str, collector_key: str,
 
             current = {"url": _clean_url(final_url or clean), "text": link_text, "rule": None}
             rule = _page_rule(html, current)
-            cards_found, detail_links = _count_cards(
-                html, card_selector, resolved_home or base_url, current["url"]
+            inspection = _count_cards(
+                html, card_selector, resolved_home or base_url, current["url"], cfg
             )
-            verified = cards_found > 0 and detail_links > 0
+            cards_found = inspection["cards"]
+            detail_links = inspection["links"]
+            priced_cards = inspection["priced"]
+            unpriced_cards = inspection["unpriced"]
+            usable_price_cards = priced_cards + unpriced_cards
+            link_rate = detail_links / cards_found if cards_found else 0
+            field_rate = usable_price_cards / cards_found if cards_found else 0
+            verified = cards_found > 0 and link_rate >= 0.5 and (
+                field_rate >= 0.25 or inspection["structured"] > 0
+            )
             if verified or rule:
                 effective = rule or {
                     "key": "unknown", "label": "Property Listings",
                     "purpose": "rent" if "rent" in (link_text + current["url"]).lower() else "sale",
                 }
-                confidence = min(99, 45 + min(cards_found, 20) * 2 + min(detail_links, 20))
+                confidence = min(99, int(35 + link_rate * 30 + field_rate * 25 + min(inspection["structured"], 9)))
                 candidates.append({
                     "category": effective["key"], "category_label": effective["label"],
                     "purpose": effective["purpose"], "link_text": link_text,
                     "listing_url": current["url"], "status": status,
                     "cards_found": cards_found, "detail_links": detail_links,
+                    "priced_cards": priced_cards, "unpriced_cards": unpriced_cards,
+                    "valid_link_rate": round(link_rate, 3), "field_rate": round(field_rate, 3),
+                    "structured_items": inspection["structured"],
+                    "learned_card_selector": inspection["selector"],
+                    "extraction_strategy": "structured" if inspection["structured"] else "adaptive_dom",
+                    "profile_version": "2.0",
                     "accessible": True, "verified_listing_page": verified,
                     "confidence": confidence if verified else min(confidence, 55),
                     "auto_confirm": False, "canonical": False,
@@ -330,6 +414,7 @@ async def discover_listing_pages(base_url: str, collector_key: str,
         "ok": True, "base_url": base_url, "resolved_home_url": resolved_home,
         "home_status": home_status, "collector": collector_key,
         "card_selector": card_selector, "candidates": candidates,
+        "discovery_strategy": "structured_data_first_adaptive_dom",
         "pages_scanned": len(visited), "scan_limit": scan_limit,
         "scan_truncated": bool(queue), "max_depth": max_depth,
         "errors": errors[:20],

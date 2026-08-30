@@ -98,8 +98,10 @@ function RunRow({ run, onCancel }) {
                             tone={d.cards_accepted > 0 ? "good" : "bad"} />
                   <DiagStat label="Cards rejected" value={d.cards_rejected}
                             tone={d.cards_rejected > 0 ? "warn" : "neutral"} />
+                  <DiagStat label="Unpriced / POA" value={d.cards_unpriced}
+                            tone={d.cards_unpriced > 0 ? "warn" : "neutral"} />
                   <DiagStat label="Duplicates in-run" value={d.duplicate_source_ids_within_run} />
-                  <DiagStat label="Pages followed" value={d.pagination_pages_followed} />
+                  <DiagStat label="Pages followed" value={d.pages_visited_total ?? d.pagination_pages_followed} />
                   <DiagStat label="Detail attempted" value={d.detail_pages_attempted} />
                   <DiagStat label="Detail succeeded" value={d.detail_pages_succeeded}
                             tone={d.detail_pages_succeeded > 0 ? "good" : "neutral"} />

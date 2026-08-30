@@ -46,7 +46,7 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
     // existing source's persisted listing_pages.
     if (initial?.listing_pages?.length) {
       const c = {};
-      initial.listing_pages.forEach((p) => { c[p.listing_url] = true; });
+      initial.listing_pages.forEach((p) => { c[p.listing_url] = p.auto_confirm !== false && !p.covered_by; });
       setConfirmed(c);
     }
   }, [initial]);
@@ -62,7 +62,7 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
     try {
       const { data } = await api.post(
         `/admin/market/collectors/${form.collector}/discover`,
-        { base_url: form.base_url },
+        { base_url: form.base_url, parser_config: form.parser_config || {} },
       );
       setDiscovery(data);
       if (!data.ok) {
@@ -101,11 +101,31 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
         listing_url:    c.listing_url,
         cards_found:    c.cards_found,
         detail_links:   c.detail_links,
+        priced_cards:   c.priced_cards,
+        unpriced_cards: c.unpriced_cards,
+        canonical:      c.canonical !== false,
+        auto_confirm:   true,
+        covered_by:     c.covered_by || null,
+        confidence:     c.confidence,
+        extraction_strategy: c.extraction_strategy,
+        profile_version: c.profile_version || "2.0",
+        selection_reason: c.selection_reason,
       }));
 
     setSaving(true);
     try {
-      const payload = { ...form, listing_pages: confirmed_pages };
+      const learned = candidates.find((c) => confirmed[c.listing_url] && c.learned_card_selector);
+      const parser_config = learned ? {
+        ...(form.parser_config || {}),
+        card: learned.learned_card_selector,
+        source_profile: {
+          version: learned.profile_version || "2.0",
+          strategy: learned.extraction_strategy || "adaptive_dom",
+          confidence: learned.confidence || 0,
+          validated_at: new Date().toISOString(),
+        },
+      } : (form.parser_config || {});
+      const payload = { ...form, parser_version: "2.0", parser_config, listing_pages: confirmed_pages };
       if (editing === "new") await api.post("/admin/market/sources", payload);
       else await api.put(`/admin/market/sources/${editing}`, payload);
       toast.success(`Saved — ${confirmed_pages.length} confirmed listing page${confirmed_pages.length === 1 ? "" : "s"}`);
@@ -115,7 +135,8 @@ export default function SourceModal({ editing, initial, collectors, onClose, onS
   };
 
   const discovered = discovery?.candidates || (initial?.listing_pages || []).map((p) => ({
-    ...p, accessible: true, status: 200, auto_confirm: true,
+    ...p, accessible: true, status: 200,
+    auto_confirm: p.auto_confirm !== false && !p.covered_by,
   }));
 
   return (

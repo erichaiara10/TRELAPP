@@ -16,11 +16,11 @@ class GenericWebCollector(HttpListingCollector):
     label = "General Website"
 
     DEFAULT_CONFIG = {
-        "card": ".listing-card, .property-card, article, .property, .listing, .card",
+        "card": ".s3-rcard, .listing-card, .property-card, article, .property, .listing, .card",
         "url": "a[href]",
-        "title": ".listing-title, .property-title, .card-title, h3, h2, .title",
-        "price": ".listing-price, .property-price, .card-price, .price, [class*='price']",
-        "address": ".listing-address, .property-address, .card-address, .address, .location",
+        "title": ".s3-hl, .listing-title, .property-title, .card-title, [itemprop='name'], h3, h2, .title",
+        "price": ".s3-pr, .listing-price, .property-price, .card-price, .price, [itemprop='price'], [data-price], [class*='price']",
+        "address": ".s3-ad, .listing-address, .property-address, .card-address, [itemprop='address'], .address, .location",
         "description": ".listing-description, .property-description, .card-description, .description",
         "beds": ".listing-beds, .beds, [class*='bed']",
         "baths": ".listing-baths, .baths, [class*='bath']",
@@ -28,9 +28,9 @@ class GenericWebCollector(HttpListingCollector):
         "building": ".listing-building, .building-area, [class*='floor'], [class*='building']",
         "detail_selectors": {
             "title": "h1, .property-title, .listing-title",
-            "price": ".price, .property-price, .listing-price, [class*='price']",
-            "description": ".description, .property-description, .property-details",
-            "address": ".address, .property-address, .location",
+            "price": ".l3-price, .s3-pr, .price, .property-price, .listing-price, [itemprop='price'], [data-price], [class*='price']",
+            "description": ".l3-desc, .description, .property-description, .property-details",
+            "address": ".l3-addr, .l3-sub, .address, .property-address, [itemprop='address'], .location",
             "bedrooms": "[class*='bed'] .value, .beds",
             "bathrooms": "[class*='bath'] .value, .baths",
             "land_area": "[class*='land'] .value, .land-area",

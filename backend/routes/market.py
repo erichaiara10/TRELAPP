@@ -151,9 +151,11 @@ class CollectionRunContext:
     def __init__(self, run_id: str):
         self.run_id = run_id
         self.cancel_requested = False
+        self._page_cards_total = 0
         self.diagnostics = {
-            "pages_visited": [], "cards_seen": 0, "cards_accepted": 0,
-            "cards_rejected": 0, "rejection_reasons": {},
+            "pages_visited": [], "pages_visited_total": 0, "pages_truncated": False,
+            "cards_seen": 0, "cards_accepted": 0,
+            "cards_rejected": 0, "cards_unpriced": 0, "rejection_reasons": {},
             "duplicate_source_ids_within_run": 0, "pagination_pages_followed": 0,
             "detail_pages_attempted": 0, "detail_pages_succeeded": 0,
             "detail_pages_failed": 0, "records_passed_to_ingestion": 0,
@@ -177,10 +179,14 @@ class CollectionRunContext:
             self.diagnostics["current_url"] = url
         if status is not None:
             self.diagnostics["current_status"] = status
-        if reason in {"card_accepted"}:
+        if reason == "card_seen":
+            self.diagnostics["cards_seen"] += 1
+        elif reason in {"card_accepted"}:
             self.diagnostics["cards_accepted"] += 1
-        elif reason in {"no_url_in_card", "no_numeric_price", "duplicate_source_id_within_run"}:
+        elif reason in {"no_url_in_card", "no_numeric_price", "unpriced_listing", "duplicate_source_id_within_run"}:
             self.diagnostics["cards_rejected"] += 1
+            if reason == "unpriced_listing":
+                self.diagnostics["cards_unpriced"] += 1
             reasons = self.diagnostics["rejection_reasons"]
             reasons[reason] = reasons.get(reason, 0) + 1
         if reason == "duplicate_source_id_within_run":
@@ -194,13 +200,18 @@ class CollectionRunContext:
 
     def record_page(self, url: str, cards_seen: int, cards_accepted: int,
                     cards_rejected: int, final: bool = False) -> None:
-        self.diagnostics["pages_visited"].append({
-            "url": url, "cards_seen": cards_seen,
-            "cards_accepted": cards_accepted, "cards_rejected": cards_rejected,
-            "final": final,
-        })
-        self.diagnostics["cards_seen"] += cards_seen
-        self.diagnostics["pagination_pages_followed"] = len(self.diagnostics["pages_visited"])
+        self.diagnostics["pages_visited_total"] += 1
+        if len(self.diagnostics["pages_visited"]) < 200:
+            self.diagnostics["pages_visited"].append({
+                "url": url, "cards_seen": cards_seen,
+                "cards_accepted": cards_accepted, "cards_rejected": cards_rejected,
+                "final": final,
+            })
+        else:
+            self.diagnostics["pages_truncated"] = True
+        self._page_cards_total += cards_seen
+        self.diagnostics["cards_seen"] = max(self.diagnostics["cards_seen"], self._page_cards_total)
+        self.diagnostics["pagination_pages_followed"] = self.diagnostics["pages_visited_total"]
         self.diagnostics["phase"] = "PAGE_COMPLETE"
         self.diagnostics["current_url"] = url
 
@@ -292,7 +303,10 @@ async def _persist_progress(run: dict, context: CollectionRunContext) -> None:
     if control and control.get("cancel_requested"):
         context.request_cancel()
         context.raise_if_cancelled()
-    context.diagnostics["records_passed_to_ingestion"] = run["records_seen"]
+    run["records_seen"] = context.diagnostics.get("cards_seen", 0)
+    run["records_accepted"] = context.diagnostics.get("cards_accepted", 0)
+    run["records_rejected"] = context.diagnostics.get("cards_rejected", 0) + run.get("records_validation_rejected", 0)
+    context.diagnostics["records_passed_to_ingestion"] = run["records_ingested"]
     context.diagnostics["records_inserted"] = run["records_new"]
     context.diagnostics["records_updated"] = run["records_updated"]
     await db.collection_runs.update_one({"id": run["id"]}, {"$set": {
@@ -321,10 +335,9 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
         collector = collector_class(source)
         async for row in collector.iter_listings(run=context):
             context.raise_if_cancelled()
-            run["records_seen"] += 1
             normalized = collector_payload(source["id"], row)
             if not normalized["source_listing_id"] or not normalized["source_url"] or normalized["price_amount"] is None:
-                run["records_rejected"] += 1
+                run["records_validation_rejected"] = run.get("records_validation_rejected", 0) + 1
                 await _persist_progress(run, context)
                 continue
             existed = await db.source_listings.find_one({
@@ -339,6 +352,18 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
             elif result["match"]["status"] == "REVIEW_REQUIRED":
                 run["records_review_required"] += 1
             await _persist_progress(run, context)
+        run["records_seen"] = context.diagnostics.get("cards_seen", 0)
+        run["records_accepted"] = context.diagnostics.get("cards_accepted", 0)
+        run["records_rejected"] = context.diagnostics.get("cards_rejected", 0) + run.get("records_validation_rejected", 0)
+        reasons = context.diagnostics.get("rejection_reasons") or {}
+        extraction_failures = int(reasons.get("no_url_in_card", 0)) + int(reasons.get("no_numeric_price", 0))
+        cards_seen = int(context.diagnostics.get("cards_seen") or 0)
+        pages_seen = int(context.diagnostics.get("pages_visited_total") or 0)
+        context.diagnostics["drift_detected"] = bool(
+            run["records_ingested"] == 0 and pages_seen > 0 and (
+                cards_seen == 0 or extraction_failures >= max(1, int(cards_seen * 0.8))
+            )
+        )
         outcome = "NO_DATA" if run["records_ingested"] == 0 else (
             "WARNING" if run["records_rejected"] or context.diagnostics.get("errors") else "COMPLETED"
         )
@@ -358,15 +383,22 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
         heartbeat.cancel()
         with suppress(asyncio.CancelledError, Exception):
             await heartbeat
-        context.diagnostics["records_passed_to_ingestion"] = run["records_seen"]
+        run["records_seen"] = context.diagnostics.get("cards_seen", 0)
+        run["records_accepted"] = context.diagnostics.get("cards_accepted", 0)
+        run["records_rejected"] = context.diagnostics.get("cards_rejected", 0) + run.get("records_validation_rejected", 0)
+        context.diagnostics["records_passed_to_ingestion"] = run["records_ingested"]
         context.diagnostics["records_inserted"] = run["records_new"]
         context.diagnostics["records_updated"] = run["records_updated"]
         await db.collection_runs.update_one({"id": run["id"]}, {"$set": {
             **run, "diagnostics": context.diagnostics, "heartbeat_at": now_iso(),
         }})
+        profile_status = "DRIFTED" if context.diagnostics.get("drift_detected") else (
+            "HEALTHY" if run.get("records_ingested", 0) > 0 else "NO_DATA"
+        )
         await db.source_sites.update_one(
             {"id": source["id"], "collection_lock": run["id"]},
-            {"$set": {"last_run_at": run["finished_at"], "updated_at": now_iso()},
+            {"$set": {"last_run_at": run["finished_at"], "updated_at": now_iso(),
+                      "profile_status": profile_status},
              "$unset": {"collection_lock": "", "collection_lock_at": ""}},
         )
 
@@ -399,8 +431,8 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
         "source_name": source.get("name"), "source_domain": source.get("domain"),
         "status": "RUNNING", "outcome": "RUNNING", "started_at": now_iso(),
         "heartbeat_at": now_iso(), "finished_at": None, "cancel_requested": False,
-        "records_seen": 0, "records_ingested": 0, "records_new": 0,
-        "records_updated": 0, "records_rejected": 0, "records_matched": 0,
+        "records_seen": 0, "records_accepted": 0, "records_ingested": 0, "records_new": 0,
+        "records_updated": 0, "records_rejected": 0, "records_validation_rejected": 0, "records_matched": 0,
         "records_review_required": 0, "created_by": user["id"], "errors": [],
     }
     try:
@@ -487,9 +519,10 @@ async def source_health(user: dict = Depends(require_staff)):
     result = []
     for source in sources:
         runs = await db.collection_runs.find({"source_site_id": source["id"]}, {"_id": 0}).sort("started_at", -1).limit(10).to_list(10)
-        successes = sum(1 for run in runs if run.get("status") == "SUCCESS")
+        useful = lambda run: str(run.get("outcome") or "").upper() in {"COMPLETED", "WARNING"} and int(run.get("records_ingested") or 0) > 0
+        successes = sum(1 for run in runs if useful(run))
         result.append({"source_id": source["id"], "runs": len(runs), "success_rate": round(successes * 100 / len(runs), 1) if runs else None,
-                       "consecutive_failures": next((index for index, run in enumerate(runs) if run.get("status") == "SUCCESS"), len(runs))})
+                       "consecutive_failures": next((index for index, run in enumerate(runs) if useful(run)), len(runs))})
     return result
 
 

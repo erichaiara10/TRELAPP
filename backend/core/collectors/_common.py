@@ -279,6 +279,80 @@ def attr_of(node, name: str) -> Optional[str]:
     return node.attributes.get(name)
 
 
+def _selector_text(root, selector: str | None) -> str:
+    """Return the first non-empty selector match without allowing a bad
+    source profile to abort an entire collection run."""
+    if not root or not selector:
+        return ""
+    try:
+        for node in root.css(selector):
+            value = text_of(node)
+            if value:
+                return value
+    except Exception:
+        return ""
+    return ""
+
+
+def smart_price_text(root, selector: str | None = None) -> str:
+    """Extract a price using configured selectors first, then semantic
+    fallbacks. The fallback is deterministic and deliberately PNG-currency
+    aware; it is used for discovery validation as well as collection."""
+    configured = _selector_text(root, selector)
+    if configured:
+        return configured
+    semantic = _selector_text(
+        root,
+        ".s3-pr, .l3-price, [itemprop='price'], [data-price], "
+        ".price, [class*='price'], [class$='-pr'], [class$='_pr']",
+    )
+    if semantic:
+        return semantic
+    try:
+        for node in root.css("strong, b, span, div, p"):
+            value = text_of(node)
+            if len(value) <= 80 and re.search(
+                r"(?:\\bPGK\\b|\\bK\\s*)\\d[\\d,]*(?:\\.\\d+)?",
+                value, re.IGNORECASE,
+            ):
+                return value
+            if len(value) <= 80 and _POA_MARKERS.search(value):
+                return value
+    except Exception:
+        pass
+    return ""
+
+
+def smart_field_text(root, selector: str | None, field: str) -> str:
+    configured = _selector_text(root, selector)
+    if configured:
+        return configured
+    fallbacks = {
+        "title": ".s3-hl, [itemprop='name'], h1, h2, h3",
+        "address": ".s3-ad, .l3-addr, .l3-sub, [itemprop='address'], "
+                   "[class*='address'], [class*='location']",
+        "description": ".l3-desc, [itemprop='description'], "
+                       "[class*='description'], [class*='details']",
+    }
+    return _selector_text(root, fallbacks.get(field))
+
+
+def price_status(text: str | None) -> str:
+    if text and _POA_MARKERS.search(text):
+        return "UNPRICED"
+    return "PRICED" if parse_price(text) is not None else "MISSING"
+
+
+def _page_key(url: str) -> str:
+    parsed = urlparse(url)
+    path = re.sub(r"/+$", "", parsed.path or "/") or "/"
+    query = "&".join(sorted(filter(None, parsed.query.split("&"))))
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}" + (
+        f"?{query}" if query else ""
+    )
+
+
+
 # =====================================================================
 # Detail-URL identification (shared by collector + discovery)
 # =====================================================================
@@ -472,6 +546,48 @@ async def _fetch_with_retries(client: httpx.AsyncClient, url: str,
 # =====================================================================
 # Base HTTP + HTML collector
 # =====================================================================
+
+
+def _canonical_listing_pages(pages: list[dict]) -> list[dict]:
+    """Return the smallest non-overlapping set of confirmed starting pages.
+
+    New discovery profiles explicitly mark canonical pages. Legacy profiles
+    are collapsed to the shallowest page per sale/rent purpose so old
+    subcategory/location URLs cannot multiply the same inventory.
+    """
+    pages = [p for p in pages if isinstance(p, dict) and p.get("listing_url")]
+    if not pages:
+        return []
+    explicit = [
+        p for p in pages
+        if p.get("canonical") is True and not p.get("covered_by")
+    ]
+    if explicit:
+        return explicit
+    selected: list[dict] = []
+    for purpose in ("sale", "rent"):
+        family = [
+            p for p in pages
+            if (p.get("purpose") or (
+                "rent" if "rent" in str(p.get("listing_url", "")).lower() else "sale"
+            )) == purpose
+        ]
+        if family:
+            selected.append(min(
+                family,
+                key=lambda p: (
+                    len(_path_parts(str(p.get("listing_url")))),
+                    len(str(p.get("listing_url"))),
+                ),
+            ))
+    projects = [
+        p for p in pages
+        if str(p.get("category") or "").lower() in {"projects", "new_developments"}
+        and p not in selected
+    ]
+    return selected + projects
+
+
 class HttpListingCollector(CollectorBase):
     """Contract every network-backed collector inherits. Subclasses set
     `DEFAULT_CONFIG` (see the concrete collector files)."""
@@ -508,7 +624,7 @@ class HttpListingCollector(CollectorBase):
         headers = {"User-Agent": cfg.get("user_agent",
                    "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
 
-        listing_pages = self.source.get("listing_pages") or []
+        listing_pages = _canonical_listing_pages(self.source.get("listing_pages") or [])
         if not listing_pages:
             logger.warning(f"{self.key} source '{self.source.get('name')}' has no "
                            f"listing_pages — run Discover Pages first")
@@ -549,8 +665,14 @@ class HttpListingCollector(CollectorBase):
         current_url: Optional[str] = listing_url
         page_no = 0
         ceiling = int(cfg["max_pages_safety_ceiling"])
+        visited_pages: set[str] = set()
         while current_url and page_no < ceiling:
             _check_cancelled(run)
+            current_key = _page_key(current_url)
+            if current_key in visited_pages:
+                _record_pagination_end(run, "pagination_cycle_detected")
+                break
+            visited_pages.add(current_key)
             page_no += 1
             _record(run, "page_fetch_started", url=current_url)
             html, status = await _fetch_with_retries(client, current_url)
@@ -565,6 +687,7 @@ class HttpListingCollector(CollectorBase):
             accepted = 0; rejected = 0
             for card in cards:
                 _check_cancelled(run)
+                _record(run, "card_seen")
                 row, reject_reason = self._parse_card(
                     card, cfg, purpose, base, category_page_url=current_url,
                 )
@@ -597,6 +720,11 @@ class HttpListingCollector(CollectorBase):
                     else:
                         _record(run, "detail_fetch_failed",
                                 inc="detail_pages_failed")
+                if row.get("price") is None:
+                    rejected += 1
+                    reason = "unpriced_listing" if row.get("price_status") == "UNPRICED" else "no_numeric_price"
+                    _record(run, reason)
+                    continue
                 accepted += 1
                 _record(run, "card_accepted")
                 yield row
@@ -612,7 +740,10 @@ class HttpListingCollector(CollectorBase):
                 break
 
             next_url = _find_next_page_url(html, current_url, cfg)
-            if not next_url or next_url == current_url:
+            if next_url and _page_key(next_url) in visited_pages:
+                _record_pagination_end(run, "pagination_cycle_detected")
+                break
+            if not next_url or _page_key(next_url) == _page_key(current_url):
                 _record_pagination_end(
                     run, "no_next_link" if not next_url else "next_equals_current")
                 break
@@ -642,14 +773,12 @@ class HttpListingCollector(CollectorBase):
             return None, "no_url_in_card"
         source_listing_id = _path_parts(source_url)[-1] or source_url
 
-        title = text_of(card.css_first(cfg["title"])) if cfg.get("title") else ""
-        price_text = text_of(card.css_first(cfg["price"])) if cfg.get("price") else ""
+        title = smart_field_text(card, cfg.get("title"), "title")
+        price_text = smart_price_text(card, cfg.get("price"))
         price = parse_price(price_text)
-        if price is None:
-            return None, "no_numeric_price"
 
-        addr = text_of(card.css_first(cfg["address"])) if cfg.get("address") else ""
-        desc = text_of(card.css_first(cfg.get("description", ""))) if cfg.get("description") else ""
+        addr = smart_field_text(card, cfg.get("address"), "address")
+        desc = smart_field_text(card, cfg.get("description"), "description")
         location = parse_location(addr, default_city=cfg.get("default_city"),
                                   default_province=cfg.get("default_province"))
 
@@ -675,6 +804,7 @@ class HttpListingCollector(CollectorBase):
             "source_url": source_url,
             "purpose": purpose,
             "price": price,
+            "price_status": price_status(price_text),
             "rent_period": parse_rent_period(price_text) if purpose == "rent" else None,
             "property_class": cls,
             "property_subtype": subtype,
@@ -717,10 +847,14 @@ class HttpListingCollector(CollectorBase):
                 val = fn(tree.css_first(sel))
                 if val:
                     out[out_key] = val
-        if ds.get("price"):
-            v = parse_price(text_of(tree.css_first(ds["price"])))
+        detail_price_text = smart_price_text(tree, ds.get("price"))
+        if detail_price_text:
+            v = parse_price(detail_price_text)
             if v is not None:
                 out["price"] = v
+                out["price_status"] = "PRICED"
+            elif _POA_MARKERS.search(detail_price_text):
+                out["price_status"] = "UNPRICED"
         for k in ("bedrooms", "bathrooms"):
             sel = ds.get(k)
             if sel:
@@ -745,7 +879,7 @@ class HttpListingCollector(CollectorBase):
         portion = parse_portion(page_text)
         if portion:
             out["portion_number"] = portion
-        detail_price = text_of(tree.css_first(ds["price"])) if ds.get("price") else ""
+        detail_price = detail_price_text
         period = parse_rent_period(detail_price)
         if period:
             out["rent_period"] = period
