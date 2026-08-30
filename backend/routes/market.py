@@ -1,4 +1,5 @@
 """Staff-only Property Data Aggregation and Master Property link endpoints."""
+import asyncio
 import statistics
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
@@ -139,69 +140,272 @@ async def ingest_market_listing(payload: MarketObservationCreate, user: dict = D
         raise HTTPException(400, str(exc))
 
 
-@router.post("/admin/market/sources/{source_site_id}/collect")
-async def collect_source(source_site_id: str, user: dict = Depends(require_staff)):
-    source = await db.source_sites.find_one({"id": source_site_id}, {"_id": 0})
-    if not source or not source.get("active", True):
-        raise HTTPException(404, "Active source site not found")
-    collector_class = get_collector(source.get("collector_key") or "")
-    if not collector_class:
-        raise HTTPException(400, "Source site has no supported collector")
-    run = {
-        "id": new_id(), "source_site_id": source_site_id, "status": "RUNNING",
-        "started_at": now_iso(), "finished_at": None, "records_seen": 0,
-        "records_ingested": 0, "records_matched": 0, "records_review_required": 0,
-        "created_by": user["id"],
-    }
-    await db.collection_runs.insert_one(run)
+_ACTIVE_COLLECTION_TASKS: dict[str, asyncio.Task] = {}
+_STALE_RUN_MINUTES = 10
+
+
+class CollectionRunContext:
+    """In-memory diagnostics mirrored to the collection run document."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        self.cancel_requested = False
+        self.diagnostics = {
+            "pages_visited": [], "cards_seen": 0, "cards_accepted": 0,
+            "cards_rejected": 0, "rejection_reasons": {},
+            "duplicate_source_ids_within_run": 0, "pagination_pages_followed": 0,
+            "detail_pages_attempted": 0, "detail_pages_succeeded": 0,
+            "detail_pages_failed": 0, "records_passed_to_ingestion": 0,
+            "records_inserted": 0, "records_updated": 0,
+            "pagination_end_reason": None,
+        }
+
+    def record_diag(self, reason: str, *, inc: str | None = None,
+                    url: str | None = None, status: int | None = None) -> None:
+        if reason in {"card_accepted"}:
+            self.diagnostics["cards_accepted"] += 1
+        elif reason in {"no_url_in_card", "no_numeric_price", "duplicate_source_id_within_run"}:
+            self.diagnostics["cards_rejected"] += 1
+            reasons = self.diagnostics["rejection_reasons"]
+            reasons[reason] = reasons.get(reason, 0) + 1
+        if reason == "duplicate_source_id_within_run":
+            self.diagnostics["duplicate_source_ids_within_run"] += 1
+        if inc:
+            self.diagnostics[inc] = self.diagnostics.get(inc, 0) + 1
+        if reason == "page_fetch_failed":
+            self.diagnostics.setdefault("errors", []).append(
+                {"url": url, "status": status, "reason": reason}
+            )
+
+    def record_page(self, url: str, cards_seen: int, cards_accepted: int,
+                    cards_rejected: int, final: bool = False) -> None:
+        self.diagnostics["pages_visited"].append({
+            "url": url, "cards_seen": cards_seen,
+            "cards_accepted": cards_accepted, "cards_rejected": cards_rejected,
+            "final": final,
+        })
+        self.diagnostics["cards_seen"] += cards_seen
+        self.diagnostics["pagination_pages_followed"] = len(self.diagnostics["pages_visited"])
+
+    def record_pagination_end(self, reason: str) -> None:
+        self.diagnostics["pagination_end_reason"] = reason
+
+    def request_cancel(self) -> None:
+        self.cancel_requested = True
+
+    def raise_if_cancelled(self) -> None:
+        if self.cancel_requested:
+            raise asyncio.CancelledError()
+
+
+async def _mark_stale_runs() -> None:
+    """Close abandoned runs without allowing malformed legacy rows to cause 500s."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=_STALE_RUN_MINUTES)).isoformat()
+    rows = await db.collection_runs.find({
+        "status": "RUNNING",
+        "$or": [{"heartbeat_at": {"$lt": cutoff}}, {
+            "heartbeat_at": {"$exists": False}, "started_at": {"$lt": cutoff}
+        }],
+    }, {"_id": 0}).to_list(500)
+    for row in rows:
+        task = _ACTIVE_COLLECTION_TASKS.get(row.get("id"))
+        if task and not task.done():
+            continue
+        patch = {
+            "status": "FAILED", "outcome": "STALE", "finished_at": now_iso(),
+            "error": "Run heartbeat expired; it can be safely retried.",
+        }
+        try:
+            await db.collection_runs.update_one({"id": row["id"]}, {"$set": patch})
+        except Exception:
+            # Pre-lifecycle test rows can violate the current strict validator.
+            # They contain no usable results, so remove only that malformed run.
+            await db.collection_runs.delete_one({"id": row["id"]})
+        await db.source_sites.update_one(
+            {"id": row.get("source_site_id"), "collection_lock": row.get("id")},
+            {"$unset": {"collection_lock": "", "collection_lock_at": ""}},
+        )
+
+
+async def _persist_progress(run: dict, context: CollectionRunContext) -> None:
+    context.raise_if_cancelled()
+    control = await db.collection_runs.find_one(
+        {"id": run["id"]}, {"_id": 0, "cancel_requested": 1}
+    )
+    if control and control.get("cancel_requested"):
+        context.request_cancel()
+        context.raise_if_cancelled()
+    context.diagnostics["records_passed_to_ingestion"] = run["records_seen"]
+    context.diagnostics["records_inserted"] = run["records_new"]
+    context.diagnostics["records_updated"] = run["records_updated"]
+    await db.collection_runs.update_one({"id": run["id"]}, {"$set": {
+        "heartbeat_at": now_iso(), "records_seen": run["records_seen"],
+        "records_ingested": run["records_ingested"],
+        "records_new": run["records_new"], "records_updated": run["records_updated"],
+        "records_rejected": run["records_rejected"],
+        "records_matched": run["records_matched"],
+        "records_review_required": run["records_review_required"],
+        "diagnostics": context.diagnostics,
+    }})
+
+
+async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> None:
+    context = CollectionRunContext(run["id"])
     try:
+        collector_class = get_collector(source.get("collector_key") or "")
         collector = collector_class(source)
-        async for row in collector.iter_listings():
+        async for row in collector.iter_listings(run=context):
+            context.raise_if_cancelled()
             run["records_seen"] += 1
-            normalized = collector_payload(source_site_id, row)
+            normalized = collector_payload(source["id"], row)
             if not normalized["source_listing_id"] or not normalized["source_url"] or normalized["price_amount"] is None:
+                run["records_rejected"] += 1
+                await _persist_progress(run, context)
                 continue
-            result = await service.ingest(normalized, user["id"])
+            existed = await db.source_listings.find_one({
+                "source_site_id": source["id"],
+                "source_listing_id": normalized["source_listing_id"],
+            }, {"_id": 0, "id": 1})
+            result = await service.ingest(normalized, actor_id)
             run["records_ingested"] += 1
+            run["records_updated" if existed else "records_new"] += 1
             if result["match"]["status"] == "MATCHED":
                 run["records_matched"] += 1
             elif result["match"]["status"] == "REVIEW_REQUIRED":
                 run["records_review_required"] += 1
-        diagnostics = getattr(collector, "diagnostics", None) or {
-            "pages_visited": [], "cards_seen": run["records_seen"],
-            "cards_accepted": run["records_ingested"],
-            "cards_rejected": max(0, run["records_seen"] - run["records_ingested"]),
-            "rejection_reasons": {}, "records_passed_to_ingestion": run["records_seen"],
-            "records_inserted": run["records_ingested"], "records_updated": 0,
-            "pagination_end_reason": "collector_complete",
-        }
-        run.update(status="SUCCESS", finished_at=now_iso(), diagnostics=diagnostics, errors=[])
+            await _persist_progress(run, context)
+        outcome = "NO_DATA" if run["records_ingested"] == 0 else (
+            "WARNING" if run["records_rejected"] or context.diagnostics.get("errors") else "COMPLETED"
+        )
+        run.update(status="SUCCESS", outcome=outcome, finished_at=now_iso(), error=None)
+    except asyncio.CancelledError:
+        context.request_cancel()
+        run.update(
+            status="FAILED", outcome="CANCELLED", finished_at=now_iso(),
+            error="Cancelled by staff; all collection work for this run was stopped.",
+        )
     except Exception as exc:
-        run.update(status="FAILED", finished_at=now_iso(), error=str(exc)[:1000])
-        await db.collection_runs.update_one({"id": run["id"]}, {"$set": run})
-        raise HTTPException(502, "Collector run failed")
-    await db.collection_runs.update_one({"id": run["id"]}, {"$set": run})
-    await db.source_sites.update_one({"id": source_site_id}, {"$set": {"last_run_at": run["finished_at"], "updated_at": now_iso()}})
+        run.update(status="FAILED", outcome="FAILED", finished_at=now_iso(), error=str(exc)[:1000])
+    finally:
+        context.diagnostics["records_passed_to_ingestion"] = run["records_seen"]
+        context.diagnostics["records_inserted"] = run["records_new"]
+        context.diagnostics["records_updated"] = run["records_updated"]
+        await db.collection_runs.update_one({"id": run["id"]}, {"$set": {
+            **run, "diagnostics": context.diagnostics, "heartbeat_at": now_iso(),
+        }})
+        await db.source_sites.update_one(
+            {"id": source["id"], "collection_lock": run["id"]},
+            {"$set": {"last_run_at": run["finished_at"], "updated_at": now_iso()},
+             "$unset": {"collection_lock": "", "collection_lock_at": ""}},
+        )
+
+
+@router.post("/admin/market/sources/{source_site_id}/collect", status_code=202)
+async def collect_source(source_site_id: str, user: dict = Depends(require_staff)):
+    await _mark_stale_runs()
+    source = await db.source_sites.find_one({"id": source_site_id}, {"_id": 0})
+    if not source or not source.get("active", True):
+        raise HTTPException(404, "Active source site not found")
+    if not get_collector(source.get("collector_key") or ""):
+        raise HTTPException(400, "Source site has no supported collector")
+    active = await db.collection_runs.find_one(
+        {"source_site_id": source_site_id, "status": "RUNNING"}, {"_id": 0}
+    )
+    if active:
+        raise HTTPException(409, f"{source.get('name') or source.get('domain')} already has an active collection run")
+    run_id = new_id()
+    locked = await db.source_sites.find_one_and_update(
+        {"id": source_site_id, "$or": [
+            {"collection_lock": {"$exists": False}}, {"collection_lock": None},
+        ]},
+        {"$set": {"collection_lock": run_id, "collection_lock_at": now_iso()}},
+    )
+    if not locked:
+        raise HTTPException(409, f"{source.get('name') or source.get('domain')} already has an active collection run")
+    run = {
+        "id": run_id, "source_site_id": source_site_id,
+        "source_name": source.get("name"), "source_domain": source.get("domain"),
+        "status": "RUNNING", "outcome": "RUNNING", "started_at": now_iso(),
+        "heartbeat_at": now_iso(), "finished_at": None, "cancel_requested": False,
+        "records_seen": 0, "records_ingested": 0, "records_new": 0,
+        "records_updated": 0, "records_rejected": 0, "records_matched": 0,
+        "records_review_required": 0, "created_by": user["id"], "errors": [],
+    }
+    try:
+        await db.collection_runs.insert_one(run)
+    except Exception:
+        await db.source_sites.update_one(
+            {"id": source_site_id, "collection_lock": run_id},
+            {"$unset": {"collection_lock": "", "collection_lock_at": ""}},
+        )
+        raise HTTPException(503, "Collection run could not be created; retry after the run records are repaired")
     run.pop("_id", None)
+    task = asyncio.create_task(_execute_collection_run(run, source, user["id"]))
+    _ACTIVE_COLLECTION_TASKS[run_id] = task
+    task.add_done_callback(lambda _task, rid=run_id: _ACTIVE_COLLECTION_TASKS.pop(rid, None))
     return _run_view(run)
+
+
+@router.post("/admin/market/runs/{run_id}/cancel", status_code=202)
+async def cancel_collection_run(run_id: str, user: dict = Depends(require_staff)):
+    run = await db.collection_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(404, "Collection run not found")
+    if run.get("status") != "RUNNING":
+        raise HTTPException(409, "Only a running collection can be cancelled")
+    await db.collection_runs.update_one({"id": run_id}, {"$set": {
+        "cancel_requested": True, "outcome": "CANCELLING", "cancel_requested_at": now_iso(),
+        "cancel_requested_by": user["id"],
+    }})
+    task = _ACTIVE_COLLECTION_TASKS.get(run_id)
+    if task and not task.done():
+        task.cancel()
+    else:
+        await db.collection_runs.update_one({"id": run_id}, {"$set": {
+            "status": "FAILED", "outcome": "CANCELLED", "finished_at": now_iso(),
+            "error": "Cancelled by staff after the worker stopped responding.",
+        }})
+        await db.source_sites.update_one(
+            {"id": run.get("source_site_id"), "collection_lock": run_id},
+            {"$unset": {"collection_lock": "", "collection_lock_at": ""}},
+        )
+    return {"ok": True, "run_id": run_id, "status": "cancelling"}
 
 
 def _run_view(row: dict) -> dict:
     item = dict(row)
     item["source_id"] = item.get("source_site_id")
     item["listings_seen"] = item.get("records_seen", 0)
-    item["listings_new"] = item.get("records_ingested", 0)
-    item["listings_updated"] = 0
+    item["listings_new"] = item.get("records_new", item.get("records_ingested", 0))
+    item["listings_updated"] = item.get("records_updated", 0)
+    item["listings_rejected"] = item.get("records_rejected", 0)
     item["matches_created"] = item.get("records_matched", 0)
     item["review_cases_created"] = item.get("records_review_required", 0)
-    item["status"] = str(item.get("status") or "").lower()
+    outcome = str(item.get("outcome") or "").lower()
+    item["status"] = outcome if outcome in {
+        "no_data", "warning", "cancelled", "cancelling", "stale"
+    } else str(item.get("status") or "").lower()
     return item
 
 
 @router.get("/admin/market/runs")
 async def list_runs(source_id: str = None, limit: int = 100, user: dict = Depends(require_staff)):
+    try:
+        await _mark_stale_runs()
+    except Exception:
+        # Run history must remain readable even if one legacy row is malformed.
+        pass
     query = {"source_site_id": source_id} if source_id else {}
     rows = await db.collection_runs.find(query, {"_id": 0}).sort("started_at", -1).limit(limit).to_list(limit)
+    missing_ids = {r.get("source_site_id") for r in rows if not r.get("source_name")}
+    source_rows = await db.source_sites.find(
+        {"id": {"$in": list(missing_ids)}}, {"_id": 0, "id": 1, "name": 1, "domain": 1}
+    ).to_list(len(missing_ids)) if missing_ids else []
+    names = {r["id"]: r for r in source_rows}
+    for row in rows:
+        source_row = names.get(row.get("source_site_id"), {})
+        row.setdefault("source_name", source_row.get("name"))
+        row.setdefault("source_domain", source_row.get("domain"))
     return [_run_view(row) for row in rows]
 
 
