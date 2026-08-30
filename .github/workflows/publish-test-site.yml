@@ -135,9 +135,10 @@ jobs:
         shell: bash
         run: |
           echo "YARN_LOCK_GZIP_BASE64_BEGIN"
-          gzip -c yarn.lock | base64 -w0
+          base64 -w0 yarn.lock
           echo
           echo "YARN_LOCK_GZIP_BASE64_END"
+          exit 1
 
       - name: Build frontend
         working-directory: backend/frontend
