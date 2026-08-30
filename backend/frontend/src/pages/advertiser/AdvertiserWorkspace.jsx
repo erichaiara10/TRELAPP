@@ -7,7 +7,7 @@ import {
   Home, House, Image, Inbox, Info, LayoutDashboard, ListChecks, Mail, MapPin,
   LogOut, MessageCircle, MoreVertical, Pencil, Phone, Plus, Search, Send,
   Settings, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, Users,
-  X, ZoomIn
+  X
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
