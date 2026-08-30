@@ -14,7 +14,7 @@ on:
       - codex/aggregation-18-improvements
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: trelweb-test-deployment
@@ -91,22 +91,7 @@ jobs:
         working-directory: backend/frontend
         run: |
           corepack enable
-          if [ -f yarn.lock ]; then
-            yarn install --non-interactive --frozen-lockfile
-          else
-            yarn install --non-interactive
-          fi
-
-      - name: Commit generated dependency lock
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain -- backend/frontend/yarn.lock)" ]; then
-            git add backend/frontend/yarn.lock
-            git commit -m "build(frontend): lock resolved dependency versions"
-            git push origin HEAD:codex/aggregation-18-improvements
-          fi
+          yarn install --non-interactive --frozen-lockfile
 
       - name: Build frontend
         working-directory: backend/frontend
