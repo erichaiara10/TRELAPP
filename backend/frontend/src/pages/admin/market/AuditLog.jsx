@@ -2,25 +2,29 @@
 // Backed by /api/admin/market/audit-events (already emitting in Phase 1).
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { PageHeader, KpiCard, Section } from "./_shared";
+import { PageHeader, KpiCard, Section, LoadError, Pager } from "./_shared";
 
 export default function AuditLog() {
   const [rows, setRows] = useState([]);
   const [entityType, setEntityType] = useState("");
   const [summary, setSummary] = useState({});
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState("");
+  const limit = 100;
 
   const load = async () => {
-    const params = entityType ? `?entity_type=${entityType}&limit=200` : "?limit=200";
-    const { data } = await api.get(`/admin/market/audit-events${params}`);
-    setRows(data || []);
-    const s = await api.get("/admin/market/summary");
-    setSummary(s.data || {});
+    try {
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (entityType) params.set("entity_type", entityType);
+      const [{ data }, s] = await Promise.all([api.get(`/admin/market/audit-events?${params}`), api.get("/admin/market/summary")]);
+      setRows(data || []); setSummary(s.data || {}); setError("");
+    } catch (e) { setError(e?.response?.data?.detail || e?.message || "Audit events could not be loaded."); }
   };
-  useEffect(() => { load().catch(() => {}); }, [entityType]);
+  useEffect(() => { load(); }, [entityType, offset]);
 
-  const entityTypes = ["", "market_source", "master_property", "property_unit",
-                       "property_match", "market_review_case", "market_configuration",
-                       "location_reference"];
+  const entityTypes = ["", "market_source", "collection_run", "source_listing",
+                       "master_property", "property_match", "market_review_case",
+                       "market_configuration"];
 
   return (
     <div data-testid="market-audit-page">
@@ -45,6 +49,7 @@ export default function AuditLog() {
           ))}
         </select>
       </div>
+      <LoadError message={error} onRetry={load} />
 
       <Section title={`Events (${rows.length})`} testid="audit-events-table">
         {rows.length === 0 ? (
@@ -77,6 +82,7 @@ export default function AuditLog() {
             </table>
           </div>
         )}
+        <Pager offset={offset} limit={limit} count={rows.length} onChange={setOffset} />
       </Section>
     </div>
   );

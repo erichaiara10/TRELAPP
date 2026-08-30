@@ -6,19 +6,27 @@ import {
   LineChart, Line,
 } from "recharts";
 import { api, money } from "@/lib/api";
-import { PageHeader, Section } from "./_shared";
+import { PageHeader, Section, LoadError } from "./_shared";
 
 export default function MarketTrends() {
   const [purpose, setPurpose] = useState("sale");
   const [suburbs, setSuburbs] = useState([]);
   const [trend, setTrend] = useState([]);
   const [heatmap, setHeatmap] = useState({ months: [], suburbs: [], cells: [] });
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    api.get(`/admin/market/analytics/median-by-suburb?purpose=${purpose}`).then((r) => setSuburbs(r.data || [])).catch(() => {});
-    api.get(`/admin/market/analytics/price-trends?purpose=${purpose}&months=12`).then((r) => setTrend(r.data || [])).catch(() => {});
-    api.get(`/admin/market/analytics/heatmap?purpose=${purpose}&months=12`).then((r) => { const d = r.data || {}; setHeatmap({ months: Array.isArray(d.months) ? d.months : [], suburbs: Array.isArray(d.suburbs) ? d.suburbs : [], cells: Array.isArray(d.cells) ? d.cells : [] }); }).catch(() => {});
-  }, [purpose]);
+  const load = async () => {
+    const results = await Promise.allSettled([
+      api.get(`/admin/market/analytics/median-by-suburb?purpose=${purpose}`),
+      api.get(`/admin/market/analytics/price-trends?purpose=${purpose}&months=12`),
+      api.get(`/admin/market/analytics/heatmap?purpose=${purpose}&months=12`),
+    ]);
+    if (results[0].status === "fulfilled") setSuburbs(results[0].value.data || []);
+    if (results[1].status === "fulfilled") setTrend(results[1].value.data || []);
+    if (results[2].status === "fulfilled") { const d = results[2].value.data || {}; setHeatmap({ months: Array.isArray(d.months) ? d.months : [], suburbs: Array.isArray(d.suburbs) ? d.suburbs : [], cells: Array.isArray(d.cells) ? d.cells : [] }); }
+    setError(results.some((item) => item.status === "rejected") ? "Some trend information could not be loaded." : "");
+  };
+  useEffect(() => { load(); }, [purpose]);
 
   const heatMax = Math.max(0, ...heatmap.cells.flatMap((row) => heatmap.months.map((m) => Number(row[m] || 0))));
   const cellStyle = (v) => {
@@ -48,6 +56,7 @@ export default function MarketTrends() {
           </div>
         }
       />
+      <LoadError message={error} onRetry={load} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         <Section title={`Median ${purpose} price — top suburbs`} testid="trends-median-suburb">

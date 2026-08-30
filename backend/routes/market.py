@@ -1,5 +1,8 @@
 """Staff-only Property Data Aggregation and Master Property link endpoints."""
 import asyncio
+import hashlib
+import json
+import re
 import statistics
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
@@ -26,6 +29,15 @@ async def require_staff(user: dict = Depends(get_current_user)) -> dict:
     if account_category(user) != "STAFF" or user.get("status", "ACTIVE") != "ACTIVE":
         raise HTTPException(403, "Staff account required")
     return user
+
+
+async def _audit(user: dict, action: str, subject_type: str,
+                 subject_id: str, payload: dict | None = None) -> None:
+    await db.audit_events.insert_one({
+        "id": new_id(), "actor_id": user.get("id") or "system", "action": action,
+        "subject_type": subject_type, "subject_id": subject_id,
+        "payload": payload or {}, "created_at": now_iso(),
+    })
 
 
 def _source_view(row: dict) -> dict:
@@ -70,7 +82,7 @@ def _listing_pages(pages) -> list:
 
 @router.get("/admin/market/sources")
 async def list_sources(user: dict = Depends(require_staff)):
-    rows = await db.source_sites.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    rows = await db.source_sites.find({"archived": {"$ne": True}}, {"_id": 0}).sort("name", 1).to_list(500)
     return [_source_view(row) for row in rows]
 
 
@@ -97,6 +109,7 @@ async def create_source(payload: dict, user: dict = Depends(require_staff)):
     }
     await db.source_sites.insert_one(document)
     document.pop("_id", None)
+    await _audit(user, "MARKET_SOURCE_CREATED", "market_source", document["id"], {"name": document["name"], "domain": domain})
     return _source_view(document)
 
 
@@ -116,15 +129,19 @@ async def update_source(source_site_id: str, payload: dict, user: dict = Depends
     patch["updated_at"] = now_iso()
     patch.pop("id", None)
     await db.source_sites.update_one({"id": source_site_id}, {"$set": patch})
+    await _audit(user, "MARKET_SOURCE_UPDATED", "market_source", source_site_id, {"changed_fields": sorted(patch)})
     return _source_view({**existing, **patch})
 
 
 @router.delete("/admin/market/sources/{source_site_id}")
 async def delete_source(source_site_id: str, user: dict = Depends(require_staff)):
     source = await db.source_sites.find_one({"id": source_site_id}, {"_id": 0})
-    result = await db.source_sites.delete_one({"id": source_site_id})
-    if not result.deleted_count:
+    if not source:
         raise HTTPException(404, "Source not found")
+    await db.source_sites.update_one({"id": source_site_id}, {"$set": {
+        "archived": True, "active": False, "archived_at": now_iso(),
+        "archived_by": user["id"], "updated_at": now_iso(),
+    }, "$unset": {"collection_lock": "", "collection_lock_at": ""}})
     await db.audit_events.insert_one({
         "id": new_id(), "subject_type": "market_source", "subject_id": source_site_id,
         "action": "SOURCE_DELETED_LISTINGS_RETAINED", "actor_id": user["id"],
@@ -256,6 +273,68 @@ async def _mark_stale_runs() -> None:
         )
 
 
+async def resume_pending_collection_runs() -> None:
+    """Recover aggregation work after a Fly restart without another queue."""
+    await _mark_stale_runs()
+    rows = await db.collection_runs.find({"status": "RUNNING"}, {"_id": 0}).to_list(100)
+    for run in rows:
+        if run.get("cancel_requested") or _run_heartbeat_expired(run):
+            continue
+        source = await db.source_sites.find_one({"id": run.get("source_site_id"), "active": True}, {"_id": 0})
+        if not source or run["id"] in _ACTIVE_COLLECTION_TASKS:
+            continue
+        run.setdefault("records_validation_rejected", 0)
+        run.setdefault("created_by", "system")
+        task = asyncio.create_task(_execute_collection_run(run, source, run["created_by"]))
+        _ACTIVE_COLLECTION_TASKS[run["id"]] = task
+        task.add_done_callback(lambda _task, rid=run["id"]: _ACTIVE_COLLECTION_TASKS.pop(rid, None))
+
+
+async def ensure_market_indexes() -> None:
+    """Install only aggregation invariants and repair duplicate legacy locks."""
+    await _mark_stale_runs()
+    active = await db.collection_runs.find({"status": "RUNNING"}, {"_id": 0}).sort("started_at", -1).to_list(500)
+    newest_by_source = {}
+    for run in active:
+        source_id = run.get("source_site_id")
+        if source_id not in newest_by_source:
+            newest_by_source[source_id] = run["id"]
+            continue
+        await db.collection_runs.update_one({"id": run["id"]}, {"$set": {
+            "status": "FAILED", "outcome": "STALE", "finished_at": now_iso(),
+            "error": "Duplicate legacy run was closed during aggregation startup.",
+        }})
+    duplicate_groups = await db.source_listings.aggregate([
+        {"$group": {"_id": {"source": "$source_site_id", "listing": "$source_listing_id"},
+                    "ids": {"$push": "$id"}, "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}},
+    ]).to_list(1000)
+    for group in duplicate_groups:
+        rows = await db.source_listings.find({"id": {"$in": group["ids"]}}, {"_id": 0}).sort("updated_at", -1).to_list(len(group["ids"]))
+        if len(rows) < 2:
+            continue
+        keeper, duplicate_ids = rows[0], [row["id"] for row in rows[1:]]
+        await db.source_listing_observations.update_many(
+            {"source_listing_id": {"$in": duplicate_ids}}, {"$set": {"source_listing_id": keeper["id"]}}
+        )
+        await db.property_match_reviews.update_many(
+            {"source_listing_id": {"$in": duplicate_ids}}, {"$set": {"source_listing_id": keeper["id"], "updated_at": now_iso()}}
+        )
+        await db.source_listings.delete_many({"id": {"$in": duplicate_ids}})
+    await db.collection_runs.create_index(
+        [("source_site_id", 1), ("status", 1)], unique=True,
+        partialFilterExpression={"status": "RUNNING"}, name="one_running_collection_per_source",
+    )
+    await db.source_listings.create_index(
+        [("source_site_id", 1), ("source_listing_id", 1)], unique=True,
+        name="one_listing_identity_per_source",
+    )
+    await db.source_listing_observations.create_index(
+        [("source_listing_id", 1), ("observed_at", -1)],
+        name="listing_observation_history",
+    )
+
+
 def _run_heartbeat_expired(run: dict, current_time: datetime | None = None) -> bool:
     heartbeat = run.get("heartbeat_at") or run.get("started_at")
     try:
@@ -336,7 +415,7 @@ async def _execute_collection_run(run: dict, source: dict, actor_id: str) -> Non
         async for row in collector.iter_listings(run=context):
             context.raise_if_cancelled()
             normalized = collector_payload(source["id"], row)
-            if not normalized["source_listing_id"] or not normalized["source_url"] or normalized["price_amount"] is None:
+            if not normalized["source_listing_id"] or not normalized["source_url"]:
                 run["records_validation_rejected"] = run.get("records_validation_rejected", 0) + 1
                 await _persist_progress(run, context)
                 continue
@@ -416,7 +495,9 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
         {"source_site_id": source_site_id, "status": "RUNNING"}, {"_id": 0}
     )
     if active:
-        raise HTTPException(409, f"{source.get('name') or source.get('domain')} already has an active collection run")
+        item = _run_view(active)
+        item["already_running"] = True
+        return item
     run_id = new_id()
     locked = await db.source_sites.find_one_and_update(
         {"id": source_site_id, "$or": [
@@ -425,7 +506,14 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
         {"$set": {"collection_lock": run_id, "collection_lock_at": now_iso()}},
     )
     if not locked:
-        raise HTTPException(409, f"{source.get('name') or source.get('domain')} already has an active collection run")
+        active = await db.collection_runs.find_one(
+            {"source_site_id": source_site_id, "status": "RUNNING"}, {"_id": 0}
+        )
+        if active:
+            item = _run_view(active)
+            item["already_running"] = True
+            return item
+        raise HTTPException(503, "The source lock could not be recovered; refresh and retry")
     run = {
         "id": run_id, "source_site_id": source_site_id,
         "source_name": source.get("name"), "source_domain": source.get("domain"),
@@ -447,6 +535,7 @@ async def collect_source(source_site_id: str, user: dict = Depends(require_staff
     task = asyncio.create_task(_execute_collection_run(run, source, user["id"]))
     _ACTIVE_COLLECTION_TASKS[run_id] = task
     task.add_done_callback(lambda _task, rid=run_id: _ACTIVE_COLLECTION_TASKS.pop(rid, None))
+    await _audit(user, "COLLECTION_RUN_STARTED", "collection_run", run_id, {"source_site_id": source_site_id, "source_name": source.get("name")})
     return _run_view(run)
 
 
@@ -473,6 +562,7 @@ async def cancel_collection_run(run_id: str, user: dict = Depends(require_staff)
             {"id": run.get("source_site_id"), "collection_lock": run_id},
             {"$unset": {"collection_lock": "", "collection_lock_at": ""}},
         )
+    await _audit(user, "COLLECTION_RUN_CANCEL_REQUESTED", "collection_run", run_id, {"source_site_id": run.get("source_site_id")})
     return {"ok": True, "run_id": run_id, "status": "cancelling"}
 
 
@@ -485,6 +575,12 @@ def _run_view(row: dict) -> dict:
     item["listings_rejected"] = item.get("records_rejected", 0)
     item["matches_created"] = item.get("records_matched", 0)
     item["review_cases_created"] = item.get("records_review_required", 0)
+    item.setdefault("diagnostics", {
+        "phase": str(item.get("outcome") or item.get("status") or "UNKNOWN").upper(),
+        "pages_visited": [], "pages_visited_total": 0, "cards_seen": item.get("records_seen", 0),
+        "cards_accepted": item.get("records_ingested", 0), "cards_rejected": item.get("records_rejected", 0),
+        "rejection_reasons": {}, "pagination_end_reason": "legacy_run_no_page_diagnostics",
+    })
     outcome = str(item.get("outcome") or "").lower()
     item["status"] = outcome if outcome in {
         "no_data", "warning", "cancelled", "cancelling", "stale"
@@ -515,14 +611,21 @@ async def list_runs(source_id: str = None, limit: int = 100, user: dict = Depend
 
 @router.get("/admin/market/sources/health")
 async def source_health(user: dict = Depends(require_staff)):
-    sources = await db.source_sites.find({}, {"_id": 0}).to_list(500)
+    sources = await db.source_sites.find({"archived": {"$ne": True}}, {"_id": 0}).to_list(500)
     result = []
     for source in sources:
         runs = await db.collection_runs.find({"source_site_id": source["id"]}, {"_id": 0}).sort("started_at", -1).limit(10).to_list(10)
         useful = lambda run: str(run.get("outcome") or "").upper() in {"COMPLETED", "WARNING"} and int(run.get("records_ingested") or 0) > 0
-        successes = sum(1 for run in runs if useful(run))
-        result.append({"source_id": source["id"], "runs": len(runs), "success_rate": round(successes * 100 / len(runs), 1) if runs else None,
-                       "consecutive_failures": next((index for index, run in enumerate(runs) if useful(run)), len(runs))})
+        completed = [run for run in runs if str(run.get("status") or "").upper() != "RUNNING"]
+        successes = sum(1 for run in completed if useful(run))
+        result.append({
+            "source_id": source["id"], "name": source.get("name") or source.get("domain"),
+            "domain": source.get("domain"), "collector": source.get("collector_key"),
+            "runs": len(runs), "success_rate": round(successes * 100 / len(completed), 1) if completed else None,
+            "consecutive_failures": next((index for index, run in enumerate(completed) if useful(run)), len(completed)),
+            "listings_ingested": await db.source_listings.count_documents({"source_site_id": source["id"]}),
+            "profile_status": source.get("profile_status"), "last_run_at": source.get("last_run_at"),
+        })
     return result
 
 
@@ -541,7 +644,27 @@ async def get_collector_defaults(key: str, user: dict = Depends(require_staff)):
 
 @router.post("/admin/market/collectors/{key}/discover")
 async def discover_source_pages(key: str, payload: dict, user: dict = Depends(require_staff)):
-    return await discover_listing_pages(payload.get("base_url"), key, payload.get("parser_config"))
+    base_url = _normalized_base_url(payload)
+    cache_key = hashlib.sha256(json.dumps({
+        "url": base_url, "collector": key, "parser": payload.get("parser_config") or {},
+    }, sort_keys=True).encode()).hexdigest()
+    cache_id = f"market_discovery:{cache_key}"
+    cached = await db.system_settings.find_one({"id": cache_id}, {"_id": 0})
+    if cached and not payload.get("force"):
+        try:
+            created = datetime.fromisoformat(str(cached.get("created_at") or "").replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created > datetime.now(timezone.utc) - timedelta(hours=24):
+                return {**(cached.get("result") or {}), "cache_hit": True}
+        except (TypeError, ValueError):
+            pass
+    result = await discover_listing_pages(base_url, key, payload.get("parser_config"))
+    await db.system_settings.update_one({"id": cache_id}, {"$set": {
+        "id": cache_id, "kind": "market_discovery_cache", "created_at": now_iso(),
+        "result": result,
+    }}, upsert=True)
+    return {**result, "cache_hit": False}
 
 
 @router.post("/admin/market/collectors/{key}/test")
@@ -603,7 +726,8 @@ async def save_listing_pages(source_site_id: str, payload: dict, user: dict = De
 
 
 @router.get("/admin/market/master-properties")
-async def list_master_properties(search: str = "", limit: int = Query(default=200, ge=1, le=500), user: dict = Depends(require_staff)):
+async def list_master_properties(search: str = "", limit: int = Query(default=100, ge=1, le=500),
+                                 offset: int = Query(default=0, ge=0), user: dict = Depends(require_staff)):
     query = {"lifecycle_status": {"$ne": "deleted"}}
     if search.strip():
         term = search.strip()
@@ -612,36 +736,53 @@ async def list_master_properties(search: str = "", limit: int = Query(default=20
             {"canonical_address": {"$regex": term, "$options": "i"}},
             {"property_type": {"$regex": term, "$options": "i"}},
         ]
-    rows = await db.master_properties.find(query, {"_id": 0}).sort("updated_at", -1).limit(limit).to_list(limit)
+    rows = await db.master_properties.find(query, {"_id": 0}).sort("updated_at", -1).skip(offset).limit(limit).to_list(limit)
     for row in rows:
         row["source_listing_count"] = await db.source_listings.count_documents({"master_property_id": row.get("id")})
+        address = await db.property_addresses.find_one(
+            {"property_id": row.get("id"), "is_canonical": True}, {"_id": 0}
+        ) or {}
+        parcel = await db.property_parcels.find_one({"property_id": row.get("id")}, {"_id": 0}) or {}
+        row.setdefault("canonical_address", address.get("formatted_address") or address.get("canonical_address"))
+        row["location"] = {key: address.get(key) for key in (
+            "street_name", "suburb_name", "local_area_name", "city_name", "province_name"
+        ) if address.get(key)}
+        row["parcel"] = {key: parcel.get(key) for key in (
+            "lot", "section", "portion", "lot_norm", "section_norm", "portion_norm"
+        ) if parcel.get(key)}
+        row["linked"] = row["source_listing_count"] > 0
     return rows
 
 
 @router.get("/admin/market/listings")
 async def list_market_listings(
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     source_id: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
     user: dict = Depends(require_staff),
 ):
-    rows = await service.list_evidence(500 if source_id else limit)
-    if source_id:
-        rows = [row for row in rows if row.get("source_site_id") == source_id]
-    return rows[:limit]
+    return await service.list_evidence(limit, skip=offset, source_id=source_id, status=status, search=search)
 
 
 @router.get("/admin/market/summary")
 async def market_summary(user: dict = Depends(require_staff)):
     summary = await service.summary()
     summary.update({
-        "sources": await db.source_sites.count_documents({}),
-        "active_sources": await db.source_sites.count_documents({"active": True}),
+        "sources": await db.source_sites.count_documents({"archived": {"$ne": True}}),
+        "active_sources": await db.source_sites.count_documents({"active": True, "archived": {"$ne": True}}),
         "market_listings": await db.source_listings.count_documents({}),
         "active_listings": await db.source_listings.count_documents({"current_status": "ACTIVE"}),
         "matches_active": await db.source_listings.count_documents({"match_status": "MATCHED"}),
         "review_cases_open": await db.property_match_reviews.count_documents({"status": "OPEN"}),
-        "audit_events": await db.audit_events.count_documents({"subject_type": {"$in": ["source_listing", "market_source", "property_match"]}}),
+        "audit_events": await db.audit_events.count_documents({"subject_type": {"$in": [
+            "source_listing", "market_source", "collection_run", "master_property",
+            "property_match", "market_review_case", "market_configuration",
+        ]}}),
     })
+    active = await db.system_settings.find_one({"kind": "market_configuration", "active": True}, {"_id": 0, "version": 1, "name": 1})
+    summary["active_config_version"] = (active or {}).get("version") or (active or {}).get("name") or "Not configured"
     return summary
 
 
@@ -667,9 +808,12 @@ async def list_match_reviews(user: dict = Depends(require_staff)):
 
 
 @router.get("/admin/market/review-cases")
-async def list_review_cases(status: str = "open", case_type: str = None, limit: int = 100, user: dict = Depends(require_staff)):
+async def list_review_cases(status: str = "open", case_type: str = None, limit: int = 100,
+                            offset: int = Query(default=0, ge=0), user: dict = Depends(require_staff)):
     query = {"status": status.upper()}
-    rows = await db.property_match_reviews.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    if case_type:
+        query["$or"] = [{"case_type": case_type}, {"case_type": {"$exists": False}}]
+    rows = await db.property_match_reviews.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit).to_list(limit)
     return [{**row, "status": str(row.get("status") or "").lower(), "case_type": row.get("case_type") or "possible"} for row in rows]
 
 
@@ -679,6 +823,7 @@ async def update_review_case(review_id: str, payload: dict, user: dict = Depends
     result = await db.property_match_reviews.update_one({"id": review_id}, {"$set": patch})
     if not result.matched_count:
         raise HTTPException(404, "Review case not found")
+    await _audit(user, "MARKET_REVIEW_UPDATED", "market_review_case", review_id, {"status": patch["status"]})
     return {"ok": True}
 
 
@@ -699,6 +844,7 @@ async def resolve_match_review(review_id: str, payload: dict, user: dict = Depen
         raise HTTPException(400, "Decision must be MATCHED or REJECTED")
     await db.source_listings.update_one({"id": review["source_listing_id"]}, {"$set": listing_patch})
     await db.property_match_reviews.update_one({"id": review_id}, {"$set": {"status": decision, "resolved_by": user["id"], "resolved_at": now_iso(), "updated_at": now_iso()}})
+    await _audit(user, "PROPERTY_MATCH_REVIEW_RESOLVED", "property_match", review_id, {"decision": decision, "master_property_id": master_property_id})
     return {"ok": True, "decision": decision}
 
 
@@ -745,7 +891,7 @@ async def price_trends(purpose: str = "sale", months: int = 12, user: dict = Dep
 async def median_by_suburb(purpose: str = "sale", limit: int = 12, user: dict = Depends(require_staff)):
     grouped = {}
     for row, price in await _priced_rows(purpose):
-        suburb = str(row.get("suburb_name") or "").strip()
+        suburb = re.sub(r"\s+", " ", str(row.get("suburb_name") or row.get("local_area_name") or row.get("city_name") or "").strip()).title()
         if suburb:
             grouped.setdefault(suburb, []).append(float(price["amount"]))
     result = [{"suburb": key, "count": len(values), "median": statistics.median(values)} for key, values in grouped.items()]
@@ -754,8 +900,27 @@ async def median_by_suburb(purpose: str = "sale", limit: int = 12, user: dict = 
 
 @router.get("/admin/market/analytics/heatmap")
 async def heatmap(purpose: str = "sale", months: int = 12, user: dict = Depends(require_staff)):
-    trend = await price_trends(purpose, months, user)
-    return {"months": [row["month"] for row in trend], "suburbs": [], "cells": []}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
+    grouped = {}
+    month_keys = set()
+    for row, price in await _priced_rows(purpose):
+        try:
+            observed = datetime.fromisoformat(str(row.get("observed_at") or "").replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            if observed < cutoff:
+                continue
+        except Exception:
+            continue
+        suburb = re.sub(r"\s+", " ", str(row.get("suburb_name") or row.get("local_area_name") or row.get("city_name") or "Unknown").strip()).title()
+        month = observed.strftime("%Y-%m")
+        grouped.setdefault(suburb, {}).setdefault(month, []).append(float(price["amount"]))
+        month_keys.add(month)
+    months_out = sorted(month_keys)
+    cells = [{"suburb": suburb, **{month: statistics.median(values) for month, values in buckets.items()}}
+             for suburb, buckets in grouped.items()]
+    cells.sort(key=lambda item: item["suburb"])
+    return {"months": months_out, "suburbs": [row["suburb"] for row in cells], "cells": cells}
 
 
 @router.get("/admin/market/analytics/source-strip")
@@ -765,11 +930,33 @@ async def source_strip(user: dict = Depends(require_staff)):
 
 @router.get("/admin/market/analytics/quick-insights")
 async def quick_insights(user: dict = Depends(require_staff)):
-    return {"by_class": [], "by_purpose": [], "match_bands": []}
+    rows = await db.source_listings.find({}, {"_id": 0, "id": 1, "transaction_type": 1, "match_status": 1}).to_list(10000)
+    ids = [row["id"] for row in rows]
+    observations = await db.source_listing_observations.find(
+        {"source_listing_id": {"$in": ids}}, {"_id": 0, "source_listing_id": 1, "property_type_name": 1}
+    ).to_list(10000) if ids else []
+    latest_class = {}
+    for item in observations:
+        latest_class.setdefault(item["source_listing_id"], item.get("property_type_name") or "Unknown")
+    def counts(values):
+        output = {}
+        for value in values:
+            key = str(value or "Unknown").title()
+            output[key] = output.get(key, 0) + 1
+        return [{"key": key, "count": count} for key, count in sorted(output.items())]
+    return {
+        "by_class": counts(latest_class.get(row["id"]) for row in rows),
+        "by_purpose": counts(row.get("transaction_type") for row in rows),
+        "match_bands": counts(row.get("match_status") for row in rows),
+    }
 
 
 @router.post("/admin/market/guidance/run")
 async def run_guidance(payload: dict, user: dict = Depends(require_staff)):
+    if not str(payload.get("property_subtype") or payload.get("property_class") or "").strip():
+        raise HTTPException(400, "Property subtype is required")
+    if not str(payload.get("suburb") or payload.get("city") or "").strip():
+        raise HTTPException(400, "Suburb or city is required")
     request_payload = {
         "property_id": payload.get("property_id"), "property_type": payload.get("property_subtype") or payload.get("property_class") or "House",
         "listing_type": payload.get("purpose") or "sale", "price": float(payload.get("subject_asking_price") or 1),
@@ -779,7 +966,14 @@ async def run_guidance(payload: dict, user: dict = Depends(require_staff)):
         "land_area_sqm": payload.get("land_area_m2"), "building_area_sqm": payload.get("building_area_m2"),
     }
     result = await price_guidance.analyse(request_payload)
-    wrapper = {"id": new_id(), "created_at": now_iso(), "outputs": {"workflow": payload.get("workflow") or "admin"}, **result}
+    wrapper = {
+        "id": new_id(), "created_at": now_iso(),
+        "outputs": {"workflow": payload.get("workflow") or "admin"},
+        "subject": request_payload, "comparable_count": result.get("sample_size", 0),
+        "confidence_label": result.get("evidence_strength"),
+        "range": {"low": result.get("range_min"), "high": result.get("range_max")},
+        **result,
+    }
     await db.system_settings.update_one({"id": f"guidance:{wrapper['id']}"}, {"$set": wrapper}, upsert=True)
     return {"result": wrapper, "comparables": result.get("comparables") or []}
 
@@ -798,13 +992,17 @@ async def guidance_result(result_id: str, user: dict = Depends(require_staff)):
 
 
 @router.get("/admin/market/audit-events")
-async def audit_events(entity_type: str = None, event_type: str = None, limit: int = 200, user: dict = Depends(require_staff)):
+async def audit_events(entity_type: str = None, event_type: str = None, limit: int = 100,
+                       offset: int = Query(default=0, ge=0), user: dict = Depends(require_staff)):
     query = {}
     if entity_type:
         query["subject_type"] = entity_type
     if event_type:
         query["action"] = event_type
-    return await db.audit_events.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    rows = await db.audit_events.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit).to_list(limit)
+    return [{**row, "event_type": row.get("event_type") or row.get("action"),
+             "entity_type": row.get("entity_type") or row.get("subject_type"),
+             "entity_id": row.get("entity_id") or row.get("subject_id")} for row in rows]
 
 
 @router.get("/admin/market/config")
@@ -814,7 +1012,8 @@ async def list_config(user: dict = Depends(require_staff)):
 
 @router.get("/admin/market/config/active")
 async def active_config(algorithm: str = "combined", user: dict = Depends(require_staff)):
-    return await db.system_settings.find_one({"kind": "market_configuration", "active": True}, {"_id": 0})
+    row = await db.system_settings.find_one({"kind": "market_configuration", "active": True}, {"_id": 0})
+    return row or {"active": False, "version": None, "message": "No active market configuration. Publish one to enable matching and guidance."}
 
 
 @router.post("/admin/market/config")
@@ -838,17 +1037,20 @@ async def activate_config(config_id: str, user: dict = Depends(require_staff)):
     result = await db.system_settings.update_one({"id": config_id, "kind": "market_configuration"}, {"$set": {"active": True, "activated_at": now_iso()}})
     if not result.matched_count:
         raise HTTPException(404, "Configuration not found")
+    await _audit(user, "CONFIGURATION_ACTIVATED", "market_configuration", config_id)
     return {"ok": True}
 
 
 @router.get("/admin/market/retention/preview")
 async def retention_preview(user: dict = Depends(require_staff)):
-    return {"source_listings": 0, "observations": 0, "message": "No records are removed automatically."}
+    return {"summary": {"source_listings": {"eligible": 0}, "observations": {"eligible": 0}},
+            "cutoff_at": None, "generated_at": now_iso(), "safe_mode": True,
+            "message": "Retention is in safe mode. No evidence records are removed automatically."}
 
 
 @router.post("/admin/market/retention/run")
 async def retention_run(user: dict = Depends(require_staff)):
-    return {"ok": True, "removed": 0}
+    return {"ok": True, "removed": 0, "completed_at": now_iso(), "safe_mode": True}
 
 
 @router.get("/admin/market/scheduler")

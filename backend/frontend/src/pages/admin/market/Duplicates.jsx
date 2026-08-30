@@ -1,11 +1,11 @@
 // 6. Duplicate Matches — matcher review queue with per-case signal breakdown.
 // Live table reads from /api/admin/market/matches; review cases from
-// /api/admin/market/review-cases. Includes a dev "Ingest test listing" util
-// so admins can drive the matcher without a scraper.
+// /api/admin/market/review-cases. Operational screens expose only collected
+// evidence; the retired developer ingest utility is intentionally absent.
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatError } from "@/lib/api";
-import { PageHeader, KpiCard, Section, PhaseBanner } from "./_shared";
+import { PageHeader, KpiCard, Section, PhaseBanner, Pager } from "./_shared";
 
 const TABS = [
   { key: "confirmed", label: "Confirmed Matches" },
@@ -33,9 +33,10 @@ export default function DuplicateMatches() {
   const [matches, setMatches] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [selectedCase, setSelectedCase] = useState(null);
-  const [showIngest, setShowIngest] = useState(false);
   const [masters, setMasters] = useState([]);
   const [masterSearch, setMasterSearch] = useState("");
+  const [masterOffset, setMasterOffset] = useState(0);
+  const masterLimit = 100;
 
   const loadCommon = async () => {
     const s = await api.get("/admin/market/summary"); setSummary(s.data || {});
@@ -46,7 +47,7 @@ export default function DuplicateMatches() {
   useEffect(() => {
     if (tab === "confirmed") return;
     if (tab === "masters") {
-      api.get(`/admin/market/master-properties?limit=500&search=${encodeURIComponent(masterSearch)}`)
+      api.get(`/admin/market/master-properties?limit=${masterLimit}&offset=${masterOffset}&search=${encodeURIComponent(masterSearch)}`)
         .then((r) => setMasters(r.data || [])).catch((e) => {
           setMasters([]); toast.error(formatError(e));
         });
@@ -54,7 +55,7 @@ export default function DuplicateMatches() {
     }
     api.get(`/admin/market/review-cases?status=open&case_type=${tab}&limit=100`)
       .then((r) => setCases(r.data || [])).catch(() => setCases([]));
-  }, [tab, masterSearch]);
+  }, [tab, masterSearch, masterOffset]);
 
   const detachMatch = async (id) => {
     if (!window.confirm("Detach this match? It becomes reversible history.")) return;
@@ -69,13 +70,6 @@ export default function DuplicateMatches() {
       <PageHeader
         title="Duplicate Matches"
         subtitle="Every listing→master link produced by MATCH-1.0, with the signal breakdown that drove the decision. Detach anything that looks wrong — history is preserved."
-        actions={
-          <button onClick={() => setShowIngest(true)}
-                  className="px-3 py-1.5 rounded border border-border text-sm"
-                  data-testid="ingest-test-btn">
-            + Ingest Test Listing
-          </button>
-        }
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -100,7 +94,7 @@ export default function DuplicateMatches() {
           {tab === "masters" ? (
             <Section title="Master properties" testid="master-properties-section">
               <div className="mb-3">
-                <input value={masterSearch} onChange={(e) => setMasterSearch(e.target.value)}
+                <input value={masterSearch} onChange={(e) => { setMasterSearch(e.target.value); setMasterOffset(0); }}
                        placeholder="Search property ID, address or type"
                        className="w-full border border-border rounded px-3 py-2 text-sm"
                        data-testid="master-search" />
@@ -124,13 +118,14 @@ export default function DuplicateMatches() {
                       </tr>
                     ))}</tbody>
                   </table>
+                  <Pager offset={masterOffset} limit={masterLimit} count={masters.length} onChange={setMasterOffset} />
                 </div>
               )}
             </Section>
           ) : tab === "confirmed" ? (
             <Section title="Confirmed matches" testid="dup-confirmed-section">
               {matches.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-6 text-center">No matches yet — use "Ingest Test Listing" to drive the matcher.</div>
+                <div className="text-sm text-muted-foreground py-6 text-center">No confirmed matches yet. Run an active Data Source to collect evidence.</div>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -209,7 +204,6 @@ export default function DuplicateMatches() {
         </div>
       </div>
 
-      {showIngest && <IngestModal onClose={() => setShowIngest(false)} onDone={() => { setShowIngest(false); loadCommon(); }} />}
     </div>
   );
 }
@@ -291,67 +285,6 @@ function CaseDetail({ c }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function IngestModal({ onClose, onDone }) {
-  const [form, setForm] = useState({
-    source_id: "src-dev", source_listing_id: `L${Date.now()}`,
-    purpose: "sale", price: 850000,
-    property_class: "residential", property_subtype: "House",
-    allotment_number: "10", section_number: "5", street: "Angau Drive", suburb: "Gordons",
-    bedrooms: 3, bathrooms: 2, land_area_m2: 600, building_area_m2: 180,
-  });
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
-
-  const submit = async () => {
-    setBusy(true); setResult(null);
-    try {
-      const { data } = await api.post("/admin/market/listings", form);
-      setResult(data);
-      toast.success(data.match ? `Match: ${data.match.method} · ${data.match.decision_band}` :
-                    data.review_case ? `Review case: ${data.review_case.case_type}` :
-                    "Ingested");
-    } catch (e) { toast.error(formatError(e)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="ingest-modal">
-      <div className="bg-white rounded-lg p-5 w-full max-w-2xl">
-        <div className="text-lg font-semibold mb-4">Ingest Test Listing</div>
-        <div className="grid grid-cols-2 gap-2 text-sm max-h-[400px] overflow-y-auto">
-          {Object.entries(form).map(([k, v]) => (
-            <label key={k} className="block">
-              <div className="text-xs text-muted-foreground mb-1 capitalize">{k.replace(/_/g, " ")}</div>
-              <input value={v ?? ""} onChange={(e) => setForm({ ...form, [k]: k.includes("area") || k === "price" || ["bedrooms", "bathrooms"].includes(k) ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value })}
-                     className="w-full border border-border rounded px-2 py-1.5"
-                     data-testid={`ingest-${k}`} />
-            </label>
-          ))}
-        </div>
-
-        {result && (
-          <div className="mt-4 p-3 bg-muted/40 rounded text-xs font-mono max-h-40 overflow-y-auto">
-            <div className="mb-1 font-medium">Result:</div>
-            {result.match && <div>Match — {result.match.method} · {result.match.decision_band} · score {result.match.score}</div>}
-            {result.review_case && <div>Review case created — {result.review_case.case_type}</div>}
-            {result.excluded && <div>Excluded: {result.reason}</div>}
-            <div>Candidates considered: {result.candidates_considered}</div>
-          </div>
-        )}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm rounded border border-border" data-testid="ingest-close">Close</button>
-          <button onClick={submit} disabled={busy}
-                  className="px-3 py-1.5 text-sm rounded bg-[#2A5B46] text-white disabled:opacity-60"
-                  data-testid="ingest-submit">
-            {busy ? "Running…" : "Ingest & Match"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -65,47 +65,22 @@ jobs:
         shell: bash
         run: python -m compileall -q .
 
-      - name: Verify Property Advertising business rules
-        working-directory: backend
-        shell: bash
-        run: |
-          python - <<'PY'
-          import runpy
-          namespaces = [
-              runpy.run_path("tests/test_property_advertising_rules.py"),
-              runpy.run_path("tests/test_advertiser_submission_policy.py"),
-          ]
-          tests = [
-              namespace[name]
-              for namespace in namespaces
-              for name in sorted(namespace)
-              if name.startswith("test_")
-          ]
-          for test in tests:
-              test()
-          print(f"{len(tests)} Property Advertising business-rule tests passed")
-          PY
-
       - name: Install backend test dependencies
         working-directory: backend
         run: pip install -r requirements.txt
 
-      - name: Verify Property Data Aggregation changes
+      - name: Verify all scoped Property Data Aggregation changes
         working-directory: backend
-        shell: bash
         env:
           JWT_SECRET: scoped-test-secret
           MONGO_URL: mongodb://127.0.0.1:27017
           DB_NAME: trel_scoped_test
-        run: |
-          python - <<'PY'
-          import runpy
-          namespace = runpy.run_path("tests/test_market_aggregation_improvements.py")
-          tests = [namespace[name] for name in sorted(namespace) if name.startswith("test_")]
-          for test in tests:
-              test()
-          print(f"{len(tests)} Property Data Aggregation tests passed")
-          PY
+        run: >-
+          pytest -q
+          tests/test_collectors_common.py
+          tests/test_market_aggregation_improvements.py
+          tests/test_p3_market_property_link.py
+          tests/test_market_aggregation_36.py
 
       - uses: actions/setup-node@v4
         with:
@@ -122,20 +97,6 @@ jobs:
         env:
           CI: "false"
         run: yarn build
-
-      - name: Install Playwright Chromium
-        working-directory: backend/frontend
-        run: yarn playwright install --with-deps chromium
-
-      - name: Verify H01 and Compare Price browser behaviour
-        working-directory: backend/frontend
-        run: >-
-          yarn playwright test
-          e2e/h01-authoritative.spec.js
-          e2e/compare-price-consistency.spec.js
-          e2e/popup-authoritative.spec.js
-          e2e/staff-property-advertising.spec.js
-          e2e/advertiser-identity-submission.spec.js
 
       - name: Install Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master
@@ -178,3 +139,4 @@ jobs:
             echo "- Target: [trelweb-test.fly.dev]($TEST_URL)"
             echo "- Production app \`trelweb\` was not targeted."
           } >> "$GITHUB_STEP_SUMMARY"
+

@@ -25,9 +25,9 @@ MONTHLY_MULTIPLIERS = {
 
 
 def monthly_equivalent(amount: float, transaction_type: str, rental_period: Optional[str]) -> Optional[float]:
-    if transaction_type != "RENT":
+    if transaction_type != "RENT" or rental_period not in MONTHLY_MULTIPLIERS:
         return None
-    return round(float(amount) * MONTHLY_MULTIPLIERS.get(rental_period or "MONTH", 1), 2)
+    return round(float(amount) * MONTHLY_MULTIPLIERS[rental_period], 2)
 
 
 def effective_status(previous: Optional[str], incoming: str) -> str:
@@ -60,11 +60,12 @@ def parcel_signature(payload: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, 
 def collector_payload(source_site_id: str, row: Dict[str, Any]) -> Dict[str, Any]:
     """Translate a collector record into the integrated observation contract."""
     purpose = str(row.get("purpose") or "").upper()
+    raw_period = str(row.get("rent_period") or "").lower()
     period = {
         "daily": "DAY", "day": "DAY", "weekly": "WEEK", "week": "WEEK",
         "fortnightly": "FORTNIGHT", "fortnight": "FORTNIGHT",
         "monthly": "MONTH", "month": "MONTH", "annual": "YEAR", "year": "YEAR",
-    }.get(str(row.get("rent_period") or "month").lower(), "MONTH")
+    }.get(raw_period)
     return {
         "source_site_id": source_site_id,
         "source_listing_id": str(row.get("source_listing_id") or ""),
@@ -80,6 +81,7 @@ def collector_payload(source_site_id: str, row: Dict[str, Any]) -> Dict[str, Any
         "bathrooms": row.get("bathrooms"), "land_area_sqm": row.get("land_area_m2"),
         "building_area_sqm": row.get("building_area_m2"), "price_amount": row.get("price"),
         "currency": "PGK", "price_type": "FIXED",
+        "price_status": row.get("price_status") or ("PRICED" if row.get("price") is not None else "UNPRICED"),
         "rental_period": period if purpose == "RENT" else None,
         "raw_payload": row.get("raw_fields") or {},
     }
@@ -127,6 +129,11 @@ class MarketPropertyLinkService:
         return list(dict.fromkeys(link["property_id"] for link in links))
 
     async def match_master(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        active_config = await self.db.system_settings.find_one(
+            {"kind": "market_configuration", "active": True}, {"_id": 0, "parameters": 1}
+        ) or {}
+        parameters = active_config.get("parameters") or {}
+        automatic_threshold = int(parameters.get("auto_match_threshold", 90))
         direct = payload.get("trel_property_id")
         if direct and await self.db.master_properties.find_one({"id": direct}, {"_id": 0, "id": 1}):
             return {"status": "MATCHED", "master_property_id": direct, "confidence": 100, "rule": "DIRECT_TREL_ID", "candidates": [direct]}
@@ -146,6 +153,8 @@ class MarketPropertyLinkService:
         if len(candidates) == 1:
             if payload.get("owner_name"):
                 return {"status": "MATCHED", "master_property_id": candidates[0], "confidence": 100, "rule": scheme, "candidates": candidates}
+            if 85 >= automatic_threshold:
+                return {"status": "MATCHED", "master_property_id": candidates[0], "confidence": 85, "rule": f"{scheme}_ACTIVE_CONFIG", "candidates": candidates}
             return {"status": "REVIEW_REQUIRED", "master_property_id": None, "confidence": 85, "rule": scheme, "candidates": candidates}
         if len(candidates) > 1:
             return {"status": "REVIEW_REQUIRED", "master_property_id": None, "confidence": 70, "rule": scheme, "candidates": candidates}
@@ -160,8 +169,9 @@ class MarketPropertyLinkService:
             "source_site_id": payload["source_site_id"],
             "source_listing_id": payload["source_listing_id"],
         }, {"_id": 0})
-        if not existing and payload.get("price_amount") is None:
-            raise ValueError("A new market listing requires a usable numeric price")
+        # Price-on-application listings are valid market evidence. They are
+        # retained but excluded from price analytics until a numeric price is
+        # observed on a later collection.
         match = await self.match_master(payload)
         kind = origin_kind(source)
         listing_id = (existing or {}).get("id") or new_id()
@@ -177,6 +187,7 @@ class MarketPropertyLinkService:
             "match_rule": match["rule"],
             "origin_kind": kind,
             "current_status": status,
+            "price_status": payload.get("price_status") or ("PRICED" if payload.get("price_amount") is not None else "UNPRICED"),
             "transaction_type": payload["transaction_type"],
             "first_seen_at": (existing or {}).get("first_seen_at") or observed_at,
             "last_seen_at": (
@@ -253,8 +264,22 @@ class MarketPropertyLinkService:
         })
         return {"source_listing": listing, "observation": observation, "match": match}
 
-    async def list_evidence(self, limit: int = 100) -> List[Dict[str, Any]]:
-        listings = await self.db.source_listings.find({}, {"_id": 0}).sort("last_seen_at", -1).limit(limit).to_list(limit)
+    async def list_evidence(self, limit: int = 100, *, skip: int = 0,
+                            source_id: Optional[str] = None,
+                            status: Optional[str] = None,
+                            search: Optional[str] = None) -> List[Dict[str, Any]]:
+        query: Dict[str, Any] = {}
+        if source_id:
+            query["source_site_id"] = source_id
+        if status:
+            query["current_status"] = status.upper()
+        if search:
+            term = re.escape(search.strip())
+            query["$or"] = [
+                {"source_listing_id": {"$regex": term, "$options": "i"}},
+                {"source_url": {"$regex": term, "$options": "i"}},
+            ]
+        listings = await self.db.source_listings.find(query, {"_id": 0}).sort("last_seen_at", -1).skip(skip).limit(limit).to_list(limit)
         output = []
         for listing in listings:
             observation = await self.db.source_listing_observations.find_one(
@@ -294,6 +319,6 @@ class MarketPropertyLinkService:
             "market_listings": await self.db.source_listings.count_documents({}),
             "matches_active": await self.db.source_listings.count_documents({"match_status": "MATCHED"}),
             "master_properties": await self.db.master_properties.count_documents({"lifecycle_status": {"$ne": "deleted"}}),
-            "sources": await self.db.source_sites.count_documents({}),
-            "active_sources": await self.db.source_sites.count_documents({"active": True}),
+            "sources": await self.db.source_sites.count_documents({"archived": {"$ne": True}}),
+            "active_sources": await self.db.source_sites.count_documents({"active": True, "archived": {"$ne": True}}),
         }

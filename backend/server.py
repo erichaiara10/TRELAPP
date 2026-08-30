@@ -61,6 +61,8 @@ async def on_startup():
     files.init_storage()
     await run_startup()
     await ensure_login_guard_indexes()
+    await market.ensure_market_indexes()
+    await market.resume_pending_collection_runs()
     await staff_property_advertising.ensure_indexes()
     await staff_property_advertising.run_lifecycle_maintenance()
     _lifecycle_task = asyncio.create_task(staff_property_advertising.lifecycle_maintenance_loop())

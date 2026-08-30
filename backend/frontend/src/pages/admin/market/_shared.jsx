@@ -52,3 +52,27 @@ export function Section({ title, actions, children, testid }) {
     </div>
   );
 }
+
+export function LoadError({ message, onRetry }) {
+  if (!message) return null;
+  return (
+    <div className="mb-4 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+      <span>{message}</span>
+      {onRetry && <button onClick={onRetry} className="ml-3 underline font-medium">Retry</button>}
+    </div>
+  );
+}
+
+export function Pager({ offset, limit, count, onChange }) {
+  return (
+    <div className="flex justify-between items-center mt-3 text-xs text-muted-foreground">
+      <span>Showing {count ? offset + 1 : 0}–{offset + count}</span>
+      <div className="flex gap-2">
+        <button disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}
+                className="border rounded px-3 py-1 disabled:opacity-40">Previous</button>
+        <button disabled={count < limit} onClick={() => onChange(offset + limit)}
+                className="border rounded px-3 py-1 disabled:opacity-40">Next</button>
+      </div>
+    </div>
+  );
+}

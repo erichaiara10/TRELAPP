@@ -7,7 +7,7 @@ import {
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { api, money } from "@/lib/api";
-import { PageHeader, KpiCard, Section } from "./_shared";
+import { PageHeader, KpiCard, Section, LoadError } from "./_shared";
 
 const PIE_COLORS = ["#2A5B46", "#4B8B70", "#7BB593", "#B5DAB8", "#DDE9D1", "#F1B24A"];
 
@@ -17,14 +17,19 @@ export default function MarketOverview() {
   const [trend, setTrend] = useState([]);
   const [insights, setInsights] = useState({});
   const [cases, setCases] = useState([]);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    api.get("/admin/market/summary").then((r) => setS(r.data)).catch(() => {});
-    api.get("/admin/market/analytics/source-strip").then((r) => setStrip(r.data || [])).catch(() => {});
-    api.get("/admin/market/analytics/price-trends?purpose=sale&months=12").then((r) => setTrend(r.data || [])).catch(() => {});
-    api.get("/admin/market/analytics/quick-insights").then((r) => setInsights(r.data || {})).catch(() => {});
-    api.get("/admin/market/review-cases?status=open&limit=5").then((r) => setCases(r.data || [])).catch(() => {});
-  }, []);
+  const load = async () => {
+    const results = await Promise.allSettled([
+      api.get("/admin/market/summary"), api.get("/admin/market/analytics/source-strip"),
+      api.get("/admin/market/analytics/price-trends?purpose=sale&months=12"),
+      api.get("/admin/market/analytics/quick-insights"), api.get("/admin/market/review-cases?status=open&limit=5"),
+    ]);
+    const data = (index, fallback) => results[index].status === "fulfilled" ? results[index].value.data : fallback;
+    setS(data(0, {})); setStrip(data(1, [])); setTrend(data(2, [])); setInsights(data(3, {})); setCases(data(4, []));
+    setError(results.some((item) => item.status === "rejected") ? "Some overview information could not be loaded." : "");
+  };
+  useEffect(() => { load(); }, []);
 
   return (
     <div data-testid="market-overview-page">
@@ -32,6 +37,7 @@ export default function MarketOverview() {
         title="Overview"
         subtitle="Live pipeline snapshot — sources, listings, master identities, matches, review workload, active configuration."
       />
+      <LoadError message={error} onRetry={load} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5" data-testid="market-overview-kpis">
         <KpiCard label="Master Properties" value={s.master_properties} testid="kpi-masters" />

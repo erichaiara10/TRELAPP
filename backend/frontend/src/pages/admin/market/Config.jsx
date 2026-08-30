@@ -110,7 +110,7 @@ export default function MarketConfig() {
       api.get("/admin/market/config/active?algorithm=combined").catch(() => ({ data: null })),
     ]);
     setVersions(list || []);
-    setActive(a);
+    setActive(a?.active ? a : null);
     const p = JSON.parse(JSON.stringify(a?.parameters || DEFAULT_PARAMETERS));
     p.retention = { ...RETENTION_DEFAULTS, ...(p.retention || {}) };
     p.health_led = { ...HEALTH_LED_DEFAULTS, ...(p.health_led || {}) };
@@ -179,7 +179,7 @@ export default function MarketConfig() {
         title="Configuration"
         subtitle={
           active
-            ? `Editing off active version ${active.version}. Publishing saves as a new version and activates immediately — every change is audit-trailed and reversible.`
+            ? `Editing from active version ${active.version}. Publishing saves as a new version and activates immediately — every change is audit-trailed and reversible.`
             : "No active configuration."
         }
         actions={

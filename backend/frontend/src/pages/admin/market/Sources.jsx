@@ -287,7 +287,7 @@ export default function DataSources() {
     try {
       const { data: run } = await api.post(`/admin/market/sources/${row.id}/collect`);
       setRuns((current) => [run, ...current.filter((item) => item.id !== `pending-${row.id}` && item.id !== run.id)]);
-      toast.success(`${row.name}: collection started`);
+      toast.success(run.already_running ? `${row.name}: showing the active collection run` : `${row.name}: collection started`);
     } catch (e) {
       setRuns((current) => current.filter((item) => item.id !== `pending-${row.id}`));
       toast.error(formatError(e));

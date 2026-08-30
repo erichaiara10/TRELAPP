@@ -685,6 +685,7 @@ class HttpListingCollector(CollectorBase):
 
             cards = self._select_cards(html, cfg)
             accepted = 0; rejected = 0
+            parsed_rows = []
             for card in cards:
                 _check_cancelled(run)
                 _record(run, "card_seen")
@@ -703,7 +704,11 @@ class HttpListingCollector(CollectorBase):
                 if sid:
                     seen_ids.add(sid)
 
-                # Enrich from the detail page (best-effort)
+                parsed_rows.append(row)
+
+            async def enrich_row(row):
+                # Detail requests are independent, so execute them under the
+                # configured semaphore rather than serially stalling a run.
                 if cfg["crawl_details"] and row.get("source_url"):
                     _record(
                         run, "detail_page_attempted",
@@ -720,10 +725,13 @@ class HttpListingCollector(CollectorBase):
                     else:
                         _record(run, "detail_fetch_failed",
                                 inc="detail_pages_failed")
-                if row.get("price") is None:
+                return row
+
+            enriched_rows = await asyncio.gather(*(enrich_row(row) for row in parsed_rows))
+            for row in enriched_rows:
+                if row.get("price") is None and row.get("price_status") != "UNPRICED":
                     rejected += 1
-                    reason = "unpriced_listing" if row.get("price_status") == "UNPRICED" else "no_numeric_price"
-                    _record(run, reason)
+                    _record(run, "no_numeric_price")
                     continue
                 accepted += 1
                 _record(run, "card_accepted")

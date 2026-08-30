@@ -8,7 +8,7 @@
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "@/lib/api";
-import { PageHeader, KpiCard, Section, PhaseBanner } from "./_shared";
+import { PageHeader, KpiCard, Section, PhaseBanner, LoadError, Pager } from "./_shared";
 
 const formatMoney = (value) => {
   if (value === null || value === undefined || value === "") return "—";
@@ -36,19 +36,29 @@ export default function MarketEvidence() {
   const [summary, setSummary] = useState({});
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
   const sourceId = new URLSearchParams(window.location.search).get("source_id");
 
   const loadEvidence = async () => {
     setRefreshing(true);
     try {
-      const query = sourceId
-        ? `/admin/market/listings?limit=500&source_id=${encodeURIComponent(sourceId)}`
-        : "/admin/market/listings?limit=100";
+      setError("");
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (sourceId) params.set("source_id", sourceId);
+      if (status) params.set("status", status);
+      if (search.trim()) params.set("search", search.trim());
+      const query = `/admin/market/listings?${params}`;
       const [records, totals] = await Promise.all([
         api.get(query), api.get("/admin/market/summary"),
       ]);
       setListings(records.data || []);
       setSummary(totals.data || {});
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Market Evidence could not be loaded.");
     } finally { setRefreshing(false); }
   };
 
@@ -56,7 +66,7 @@ export default function MarketEvidence() {
     loadEvidence().catch(() => {});
     const timer = window.setInterval(() => loadEvidence().catch(() => {}), 10000);
     return () => window.clearInterval(timer);
-  }, [sourceId]);
+  }, [sourceId, offset, status, search]);
 
   // ESC closes the inspector — small quality-of-life win for ops who
   // spend all day paging through listings.
@@ -82,7 +92,19 @@ export default function MarketEvidence() {
         <KpiCard label="Data Sources" value={`${summary.active_sources ?? 0}/${summary.sources ?? 0}`} testid="kpi-evidence-sources" />
       </div>
 
-      <Section title="Active Evidence" testid="market-evidence-table">
+      <LoadError message={error} onRetry={loadEvidence} />
+
+      <Section title="Market Evidence" actions={<div className="flex gap-2">
+        <input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+               placeholder="Search source ID or URL" className="border rounded px-2 py-1 text-sm" />
+        <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className="border rounded px-2 py-1 text-sm">
+          <option value="">All statuses</option><option value="ACTIVE">Active</option>
+          <option value="RELISTED">Relisted</option><option value="REMOVED">Removed</option>
+        </select>
+        <button onClick={loadEvidence} disabled={refreshing} className="border rounded px-3 py-1 text-sm disabled:opacity-50">
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>} testid="market-evidence-table">
         {listings.length === 0 ? (
           <div className="text-sm text-muted-foreground py-6 text-center">
             No market listings yet. Once a public listing collector is configured (Phase E) and its first run completes,
@@ -124,6 +146,7 @@ export default function MarketEvidence() {
             <div className="text-[11px] text-muted-foreground mt-3">
               Click any row to open the full record inspector.
             </div>
+            <Pager offset={offset} limit={limit} count={listings.length} onChange={setOffset} />
           </div>
         )}
       </Section>
@@ -181,7 +204,7 @@ function RecordInspector({ record, onClose }) {
       title: "Property Details",
       rows: [
         ["Bedrooms", record.bedrooms], ["Bathrooms", record.bathrooms],
-        ["Land Area", record.land_area_sqm ? `${record.land_area_sqm} m²` : null],
+        ["Land Area", record.land_area_sqm ? `${(Number(record.land_area_sqm) / 10000).toLocaleString("en-US", { maximumFractionDigits: 4 })} ha` : null],
         ["Building / Floor Area", record.building_area_sqm ? `${record.building_area_sqm} m²` : null],
       ],
     },

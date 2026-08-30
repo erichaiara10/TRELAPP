@@ -11,12 +11,12 @@ import { PageHeader, KpiCard, Section } from "./_shared";
 const emptySubject = {
   purpose: "sale",
   property_class: "residential",
-  property_subtype: "House",
-  suburb: "Gordons",
+  property_subtype: "",
+  suburb: "",
   street: "",
   local_area: "",
-  bedrooms: 3, bathrooms: 2,
-  land_area_m2: 600, building_area_m2: 180,
+  bedrooms: "", bathrooms: "",
+  land_area_ha: "", building_area_m2: "",
   subject_asking_price: "",
   workflow: "seller",
 };
@@ -39,9 +39,15 @@ export default function MarketComparables() {
   };
 
   const run = async () => {
+    if (!subject.property_subtype.trim() || !subject.suburb.trim()) {
+      toast.error("Property subtype and suburb are required."); return;
+    }
     setRunning(true); setResult(null); setComps([]);
     try {
-      const { data } = await api.post("/admin/market/guidance/run", subject);
+      const { data } = await api.post("/admin/market/guidance/run", {
+        ...subject,
+        land_area_m2: subject.land_area_ha === "" ? null : Number(subject.land_area_ha) * 10000,
+      });
       setResult(data.result);
       setComps(data.comparables || []);
       toast.success(`Guidance ready — ${data.result.comparable_count} comparables, ${data.result.confidence_label} confidence`);
@@ -94,8 +100,8 @@ export default function MarketComparables() {
                       onChange={(v) => setSubject({ ...subject, bedrooms: v })} />
             <FieldNum label="Bathrooms" value={subject.bathrooms} testid="baths"
                       onChange={(v) => setSubject({ ...subject, bathrooms: v })} />
-            <FieldNum label="Land area (m²)" value={subject.land_area_m2} testid="land"
-                      onChange={(v) => setSubject({ ...subject, land_area_m2: v })} />
+            <FieldNum label="Land area (ha)" value={subject.land_area_ha} testid="land"
+                      onChange={(v) => setSubject({ ...subject, land_area_ha: v })} />
             <FieldNum label="Building area (m²)" value={subject.building_area_m2} testid="building"
                       onChange={(v) => setSubject({ ...subject, building_area_m2: v })} />
             <FieldNum label="Asking price" value={subject.subject_asking_price} testid="asking"
@@ -221,7 +227,7 @@ function ComparableDetail({ comp, subject, onClose }) {
     { label: "Property subtype", subj: subject.property_subtype,  cand: snap.property_subtype },
     { label: "Bedrooms",       subj: subject.bedrooms,            cand: snap.bedrooms },
     { label: "Bathrooms",      subj: subject.bathrooms,           cand: snap.bathrooms },
-    { label: "Land area (m²)", subj: subject.land_area_m2,        cand: snap.land_area_m2 },
+    { label: "Land area (ha)", subj: subject.land_area_ha,        cand: snap.land_area_m2 == null ? null : Number(snap.land_area_m2) / 10000 },
     { label: "Building area (m²)", subj: subject.building_area_m2, cand: snap.building_area_m2 },
     { label: "Street",         subj: subject.street,              cand: snap.street },
     { label: "Local area",     subj: subject.local_area,          cand: snap.local_area },

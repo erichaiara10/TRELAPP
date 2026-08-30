@@ -219,6 +219,12 @@ class ComparableEvidenceService:
         return output
 
     async def analyse(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        active_config = await self.db.system_settings.find_one(
+            {"kind": "market_configuration", "active": True}, {"_id": 0}
+        ) or {}
+        parameters = active_config.get("parameters") or {}
+        formal_minimum = max(1, int(parameters.get("min_direct_for_formal_range", 3)))
+        iqr_multiplier = max(0.1, float(parameters.get("iqr_outlier_multiplier", 1.5)))
         subject = await self._subject(payload)
         internal, external = await asyncio.gather(self._internal(subject), self._external(subject))
         combined: Dict[str, Dict[str, Any]] = {}
@@ -236,14 +242,14 @@ class ComparableEvidenceService:
         prices = [row["price"] for row in usable]
         count = len(prices)
         strength = _strength(count)
-        formal = count >= 3
+        formal = count >= formal_minimum
         median = statistics.median(prices) if prices else 0
         if formal:
             ordered = sorted(prices)
             quartiles = statistics.quantiles(ordered, n=4, method="inclusive")
             q1, q3 = quartiles[0], quartiles[2]
             iqr = q3 - q1
-            filtered = [p for p in ordered if p >= q1 - 1.5 * iqr and p <= q3 + 1.5 * iqr] or ordered
+            filtered = [p for p in ordered if p >= q1 - iqr_multiplier * iqr and p <= q3 + iqr_multiplier * iqr] or ordered
             range_min, range_max = min(filtered), max(filtered)
             average = statistics.mean(filtered)
             verdict = "overpriced" if payload["price"] > average * 1.10 else "underpriced" if payload["price"] < average * 0.90 else "fair"
@@ -251,13 +257,38 @@ class ComparableEvidenceService:
             range_min = range_max = None
             average = median
             verdict = "insufficient"
-        public = [{k: row.get(k) for k in ("title", "property_type", "suburb", "price", "evidence_group", "source_name", "match_score", "observed_at")} for row in usable[:10]]
+        public = [{
+            "id": row.get("dedupe_key"), "master_property_id": row.get("master_property_id"),
+            "title": row.get("title"), "property_type": row.get("property_type"),
+            "suburb": row.get("suburb"), "price": row.get("price"), "value": row.get("price"),
+            "evidence_group": row.get("evidence_group"), "source_name": row.get("source_name"),
+            "match_score": row.get("match_score"), "quality_score": row.get("match_score"),
+            "effective_weight": round(float(row.get("match_score") or 0) / 100, 3),
+            "recency_factor": 1.0, "tier": "same_suburb" if row.get("suburb") else "same_city",
+            "observed_at": row.get("observed_at"), "inclusion_status": "included",
+            "snapshot": {
+                "property_subtype": row.get("property_type"), "suburb": row.get("suburb"),
+                "bedrooms": row.get("bedrooms"), "bathrooms": row.get("bathrooms"),
+                "land_area_m2": row.get("land_area_sqm"),
+                "building_area_m2": row.get("building_area_sqm"),
+                "street": row.get("street_name"), "local_area": row.get("local_area"),
+            },
+        } for row in usable[:100]]
         return {
             "range_min": range_min, "range_max": range_max, "average": average,
             "median": median, "verdict": verdict, "formal_range_available": formal,
+            "weighted_median": median,
+            "trel_indicative_range": {"p25": range_min, "p75": range_max},
+            "observed_range": {"min": min(prices) if prices else None, "max": max(prices) if prices else None},
             "evidence_strength": strength, "sample_size": count,
+            "confidence_label": strength,
+            "confidence_score": min(100, count * 10),
+            "algorithm_version": "GUIDE-1.0",
+            "config_version": active_config.get("version") or "default",
             "internal_count": sum(1 for row in usable if row["evidence_group"] == "TREL_INTERNAL"),
             "external_count": sum(1 for row in usable if row["evidence_group"] == "EXTERNAL_MARKET"),
             "comparables": public,
+            "configuration_id": active_config.get("id"),
+            "configuration_version": active_config.get("version"),
             "recommendation": "Insufficient comparable evidence for a formal TREL range." if not formal else "Calculated from deduplicated TREL and external market evidence.",
         }
