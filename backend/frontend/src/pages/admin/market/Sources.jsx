@@ -17,7 +17,7 @@ import BulkRediscoverModal from "./BulkRediscoverModal";
 // counters, pagination-end reason, duplicate source-ids, and error tails.
 // Runs created before diagnostics existed show a "diagnostics unavailable"
 // note instead of crashing the render.
-function RunRow({ run }) {
+function RunRow({ run, onCancel }) {
   const [open, setOpen] = React.useState(false);
   const d = run.diagnostics || null;
   const statusBadge = {
@@ -25,6 +25,11 @@ function RunRow({ run }) {
     partial: "bg-amber-100 text-amber-800",
     failed: "bg-red-100 text-red-800",
     running: "bg-blue-100 text-blue-800",
+    cancelling: "bg-amber-100 text-amber-800",
+    cancelled: "bg-gray-200 text-gray-800",
+    stale: "bg-red-100 text-red-800",
+    no_data: "bg-amber-100 text-amber-800",
+    warning: "bg-amber-100 text-amber-800",
   }[run.status] || "bg-gray-100 text-gray-700";
 
   return (
@@ -42,9 +47,19 @@ function RunRow({ run }) {
           </button>
         </td>
         <td className="py-2 pr-3 font-mono text-xs">{(run.id || "").slice(0, 8)}</td>
-        <td className="py-2 pr-3 text-xs">{run.source_id?.slice(0, 8) || "—"}</td>
+        <td className="py-2 pr-3 text-xs">
+          <div className="font-medium">{run.source_name || run.source_domain || "Unknown source"}</div>
+          <div className="font-mono text-[10px] text-muted-foreground">{run.source_domain || run.source_id?.slice(0, 8)}</div>
+        </td>
         <td className="py-2 pr-3">
-          <span className={`px-2 py-0.5 rounded text-xs ${statusBadge}`}>{run.status}</span>
+          <span className={`px-2 py-0.5 rounded text-xs ${statusBadge}`}>{String(run.status || "").replaceAll("_", " ")}</span>
+          {["running", "cancelling"].includes(run.status) && (
+            <button type="button" onClick={() => onCancel(run)}
+                    className="ml-2 text-xs text-red-700 underline"
+                    data-testid={`cancel-run-${run.id}`}>
+              Cancel
+            </button>
+          )}
         </td>
         <td className="py-2 pr-3 text-xs text-muted-foreground">
           {(run.started_at || "").slice(0, 16).replace("T", " ") || "—"}
@@ -53,7 +68,7 @@ function RunRow({ run }) {
           {run.listings_new}
           <span className="text-muted-foreground"> / </span>
           {run.listings_updated}
-          <span className="text-muted-foreground"> · seen {run.listings_seen}</span>
+          <span className="text-muted-foreground"> · seen {run.listings_seen} · rejected {run.listings_rejected || 0}</span>
         </td>
       </tr>
       {open && (
@@ -107,6 +122,12 @@ function RunRow({ run }) {
                   <span className="font-mono">
                     {d.pagination_end_reason || "—"}
                   </span>
+                  {run.source_id && ["success", "warning", "no_data"].includes(run.status) && (
+                    <a className="ml-4 text-[#2A5B46] underline"
+                       href={`/admin/market/evidence?source_id=${run.source_id}&run_id=${run.id}`}>
+                      View Market Evidence
+                    </a>
+                  )}
                   {typeof d.records_passed_to_ingestion === "number" && (
                     <span className="ml-4 text-muted-foreground">
                       passed to ingestion: <span className="font-mono">{d.records_passed_to_ingestion}</span>
@@ -215,7 +236,11 @@ export default function DataSources() {
     setSummary(val(3, {})); setCollectors(val(4, [])); setSched(val(5, null));
     setLoadErrors(results.map((r, i) => r.status === "rejected" ? ["Sources", "Health", "Runs", "Summary", "Collectors", "Scheduler"][i] : null).filter(Boolean));
   };
-  useEffect(() => { load().catch(() => {}); }, []);
+  useEffect(() => {
+    load().catch(() => {});
+    const timer = window.setInterval(() => load().catch(() => {}), 4000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const healthFor = (sid) => health.find((h) => h.source_id === sid) || {};
 
@@ -240,11 +265,28 @@ export default function DataSources() {
   };
 
   const triggerRun = async (row) => {
+    if (runs.some((run) => run.source_id === row.id && ["running", "cancelling"].includes(run.status))) return;
+    setRuns((current) => [{
+      id: `pending-${row.id}`, source_id: row.id, source_name: row.name,
+      source_domain: row.domain, status: "running", started_at: new Date().toISOString(),
+      listings_new: 0, listings_updated: 0, listings_seen: 0, listings_rejected: 0,
+    }, ...current]);
     try {
-      toast.info(`Running ${row.collector || "seed"} collector on ${row.name}…`);
       const { data: run } = await api.post(`/admin/market/sources/${row.id}/collect`);
-      toast.success(`${row.name}: ${run.status} · ${run.listings_new} new · ${run.matches_created} matches`);
-      load();
+      setRuns((current) => [run, ...current.filter((item) => item.id !== `pending-${row.id}` && item.id !== run.id)]);
+      toast.success(`${row.name}: collection started`);
+    } catch (e) {
+      setRuns((current) => current.filter((item) => item.id !== `pending-${row.id}`));
+      toast.error(formatError(e));
+    }
+  };
+
+  const cancelRun = async (run) => {
+    if (!window.confirm(`Cancel collection for ${run.source_name || run.source_domain || "this source"}? All work in this run will stop.`)) return;
+    try {
+      await api.post(`/admin/market/runs/${run.id}/cancel`);
+      setRuns((current) => current.map((item) => item.id === run.id ? { ...item, status: "cancelling" } : item));
+      toast.success("Cancellation requested");
     } catch (e) { toast.error(formatError(e)); }
   };
 
@@ -343,8 +385,12 @@ export default function DataSources() {
                         {(r.last_run_at || "").slice(0, 16).replace("T", " ") || "—"}
                       </td>
                       <td className="py-2 pr-3 text-right whitespace-nowrap">
-                        <button onClick={() => triggerRun(r)} data-testid={`run-source-${r.id}`}
-                                className="text-xs mr-3 underline">Run</button>
+                        <button onClick={() => triggerRun(r)}
+                                disabled={runs.some((run) => run.source_id === r.id && ["running", "cancelling"].includes(run.status))}
+                                data-testid={`run-source-${r.id}`}
+                                className="text-xs mr-3 underline disabled:no-underline disabled:text-muted-foreground">
+                          {runs.some((run) => run.source_id === r.id && ["running", "cancelling"].includes(run.status)) ? "Running…" : "Run"}
+                        </button>
                         {(collectors.find((c) => c.key === r.collector)?.default_config) && (
                           <button onClick={() => setTesterSource(r)}
                                   className="text-xs mr-3 underline"
@@ -382,7 +428,7 @@ export default function DataSources() {
               </thead>
               <tbody>
                 {runs.map((r) => (
-                  <RunRow key={r.id} run={r} />
+                  <RunRow key={r.id} run={r} onCancel={cancelRun} />
                 ))}
               </tbody>
             </table>
