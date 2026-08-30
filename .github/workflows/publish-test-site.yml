@@ -130,6 +130,15 @@ jobs:
           path: backend/frontend/yarn.lock
           retention-days: 1
 
+      - name: Record resolved dependency lock for commit
+        working-directory: backend/frontend
+        shell: bash
+        run: |
+          echo "YARN_LOCK_GZIP_BASE64_BEGIN"
+          gzip -c yarn.lock | base64 -w0
+          echo
+          echo "YARN_LOCK_GZIP_BASE64_END"
+
       - name: Build frontend
         working-directory: backend/frontend
         env:
