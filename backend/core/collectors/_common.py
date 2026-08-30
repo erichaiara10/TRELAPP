@@ -105,9 +105,9 @@ _AREA_RE = re.compile(
     re.IGNORECASE,
 )
 _RENT_PERIODS = (
-    (re.compile(r"\b(?:per|a|each|/)\s*(?:week|wk)\b|\bweekly\b", re.I), "weekly"),
-    (re.compile(r"\b(?:per|a|each|/)\s*(?:fortnight|fn)\b|\bfortnightly\b", re.I), "fortnightly"),
-    (re.compile(r"\b(?:per|a|each|/)\s*(?:day|night)\b|\b(?:daily|nightly)\b", re.I), "daily"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:week|wk)\b|\bweekly\b|\bp\.?w\.?\b", re.I), "weekly"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:fortnight|fn)\b|\bfortnightly\b|\bp\.?f\.?\b", re.I), "fortnightly"),
+    (re.compile(r"\b(?:per|a|each|/)\s*(?:day|night)\b|\b(?:daily|nightly)\b|\bp\.?d\.?\b", re.I), "daily"),
     (re.compile(r"\b(?:per|a|each|/)\s*(?:month|mth|mo)\b|\bmonthly\b|\bp\.?c\.?m\.?\b", re.I), "monthly"),
     (re.compile(r"\b(?:per|a|each|/)\s*(?:year|annum|yr)\b|\bannual(?:ly)?\b|\bp\.?a\.?\b", re.I), "annual"),
 )
@@ -246,6 +246,14 @@ def parse_location(addr: Optional[str], *, default_city: Optional[str] = None,
         result["province"] = parts.pop()
     if default_city and parts and parts[-1].casefold() == default_city.casefold():
         result["city"] = parts.pop()
+    if parts:
+        building_street = re.match(
+            r"^(.+?)\s+([A-Za-z0-9.'-]+\s+(?:road|rd|street|st|drive|dr|avenue|ave|close|crescent|lane|way|highway|hwy))$",
+            parts[0], re.I,
+        )
+        if building_street:
+            result["building_name"] = building_street.group(1).strip()
+            parts[0] = building_street.group(2).strip()
     streetish = re.compile(r"(?:\d|\b(?:road|rd|street|st|drive|dr|avenue|ave|close|crescent|lane|way|highway|hwy)\b)", re.I)
     if len(parts) >= 2 and not streetish.search(parts[0]):
         result["building_name"] = parts.pop(0)
@@ -844,6 +852,14 @@ class HttpListingCollector(CollectorBase):
             return {}, False
         tree = HTMLParser(html)
         out: dict = {}
+        labelled = {}
+        for row in tree.css("tr"):
+            cells = row.css("th, td")
+            if len(cells) >= 2:
+                label = re.sub(r"[^a-z0-9]+", " ", text_of(cells[0]).lower()).strip()
+                value = text_of(cells[1])
+                if label and value:
+                    labelled[label] = value
         text_map = {
             "title": ("title", text_of),
             "description": ("description", text_of),
@@ -877,16 +893,24 @@ class HttpListingCollector(CollectorBase):
             v = parse_area(text_of(tree.css_first(ds["building_area"])))
             if v is not None:
                 out["building_area_m2"] = v
-        # Detail page may also expose Allotment / Section explicitly
+        # Detail page may expose identifiers/areas as separately labelled
+        # table rows, which cannot be parsed reliably from flattened text.
         page_text = tree.body.text() if tree.body else ""
         allot, sect = parse_allotment_section(page_text)
+        allot = allot or next((first_int(value) for label, value in labelled.items() if "allotment" in label or label.startswith("lot")), None)
+        sect = sect or next((first_int(value) for label, value in labelled.items() if "section" in label), None)
         if allot:
-            out["allotment_number"] = allot
+            out["allotment_number"] = str(allot)
         if sect:
-            out["section_number"] = sect
-        portion = parse_portion(page_text)
+            out["section_number"] = str(sect)
+        portion = parse_portion(page_text) or next((first_int(value) for label, value in labelled.items() if "portion" in label), None)
         if portion:
-            out["portion_number"] = portion
+            out["portion_number"] = str(portion)
+        if out.get("land_area_m2") is None:
+            out["land_area_m2"] = next((parse_area(value) for label, value in labelled.items() if "land area" in label), None)
+        if out.get("building_area_m2") is None:
+            out["building_area_m2"] = next((parse_area(value) for label, value in labelled.items() if "floor area" in label or "building area" in label), None)
+        labelled_type = next((value for label, value in labelled.items() if "property type" in label), None)
         detail_price = detail_price_text
         period = parse_rent_period(detail_price)
         if period:
@@ -898,7 +922,7 @@ class HttpListingCollector(CollectorBase):
                 default_province=cfg.get("default_province")).items() if v})
         detail_title = out.pop("title", "")
         detail_description = out.pop("description", "")
-        cls, subtype = infer_subtype(detail_title, detail_description)
+        cls, subtype = infer_subtype(labelled_type or "", detail_title, detail_description)
         if cls:
             out["property_class"] = cls
         if subtype:
