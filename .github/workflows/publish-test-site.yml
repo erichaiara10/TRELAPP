@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - codex/test-deploy-seven-scoped-fixes
+      - codex/aggregation-18-improvements
 
 permissions:
   contents: read
@@ -82,6 +83,19 @@ jobs:
           for test in tests:
               test()
           print(f"{len(tests)} Property Advertising business-rule tests passed")
+          PY
+
+      - name: Verify Property Data Aggregation changes
+        working-directory: backend
+        shell: bash
+        run: |
+          python - <<'PY'
+          import runpy
+          namespace = runpy.run_path("tests/test_market_aggregation_improvements.py")
+          tests = [namespace[name] for name in sorted(namespace) if name.startswith("test_")]
+          for test in tests:
+              test()
+          print(f"{len(tests)} Property Data Aggregation tests passed")
           PY
 
       - uses: actions/setup-node@v4
