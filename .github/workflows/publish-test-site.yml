@@ -1,5 +1,6 @@
 name: Publish Test Site
 # Data Sources orphan-lock recovery validation
+# Test-only deployment retry
 
 on:
   workflow_dispatch:
