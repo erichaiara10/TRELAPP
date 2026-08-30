@@ -5,7 +5,7 @@ import {
   Bell, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleHelp, Clock3, FileCheck2, FileText, FolderOpen, HelpCircle,
   Home, House, Image, Inbox, Info, LayoutDashboard, ListChecks, Mail, MapPin,
-  LogOut, MessageCircle, MoreVertical, Paperclip, Pencil, Phone, Plus, Search, Send,
+  LogOut, MessageCircle, MoreVertical, Pencil, Phone, Plus, Search, Send,
   Settings, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, Users,
   X, ZoomIn
 } from "lucide-react";
