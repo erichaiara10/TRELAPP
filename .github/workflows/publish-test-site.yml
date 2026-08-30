@@ -14,11 +14,11 @@ on:
       - codex/aggregation-18-improvements
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: trelweb-test-deployment
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   validate-build-deploy:
@@ -91,54 +91,21 @@ jobs:
         working-directory: backend/frontend
         run: |
           corepack enable
-          yarn install --non-interactive
+          if [ -f yarn.lock ]; then
+            yarn install --non-interactive --frozen-lockfile
+          else
+            yarn install --non-interactive
+          fi
 
-      - name: Audit all lucide icon imports
-        working-directory: backend/frontend
+      - name: Commit generated dependency lock
+        if: ${{ hashFiles('backend/frontend/yarn.lock') == '' }}
         shell: bash
         run: |
-          node <<'NODE'
-          const fs = require("fs");
-          const path = require("path");
-          const exported = new Set(Object.keys(require("lucide-react")));
-          const missing = [];
-          function walk(dir) {
-            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-              const full = path.join(dir, entry.name);
-              if (entry.isDirectory()) walk(full);
-              else if (/\.(js|jsx)$/.test(entry.name)) {
-                const source = fs.readFileSync(full, "utf8");
-                const re = /import\s*\{([\s\S]*?)\}\s*from\s*["']lucide-react["']/g;
-                for (const match of source.matchAll(re)) {
-                  for (const part of match[1].split(",")) {
-                    const imported = part.trim().split(/\s+as\s+/)[0];
-                    if (imported && !exported.has(imported)) missing.push(full + ": " + imported);
-                  }
-                }
-              }
-            }
-          }
-          walk("src");
-          console.log("Unsupported lucide imports:");
-          console.log([...new Set(missing)].join("\n") || "none");
-          NODE
-
-      - name: Preserve resolved frontend dependency lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-yarn-lock
-          path: backend/frontend/yarn.lock
-          retention-days: 1
-
-      - name: Record resolved dependency lock for commit
-        working-directory: backend/frontend
-        shell: bash
-        run: |
-          echo "YARN_LOCK_GZIP_BASE64_BEGIN"
-          base64 -w0 yarn.lock
-          echo
-          echo "YARN_LOCK_GZIP_BASE64_END"
-          exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/frontend/yarn.lock
+          git commit -m "build(frontend): lock resolved dependency versions"
+          git push origin HEAD:codex/aggregation-18-improvements
 
       - name: Build frontend
         working-directory: backend/frontend
