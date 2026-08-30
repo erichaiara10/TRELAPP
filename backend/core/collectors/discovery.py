@@ -128,10 +128,8 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[Optional[str], Op
 
 
 def _extract_candidates(html: str, base_url: str) -> list[dict]:
-    """Walk every anchor on the page. Return a de-duplicated list of
-    `{url, text, category_rule}` for links that a) live on the same host,
-    b) are not blacklisted, and c) match a category keyword."""
-    if not _HAVE_SELECTOLAX:                                            # pragma: no cover
+    """Extract same-site navigation without depending on hard-coded paths."""
+    if not _HAVE_SELECTOLAX:
         return []
     tree = HTMLParser(html)
     seen: dict[str, dict] = {}
@@ -140,135 +138,199 @@ def _extract_candidates(html: str, base_url: str) -> list[dict]:
         if not href or href.startswith("#") or href.lower().startswith(("javascript:", "mailto:", "tel:")):
             continue
         text = (a.text(strip=True) or "").strip()
-        abs_url = urljoin(base_url, href)
-        if not _same_host(base_url, abs_url):
+        absolute = _clean_url(urljoin(base_url, href))
+        if not _same_host(base_url, absolute) or _is_blacklisted(text, absolute):
             continue
-        if _is_blacklisted(text, abs_url):
+        parsed = urlparse(absolute)
+        if parsed.scheme not in {"http", "https"}:
             continue
-        rule = _classify(text, urlparse(abs_url).path)
-        if not rule:
-            continue
-        clean = _clean_url(abs_url)
-        # Keep the entry with the most specific rule (earlier position in
-        # CATEGORY_RULES wins).
-        if clean in seen:
-            existing = seen[clean]
-            existing_rank = next((i for i, r in enumerate(CATEGORY_RULES)
-                                  if r["key"] == existing["rule"]["key"]), 999)
-            new_rank = next((i for i, r in enumerate(CATEGORY_RULES)
-                             if r["key"] == rule["key"]), 999)
-            if new_rank < existing_rank:
-                existing["rule"] = rule
-                existing["text"] = text or existing["text"]
-            continue
-        seen[clean] = {"url": clean, "text": text, "rule": rule}
+        seen.setdefault(absolute, {
+            "url": absolute, "text": text,
+            "rule": _classify(text, parsed.path),
+        })
     return list(seen.values())
+
+
+def _page_rule(html: str, candidate: dict) -> dict | None:
+    """Semantic classification from URL, link text, title and page headings."""
+    text = candidate.get("text") or ""
+    if _HAVE_SELECTOLAX and html:
+        tree = HTMLParser(html)
+        signals = []
+        for selector in ("title", "h1", "h2", "[aria-label]", "meta[name=description]"):
+            for node in tree.css(selector)[:8]:
+                signals.append(
+                    node.attributes.get("content") or node.attributes.get("aria-label")
+                    or node.text(strip=True) or ""
+                )
+        text = " ".join([text, *signals])
+    return candidate.get("rule") or _classify(text, urlparse(candidate["url"]).path)
+
+
+def _path_depth(url: str) -> int:
+    return len([part for part in urlparse(url).path.split("/") if part])
+
+
+def _looks_traversable(candidate: dict, depth: int) -> bool:
+    """Keep the crawl focused while allowing unfamiliar nested site structures."""
+    if depth <= 1:
+        return True
+    blob = f"{candidate.get('text', '')} {urlparse(candidate['url']).path}".lower()
+    semantic = (
+        "propert", "listing", "real estate", "home", "house", "apartment",
+        "land", "commercial", "develop", "sale", "buy", "rent", "lease",
+        "search", "location", "residential",
+    )
+    return candidate.get("rule") is not None or any(word in blob for word in semantic)
+
+
+def _canonicalise(candidates: list[dict]) -> None:
+    """Select one highest-level page per purpose; keep covered subpages visible."""
+    verified = [c for c in candidates if c.get("verified_listing_page")]
+    for purpose in ("sale", "rent"):
+        family = [c for c in verified if c.get("purpose") == purpose]
+        if not family:
+            continue
+        primary = min(
+            family,
+            key=lambda item: (
+                _path_depth(item["listing_url"]),
+                -int(item.get("detail_links") or 0),
+                -int(item.get("cards_found") or 0),
+            ),
+        )
+        primary["canonical"] = True
+        primary["auto_confirm"] = True
+        primary["selection_reason"] = "Highest-level verified listing page"
+        for item in family:
+            if item is primary:
+                continue
+            if item.get("category") == "projects":
+                item["canonical"] = True
+                item["auto_confirm"] = True
+                item["selection_reason"] = "Distinct new-development inventory"
+            else:
+                item["canonical"] = False
+                item["auto_confirm"] = False
+                item["covered_by"] = primary["listing_url"]
+                item["selection_reason"] = "Subcategory/location page covered by the canonical page"
 
 
 def _count_cards(html: str, card_selector: str, base_url: str,
                  category_url: str) -> tuple[int, int]:
-    """Return `(cards_found, detail_links)` for a candidate listing page.
-    A detail link is anything `_identify_detail_url` would accept from
-    inside that card — same definition the real scraper uses, so the
-    Discover Pages number and the eventual collection can't disagree."""
     if not html or not _HAVE_SELECTOLAX:
         return 0, 0
     tree = HTMLParser(html)
     cards = tree.css(card_selector or "article, .listing, .property")
-    detail_links = 0
-    for card in cards:
-        if _identify_detail_url(card, base_url, category_url):
-            detail_links += 1
+    detail_links = sum(
+        1 for card in cards
+        if _identify_detail_url(card, base_url, category_url)
+    )
     return len(cards), detail_links
 
 
 async def discover_listing_pages(base_url: str, collector_key: str,
-                                  parser_config: dict | None = None) -> dict:
-    """Public entry — fetch the homepage, extract candidate category links,
-    verify each, return grading. Never raises — network / parse errors are
-    reported on the top-level `error` key while `candidates` stays a list."""
-    if not base_url or not base_url.startswith("http"):
-        return {"ok": False, "error": "Valid base URL required"}
-    if not _HAVE_SELECTOLAX:                                            # pragma: no cover
-        return {"ok": False, "error": "selectolax not installed"}
+                                   parser_config: dict | None = None) -> dict:
+    """Intelligently traverse the site's own links and verify listing grids.
 
+    This is deliberately a hybrid: semantic signals find unfamiliar nested
+    paths; repeated cards and detail links provide deterministic verification.
+    """
+    if not base_url or not base_url.startswith("http"):
+        return {"ok": False, "error": "Valid base URL required", "candidates": []}
+    if not _HAVE_SELECTOLAX:
+        return {"ok": False, "error": "selectolax not installed", "candidates": []}
     Coll = get_collector(collector_key)
     if not Coll or not issubclass(Coll, HttpListingCollector):
-        return {"ok": False,
-                "error": f"Collector '{collector_key}' is not an HTTP scraper"}
+        return {"ok": False, "error": f"Collector '{collector_key}' is not an HTTP scraper", "candidates": []}
 
+    import asyncio
     cfg = dict(Coll.DEFAULT_CONFIG)
     cfg.update(parser_config or {})
     card_selector = cfg.get("card") or "article, .listing, .property"
+    scan_limit = max(20, min(int(cfg.get("discovery_page_limit", 60)), 200))
+    max_depth = max(2, min(int(cfg.get("discovery_depth", 4)), 6))
+    headers = {"User-Agent": cfg.get("user_agent", "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
 
-    headers = {"User-Agent": cfg.get("user_agent",
-                                     "TREL-Aggregator/1.0 (+https://trel.com.pg)")}
+    queue: list[tuple[str, str, int]] = [(base_url, "Website home", 0)]
+    queued = {_clean_url(base_url)}
+    visited: set[str] = set()
+    candidates: list[dict] = []
+    errors: list[dict] = []
+    resolved_home = base_url
+    home_status = 0
 
-    import asyncio
-    MAX_CANDIDATES = 12          # keep the round-trip under ~30s
+    async with httpx.AsyncClient(timeout=10.0, headers=headers, follow_redirects=True) as client:
+        while queue and len(visited) < scan_limit:
+            url, link_text, depth = queue.pop(0)
+            clean = _clean_url(url)
+            if clean in visited:
+                continue
+            visited.add(clean)
+            final_url, html, status = await _fetch(client, clean)
+            if depth == 0:
+                resolved_home, home_status = final_url or clean, status
+            if not html or status >= 400:
+                errors.append({"url": clean, "status": status, "reason": "unreachable"})
+                continue
 
-    async with httpx.AsyncClient(timeout=8.0, headers=headers,
-                                 follow_redirects=True) as client:
-        final_home, home_html, home_status = await _fetch(client, base_url)
-        if not home_html:
-            return {"ok": False, "error": f"Could not reach {base_url} (status={home_status})",
-                    "base_url": base_url, "candidates": []}
-
-        anchors = _extract_candidates(home_html, final_home or base_url)
-        anchors = anchors[:MAX_CANDIDATES]
-
-        async def _grade(a: dict) -> dict:
-            final_url, page_html, status = await _fetch(client, a["url"])
-            if not page_html or status >= 400:
-                return {
-                    "category": a["rule"]["key"],
-                    "category_label": a["rule"]["label"],
-                    "purpose": a["rule"]["purpose"],
-                    "link_text": a["text"],
-                    "listing_url": final_url or a["url"],
-                    "status": status,
-                    "cards_found": 0,
-                    "detail_links": 0,
-                    "accessible": False,
-                    "auto_confirm": False,
-                }
+            current = {"url": _clean_url(final_url or clean), "text": link_text, "rule": None}
+            rule = _page_rule(html, current)
             cards_found, detail_links = _count_cards(
-                page_html, card_selector,
-                base_url=final_home or base_url,
-                category_url=final_url or a["url"])
-            return {
-                "category": a["rule"]["key"],
-                "category_label": a["rule"]["label"],
-                "purpose": a["rule"]["purpose"],
-                "link_text": a["text"],
-                "listing_url": final_url,
-                "status": status,
-                "cards_found": cards_found,
-                "detail_links": detail_links,
-                "accessible": True,
-                "auto_confirm": cards_found >= 1 or detail_links >= 3,
-            }
+                html, card_selector, resolved_home or base_url, current["url"]
+            )
+            verified = cards_found > 0 and detail_links > 0
+            if verified or rule:
+                effective = rule or {
+                    "key": "unknown", "label": "Property Listings",
+                    "purpose": "rent" if "rent" in (link_text + current["url"]).lower() else "sale",
+                }
+                confidence = min(99, 45 + min(cards_found, 20) * 2 + min(detail_links, 20))
+                candidates.append({
+                    "category": effective["key"], "category_label": effective["label"],
+                    "purpose": effective["purpose"], "link_text": link_text,
+                    "listing_url": current["url"], "status": status,
+                    "cards_found": cards_found, "detail_links": detail_links,
+                    "accessible": True, "verified_listing_page": verified,
+                    "confidence": confidence if verified else min(confidence, 55),
+                    "auto_confirm": False, "canonical": False,
+                })
 
-        # Fan out with a small concurrency cap so we don't hammer the target.
-        sem = asyncio.Semaphore(4)
+            if depth >= max_depth:
+                continue
+            links = _extract_candidates(html, current["url"])
+            links.sort(key=lambda item: (
+                -int(item.get("rule") is not None), _path_depth(item["url"])
+            ))
+            for item in links:
+                item_url = _clean_url(item["url"])
+                if item_url in visited or item_url in queued:
+                    continue
+                if not _looks_traversable(item, depth + 1):
+                    continue
+                queued.add(item_url)
+                queue.append((item_url, item.get("text") or "", depth + 1))
+            await asyncio.sleep(0)
 
-        async def _bounded(a):
-            async with sem:
-                return await _grade(a)
-
-        candidates = await asyncio.gather(*[_bounded(a) for a in anchors])
-
-        # Sort: auto-confirmed → cards → detail_links first
-        candidates.sort(key=lambda c: (-int(c.get("auto_confirm", False)),
-                                       -c.get("cards_found", 0),
-                                       -c.get("detail_links", 0)))
-
-        return {
-            "ok": True,
-            "base_url": base_url,
-            "resolved_home_url": final_home,
-            "home_status": home_status,
-            "collector": collector_key,
-            "card_selector": card_selector,
-            "candidates": candidates,
-        }
+    # Resolve redirects/duplicate links before choosing canonical pages.
+    unique: dict[str, dict] = {}
+    for item in candidates:
+        prior = unique.get(item["listing_url"])
+        if not prior or (item["detail_links"], item["cards_found"]) > (prior["detail_links"], prior["cards_found"]):
+            unique[item["listing_url"]] = item
+    candidates = list(unique.values())
+    _canonicalise(candidates)
+    candidates.sort(key=lambda item: (
+        -int(item.get("auto_confirm", False)),
+        -int(item.get("verified_listing_page", False)),
+        -int(item.get("confidence", 0)),
+        _path_depth(item["listing_url"]),
+    ))
+    return {
+        "ok": True, "base_url": base_url, "resolved_home_url": resolved_home,
+        "home_status": home_status, "collector": collector_key,
+        "card_selector": card_selector, "candidates": candidates,
+        "pages_scanned": len(visited), "scan_limit": scan_limit,
+        "scan_truncated": bool(queue), "max_depth": max_depth,
+        "errors": errors[:20],
+    }
