@@ -92,6 +92,10 @@ jobs:
       - name: Verify Property Data Aggregation changes
         working-directory: backend
         shell: bash
+        env:
+          JWT_SECRET: scoped-test-secret
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: trel_scoped_test
         run: |
           python - <<'PY'
           import runpy
