@@ -1,0 +1,48 @@
+name: Recover test admin account category
+on:
+  push:
+    branches: [codex/recover-test-admin-category-20261111]
+    paths: [.github/workflows/recover-test-admin-category.yml]
+permissions:
+  contents: read
+concurrency:
+  group: trelweb-test-admin-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    environment: fly-test
+    steps:
+      - name: Install Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Restore category for exact existing test administrator
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, subprocess
+          script = '''
+          import asyncio
+          from core.db import db
+          async def recover():
+              assert db.name == "trel_test", "Recovery is restricted to trel_test"
+              key = {"id": "2c461ad3-4543-47a1-af4b-90b21eb736cc", "email": "admin@trel.com.pg", "role": "system_admin"}
+              user = await db.users.find_one(key)
+              assert user is not None, "Expected existing administrator not found"
+              category = user.get("account_category")
+              assert category in (None, "", "GUEST", "STAFF"), "Unexpected category; no change made"
+              if category != "STAFF":
+                  guarded = dict(key)
+                  guarded["account_category"] = category
+                  result = await db.users.update_one(guarded, {"$set": {"account_category": "STAFF"}})
+                  assert result.matched_count == 1 and result.modified_count == 1, "Concurrent change; recovery stopped"
+              verified = await db.users.find_one(key)
+              assert verified.get("account_category") == "STAFF"
+              print("VERIFIED: existing test System Admin category is STAFF; password and other accounts unchanged")
+          asyncio.run(recover())
+          '''
+          command = 'python -c "import base64;exec(base64.b64decode(\'' + base64.b64encode(script.encode()).decode() + '\'))"'
+          subprocess.run(["flyctl", "ssh", "console", "--app", "trelweb-test", "--command", command], check=True)
+          PY
