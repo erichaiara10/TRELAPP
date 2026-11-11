@@ -116,13 +116,14 @@ jobs:
           --remote-only
           --ha=false
 
-      - name: Verify private deployment health and access gate
+      - name: Verify test site and account protection
         shell: bash
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
-            if curl --fail --silent --show-error "$TEST_URL/_preview/health" | grep -q '"ok":true'; then
-              for path in / /add-property /api/; do
+            if curl --fail --silent --show-error "$TEST_URL/api/" | grep -q '"ok":true'; then
+              curl --fail --silent --show-error --output /dev/null "$TEST_URL/add-property"
+              for path in /api/auth/me /api/property-advertising/advertiser/drafts/current; do
                 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$TEST_URL$path")
                 test "$status" = "401"
               done

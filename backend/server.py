@@ -24,7 +24,6 @@ from starlette.middleware.cors import CORSMiddleware
 
 from core.db import client, detect_topology, strict_transactions_required
 from core.login_guard import ensure_indexes as ensure_login_guard_indexes
-from core.private_preview import install_private_preview
 from routes import (
     advertiser, ai, auth, content, csv_io, customers, files, inspections, leads, locations,
     market, matching, properties, property_types, public, referrals, reports, requirements, tasks,
@@ -120,7 +119,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-install_private_preview(app)
 
 # --- SERVE FRONTEND STATIC FILES (SAFE FALLBACK) ---
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
