@@ -92,9 +92,9 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await expect(page.getByTestId("account-access-login-submit")).toBeEnabled({ timeout: 3000 });
   });
 
-  test("Guest login preserves selections and lands on /advertiser with router state", async ({ page }) => {
+  test("Guest login preserves selections and opens property details", async ({ page }) => {
     let loggedIn = false;
-    await page.route("**/api/auth/me", (r) => registered
+    await page.route("**/api/auth/me", (r) => loggedIn
       ? json(r, { id: "adv1", email: "adv@t.pg", name: "Adv", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser" })
       : json(r, {}, 401));
     await page.route("**/api/auth/login", (r) => {
@@ -114,12 +114,13 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await page.getByTestId("account-access-login-email").fill("adv@t.pg");
     await page.getByTestId("account-access-login-password").fill("Password@123");
     await page.getByTestId("account-access-login-submit").click();
-    await expect(page).toHaveURL(/\/advertiser$/);
+    await expect(page).toHaveURL(/\/advertiser\/add-property$/);
+    await expect(page.getByRole("button", { name: "Authorised Real Estate Agent", exact: true })).toHaveClass(/selected/);
   });
 
   test("Guest registration creates a basic account, then requires advertiser completion", async ({ page }) => {
     let registered = false, completed = false;
-    await page.route("**/api/auth/me", (r) => loggedIn
+    await page.route("**/api/auth/me", (r) => registered
       ? json(r, { id: "adv2", email: "new@t.pg", name: "New", role: "property_advertiser", account_category: "PROPERTY_ADVERTISER", workspace_path: "/advertiser", profile_complete: completed })
       : json(r, {}, 401));
     await page.route("**/api/auth/register", (r) => {
@@ -163,7 +164,7 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await page.getByTestId("account-access-complete-terms").check();
     await expect(page.getByTestId("account-access-complete-submit")).toBeEnabled();
     await page.getByTestId("account-access-complete-submit").click();
-    await expect(page).toHaveURL(/\/advertiser$/);
+    await expect(page).toHaveURL(/\/advertiser\/add-property$/);
     expect(registered).toBeTruthy();
     expect(completed).toBeTruthy();
   });
@@ -179,7 +180,8 @@ test.describe("P01 + popup + Turnstile — authoritative", () => {
     await page.getByTestId("p01-relationship-owner").click();
     await expect(page.getByTestId("p01-proceed-authed")).toBeEnabled();
     await page.getByTestId("p01-proceed-authed").click();
-    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page).toHaveURL(/\/admin\/properties$/);
+    await expect(page.getByTestId("prop-modal")).toBeVisible();
   });
 
   test("An unknown future category cannot enter a current workspace", async ({ page }) => {

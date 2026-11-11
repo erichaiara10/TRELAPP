@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { CheckCircle2, Home as HomeIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import AccountAccessDialog from "@/components/public/AccountAccessDialog";
+import { propertyEntryForUser } from "@/lib/accountRouting";
 
 const LISTING_OPTIONS = [
   { key: "sale", label: "Sell", description: "List a property for sale on TRELPNG." },
@@ -57,7 +58,7 @@ export default function AddProperty() {
     }
   }, [location.search]);
 
-  const selectedService = { listing_type: listingType, service, relationship };
+  const selectedService = useMemo(() => ({ listing_type: listingType, service, relationship }), [listingType, service, relationship]);
   const queryParams = new URLSearchParams(location.search);
   const dialogNext = queryParams.get("auth") ? (queryParams.get("next") || undefined) : "/advertiser";
   const canProceed = Boolean(listingType && service && relationship);
@@ -81,16 +82,15 @@ export default function AddProperty() {
 
   const proceedAuthed = useCallback(() => {
     if (!canProceed) return;
-    navigate("/advertiser", { state: { selectedService } });
-  }, [canProceed, navigate, selectedService]);
+    navigate(propertyEntryForUser(user), { state: { selectedService } });
+  }, [canProceed, navigate, selectedService, user]);
 
   if (user === null) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
 
-  // Authenticated users of ANY category proceed to the intake form once the
-  // three steps are answered. No category-mismatch notices.
+  // Continue to the form allowed by the signed-in account category.
   const isAuthed = Boolean(user);
 
-  return <main className="min-h-[calc(100vh-4rem)] bg-slate-50 pb-24" data-testid="add-property-page">
+  return <main className="min-h-[calc(100vh-4rem)] bg-slate-50" data-testid="add-property-page">
     <section className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
       <header className="text-center">
         <HomeIcon className="mx-auto h-12 w-12 text-[#0398FC]" />
@@ -139,7 +139,7 @@ export default function AddProperty() {
     </section>
 
     {/* Sticky CTA bar */}
-    <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/90 backdrop-blur px-4 py-4 sm:px-6" data-testid="p01-cta-bar">
+    <div className="sticky bottom-0 z-40 border-t border-slate-200 bg-white/90 backdrop-blur px-4 py-4 sm:px-6" data-testid="p01-cta-bar">
       <div className="mx-auto max-w-3xl flex flex-col sm:flex-row items-stretch gap-3">
         {isAuthed ? (
           <button type="button" onClick={proceedAuthed} disabled={!canProceed}

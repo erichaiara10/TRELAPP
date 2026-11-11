@@ -3,10 +3,10 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /frontend
 
-COPY backend/frontend/package.json ./
+COPY backend/frontend/package.json backend/frontend/yarn.lock ./
 
 RUN corepack enable \
-    && yarn install --non-interactive
+    && yarn install --non-interactive --frozen-lockfile
 
 COPY backend/frontend/ ./
 

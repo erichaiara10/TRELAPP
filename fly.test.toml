@@ -7,6 +7,7 @@ primary_region = "syd"
   dockerfile = "backend/Dockerfile"
 
 [env]
+  TREL_PRIVATE_PREVIEW = "required"
   DB_NAME = "trel_test"
   TREL_PROPERTY_STORAGE_MODE = "integrated"
   TREL_PROPERTY_ADVERTISING_TEST_FIXTURES = "true"
@@ -23,7 +24,7 @@ primary_region = "syd"
     interval = "30s"
     method = "GET"
     timeout = "5s"
-    path = "/api/"
+    path = "/_preview/health"
 
 [[vm]]
   cpu_kind = "shared"

@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Home, X } from "lucide-react";
 import { api, formatError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { destinationForUser } from "@/lib/accountRouting";
+import { destinationForUser, propertyEntryForUser } from "@/lib/accountRouting";
 
 const TURNSTILE_SITE_KEY =
   process.env.REACT_APP_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
@@ -152,7 +152,9 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
       return;
     }
     onClose();
-    navigate(destinationForUser(result.user, next), { replace: true, state: { selectedService } });
+    const destination = selectedService?.service && selectedService?.relationship
+      ? propertyEntryForUser(result.user) : destinationForUser(result.user, next);
+    navigate(destination, { replace: true, state: { selectedService } });
   };
 
   const handleGoogle = () => {
@@ -203,7 +205,10 @@ export default function AccountAccessDialog({ open, initialTab = "login", onClos
         await api.put("/auth/complete-advertiser-profile", profilePayload);
         updateUser({ profile_complete: true });
         onClose();
-        navigate(destinationForUser({ ...user, profile_complete: true }, next), { replace: true, state: { selectedService } });
+        const completedUser = { ...user, profile_complete: true };
+        const destination = selectedService?.service && selectedService?.relationship
+          ? propertyEntryForUser(completedUser) : destinationForUser(completedUser, next);
+        navigate(destination, { replace: true, state: { selectedService } });
       } catch (err) { setError(formatError(err) || "Unable to complete your advertiser account"); }
       finally { setSubmitting(false); }
       return;

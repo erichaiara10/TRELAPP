@@ -9,6 +9,12 @@ export function workspaceForUser(user) {
   return ACCOUNT_WORKSPACES[user?.account_category] || "/";
 }
 
+export function propertyEntryForUser(user) {
+  if (user?.account_category === "PROPERTY_ADVERTISER") return "/advertiser/add-property?new=1";
+  if (user?.account_category === "STAFF") return "/admin/properties";
+  return workspaceForUser(user);
+}
+
 export function destinationForUser(user, requestedPath = "") {
   const workspace = workspaceForUser(user);
   if (workspace === "/") return "/";

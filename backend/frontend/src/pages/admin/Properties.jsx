@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api, formatError } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -17,6 +18,15 @@ export default function Properties({ scope = "all" } = {}) {
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const { types } = usePropertyTypes();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const selection = location.state?.selectedService;
+    if (!selection?.service || !selection?.relationship) return;
+    setModal({ ...EMPTY, listing_type: selection.listing_type, owner_relationship: selection.relationship });
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.key, location.pathname, location.search, location.state, navigate]);
 
   const validationError = () => validateProperty(modal, isPortionScheme(types, modal?.property_type));
 

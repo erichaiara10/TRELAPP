@@ -123,6 +123,8 @@ test("inactive advertiser is warned, can continue, and is then signed out automa
   await mockAdvertiser(page, [{id:"id-1",document_type:"NID_CARD",status:"PENDING"}]);
   await page.clock.install({time:new Date("2026-08-26T00:00:00Z")});
   await page.goto("/advertiser");
+  await expect(page.getByText("No recent activity.")).toBeVisible();
+  await page.getByRole("heading", {name:"Dashboard",exact:true}).click();
   await page.clock.fastForward(13 * 60 * 1000);
   await expect(page.getByRole("dialog", {name:"Still using TRELPNG?"})).toBeVisible();
   await page.getByRole("button", {name:"Continue session"}).click();

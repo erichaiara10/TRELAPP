@@ -1,6 +1,6 @@
 /* eslint-disable no-unused-vars, react-hooks/exhaustive-deps */
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bell, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleHelp, Clock3, FileCheck2, FileText, FolderOpen, HelpCircle,
@@ -133,7 +133,15 @@ function DraftProvider({ children }) {
   const [editingSubmissionId, setEditingSubmissionId] = useState(null);
   const normalise = (value={}) => ({...DEFAULT_DRAFT,...value,features:Array.isArray(value.features)?value.features:[],photos:Array.isArray(value.photos)?value.photos:[],documents:Array.isArray(value.documents)?value.documents:[],authority_confirmed:false,terms_accepted:false});
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
-  const reset = () => { setDraft({...DEFAULT_DRAFT}); setCurrentStep(1); setEditingSubmissionId(null); };
+  const reset = (selection) => {
+    const relationshipLabels = {OWNER:"Owner / Joint Owner",AUTHORISED_AGENT:"Authorised Real Estate Agent",AUTHORISED_REPRESENTATIVE:"Authorised representative"};
+    const choices = selection?.service && selection?.relationship ? {
+      listing_type: selection.listing_type === "rent" ? "Rent" : "Sale",
+      service: selection.service === "self" ? "Advertise only" : "TREL to sell/manage",
+      relationship: relationshipLabels[selection.relationship] || DEFAULT_DRAFT.relationship,
+    } : {};
+    setDraft({...DEFAULT_DRAFT,...choices}); setCurrentStep(1); setEditingSubmissionId(null);
+  };
   const beginEdit = (row) => {
     if(row.data){setDraft(normalise(row.data));setEditingSubmissionId(row.id||null);setCurrentStep(1);return;}
     const [title,location,price]=row.property; const [suburb="",province=""]=location.split(",").map(x=>x.trim());
@@ -354,8 +362,14 @@ function FormFooter({back, next, label="Continue", step, disabled=false}) {
 }
 
 function PropertyDetails(){
-  const flow=useDraft(); const [params]=useSearchParams();
-  useEffect(()=>{if(flow.loaded&&params.get("new")==="1")flow.reset();},[flow.loaded]);
+  const flow=useDraft(); const [params]=useSearchParams(); const location=useLocation(); const navigate=useNavigate();
+  useEffect(()=>{
+    if(flow.loaded&&params.get("new")==="1"){
+      flow.reset(location.state?.selectedService);
+      const remaining=new URLSearchParams(location.search); remaining.delete("new");
+      navigate(`${location.pathname}${remaining.size?`?${remaining}`:""}`,{replace:true,state:null});
+    }
+  },[flow.loaded,location.key]);
   const types={Residential:["House","Apartment / Unit","Townhouse","Land"],Commercial:["Office Space","Retail","Commercial Building","Hotel / Lodge"],Industrial:["Warehouse","Factory","Workshop"],"Agricultural / Rural":["Farm","Plantation","Rural Land"],"Vacant Land":["Residential Land","Commercial Land","Industrial Land"],Other:["Other"]};
   const choice=(key,value)=>(event)=>{event.stopPropagation();flow.update(key,value);};
   const setClass=value=>{flow.update("property_class",value);flow.update("property_type",types[value][0]);};
