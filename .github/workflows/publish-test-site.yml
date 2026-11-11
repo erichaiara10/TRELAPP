@@ -12,6 +12,7 @@ on:
     branches:
       - codex/test-deploy-seven-scoped-fixes
       - codex/aggregation-18-improvements
+      - restore/private-workspace-20261111
 
 permissions:
   contents: read
