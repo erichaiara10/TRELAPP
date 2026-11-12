@@ -10,6 +10,7 @@ on:
         type: string
   push:
     branches:
+      - codex/staff-sidebar-v14-20261113
       - codex/test-deploy-seven-scoped-fixes
       - codex/aggregation-18-improvements
       - restore/private-workspace-20261111

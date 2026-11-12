@@ -144,6 +144,7 @@ export default function App() {
             <Route path="property-advertising/publications/:listingRef" element={<PublicationReview />} />
             <Route path="property-advertising/lifecycle" element={<LifecycleQueue />} />
             <Route path="property-advertising/lifecycle/:listingRef" element={<LifecycleReview />} />
+            <Route path="property-advertising/sale-progression" element={<section aria-labelledby="sale-progression-title"><h1 id="sale-progression-title" className="text-2xl font-semibold">Sale Progression</h1><p className="mt-3 text-muted-foreground">This workspace is being prepared. Transaction progression is not available yet.</p></section>} />
             <Route path="market" element={<MarketOverview />} />
             <Route path="market/evidence" element={<MarketEvidence />} />
             <Route path="market/comparables" element={<ComparableProperties />} />
