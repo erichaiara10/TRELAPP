@@ -48,7 +48,9 @@ const groups = [
   { id: "property-data-aggregation", label: "Market Intelligence", items: marketItems },
   { id: "administration", label: "Administration", items: administrationItems },
 ];
-const activeGroup = (pathname) => groups.find((group) => group.items.some((item) =>
+const activeGroup = (pathname) => pathname.startsWith("/admin/property-advertising/")
+  ? "property-advertising"
+  : groups.find((group) => group.items.some((item) =>
   item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)
 ))?.id || "trel-customers";
 
