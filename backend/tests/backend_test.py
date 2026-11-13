@@ -3,11 +3,11 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://req-to-web-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "admin@trel.com.pg", "password": "Admin@123"}
-SALES = {"email": "sales@pngrealty.pg", "password": "Password@123"}
+ADMIN = {"email": os.environ.get("TREL_TEST_ADMIN_EMAIL", "admin@example.invalid"), "password": os.environ.get("TREL_TEST_ADMIN_PASSWORD", "")}
+SALES = {"email": os.environ.get("TREL_TEST_SALES_EMAIL", "sales@example.invalid"), "password": os.environ.get("TREL_TEST_SALES_PASSWORD", "")}
 
 
 @pytest.fixture(scope="function")
@@ -223,12 +223,12 @@ def test_users_list(s, admin_token):
 def test_users_create_admin_only(s, admin_token, sales_token):
     # non-admin forbidden
     r_forbidden = s.post(f"{API}/users",
-        json={"email": "TEST_new@example.com", "password": "Pass@1234",
+        json={"email": "TEST_new@example.com", "password": os.environ.get("TREL_TEST_NEW_USER_PASSWORD", "local-fixture-password"),
               "name": "TEST_new", "role": "sales_agent"}, headers=H(sales_token))
     assert r_forbidden.status_code == 403
     # admin allowed
     r_ok = s.post(f"{API}/users",
-        json={"email": "TEST_created@example.com", "password": "Pass@1234",
+        json={"email": "TEST_created@example.com", "password": os.environ.get("TREL_TEST_NEW_USER_PASSWORD", "local-fixture-password"),
               "name": "TEST_created", "role": "sales_agent"}, headers=H(admin_token))
     assert r_ok.status_code == 200
     uid = r_ok.json()["id"]

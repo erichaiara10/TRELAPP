@@ -5,7 +5,7 @@ import { Upload, X, Loader2, Link as LinkIcon } from "lucide-react";
 
 /**
  * Single image uploader. `value` is a URL string; `onChange(url)` returns a URL string.
- * Supports direct file upload (to Emergent object storage via /api/public/upload)
+ * Supports direct file upload (to Cloudflare R2 storage via /api/public/upload)
  * and manual URL entry.
  */
 export default function ImageField({ label = "Image", value = "", onChange, testId = "image-field", hint = "" }) {

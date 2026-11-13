@@ -17,7 +17,7 @@ const CATEGORY_ICON = {
  * recreation) for a given property location.
  *
  * Data comes from POST /api/ai/nearby-amenities and is powered by Claude
- * Sonnet 4.5 via the Emergent LLM key.
+ * the direct Anthropic Messages API.
  */
 export default function NearbyAmenities({ suburb = "", city = "", province = "", property_type = "", testId = "nearby-amenities" }) {
   const [open, setOpen] = useState(false);

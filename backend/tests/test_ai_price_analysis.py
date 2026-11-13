@@ -1,9 +1,9 @@
-"""Tests for /api/ai/price-analysis (Claude Sonnet 4.5 via emergentintegrations)."""
+"""Tests for /api/ai/price-analysis (deterministic comparable evidence)."""
 import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://req-to-web-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 ENDPOINT = f"{BASE_URL}/api/ai/price-analysis"
 
 

@@ -10,3 +10,9 @@
 **/.env.*
 test_reports
 memory
+
+# Source-only artifacts are never part of the deployed runtime.
+docs
+backend/tests
+backend/frontend/node_modules
+backend/frontend/build

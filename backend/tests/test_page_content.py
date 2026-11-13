@@ -3,10 +3,10 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://req-to-web-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "admin@trel.com.pg", "password": "Admin@123"}
+ADMIN = {"email": os.environ.get("TREL_TEST_ADMIN_EMAIL", "admin@example.invalid"), "password": os.environ.get("TREL_TEST_ADMIN_PASSWORD", "")}
 SLUGS = ["home", "about", "sell", "buy", "rent", "wanted",
          "management", "corporate", "contact", "legal_privacy", "legal_terms"]
 
