@@ -87,6 +87,7 @@ jobs:
           tests/test_market_aggregation_36.py
           tests/test_private_preview.py
           tests/test_advertiser_draft_roundtrip.py
+          tests/test_direct_amenities.py
 
       - uses: actions/setup-node@v4
         with:
@@ -143,6 +144,14 @@ jobs:
           done
           echo "Test site did not become healthy in time." >&2
           exit 1
+
+      - name: Audit test runtime dependencies without changing data
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: >-
+          flyctl ssh console --app "$TEST_APP_NAME"
+          --command "python /app/backend/scripts/audit_external_dependencies.py"
 
       - name: Publish deployment summary
         if: always()
