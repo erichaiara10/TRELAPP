@@ -34,7 +34,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Property schema exposes **30 fields** (6 mandatory + 6 conditional = 12 required headers); Customer schema exposes **10 fields** (4 required headers).
 
 **Phase 3 — Data Protection (idempotent seeds):**
-- `seed.py` refactored: every `seed_*` function now **skips entirely if the target collection has ≥1 document**. Existing docs are NEVER overwritten (previous versions could reset a user's password back to `Password@123` on every restart — fixed).
+- `seed.py` refactored: every `seed_*` function now **skips entirely if the target collection has ≥1 document**. Existing docs are NEVER overwritten (previous versions could reset a user's password back to [legacy test password removed; use environment configuration] on every restart — fixed).
 - Legacy one-off migrations (`migrate_legacy_user_emails`, `migrate_land_category`) kept — they are idempotent and only touch legacy records that need renaming.
 
 **Tests: iteration 27 — 40/40 new pytest + 14/14 regression GETs + full frontend flows verified. Zero critical/minor issues.**
@@ -130,7 +130,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Tested: iteration 22 — 100% pass across Buy/Rent card layout, PropertyDetail buyer copy, Sell seller copy, mobile viewport, no nested anchors, no regression on Nearby Amenities/Map link.
 
 ### AI Nearby Amenities (Feb 21, 2026)
-- Backend `POST /api/ai/nearby-amenities` powered by Claude Sonnet 4.5 via `emergentintegrations`.
+- Backend `POST /api/ai/nearby-amenities` powered by the direct Anthropic Messages API (requires `ANTHROPIC_API_KEY`).
 - Returns 6 possible categories (schools, hospitals, shopping, beaches, transport, recreation) with `{name, distance_hint, note}` items — capped at 4 items/cat, 6 cats, and length-clamped.
 - Defence-in-depth server-side sanitiser strips URLs and long digit runs (phone numbers) from names/notes.
 - Frontend `NearbyAmenities.jsx` — collapsible panel on PropertyDetail under Description/Features, blue `#0d50e0` theming, category icons (GraduationCap, HeartPulse, ShoppingBag, Waves, Bus, TreePine).
@@ -149,7 +149,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Tested: iteration 20 — 100% functional pass on Sell/Buy/Rent/Detail/Admin edit + mobile viewport.
 
 ### Unified AI Price Analysis — Claude Sonnet 4.5 (Feb 21, 2026)
-- Backend endpoint `POST /api/ai/price-analysis` powered by `emergentintegrations` + Claude Sonnet 4.5 via the Emergent LLM key
+- Backend endpoint `POST /api/ai/price-analysis` powered by the deterministic comparable-evidence service (no AI key required)
 - Returns structured schema: `{range_min, range_max, average, verdict, recommendation, comparables[], sample_size}`
 - Deterministic statistical fallback if LLM call fails or no comparables — never surfaces a 500
 - Server-side sanitisation: strips PII (agent/owner/id/urls) from comparables, caps title 120ch, recommendation 280ch, comparables to 5
@@ -248,7 +248,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 ### PageContent architecture (Feb 17, 2026)
 - **New `page_content` MongoDB collection** — one doc per public page (`home`, `about`, `sell`, `buy`, `rent`, `wanted`, `management`, `corporate`, `contact`, `legal_privacy`, `legal_terms`). Deep-merge with server-side defaults so callers always get a fully-populated object.
 - **New API endpoints** (all `/api`): `GET /page/{slug}` (public), `PUT /page/{slug}` (admin), `POST /page/{slug}/list/{section}` (admin — append), `DELETE /page/{slug}/list/{section}/{index}` (admin — remove).
-- **Admin `/admin/content` rebuilt** as a 12-tab editor (Branding & Site + 11 pages) with grouped section editors, list add/remove for team/values/services/benefits, and integrated single-image uploader (`ImageField`) that pushes to Emergent object storage.
+- **Admin `/admin/content` rebuilt** as a 12-tab editor (Branding & Site + 11 pages) with grouped section editors, list add/remove for team/values/services/benefits, and integrated single-image uploader (`ImageField`) that pushes to Cloudflare R2 storage.
 - **Public pages fully rewritten to consume page content** via `usePage(slug)` hook: Home (hero + featured intro + why-us + wanted teaser + CTA band), About (hero + story + mission + vision + values + team), Sell (hero + benefits), Buy/Rent (hero over search), Wanted (hero + active-requirements), Management/Corporate (hero + services grid), Contact (hero + business hours + map + action buttons), Privacy/Terms (title + body).
 - **LeadFormPage** gains `heroImage` prop and a "Submit another" button on the success card.
 - Backend tests: `/app/backend/tests/test_page_content.py` (21/21 pass).
@@ -297,8 +297,8 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 - Seed script (idempotent) — 6 properties, 5 users, 2 requirements, site/about/why content
 
 ## Test Credentials
-- Admin: `admin@trel.com.pg` / `Admin@123`
-- All other staff: `Password@123`
+- Admin: `admin@trel.com.pg` / [legacy test password removed; use environment configuration]
+- All other staff: [legacy test password removed; use environment configuration]
 
 ## Testing
 - Iteration 1: 23/23 backend tests passed, 100% of tested frontend flows verified (see `/app/test_reports/iteration_1.json`).
@@ -327,7 +327,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 ### 1. Account Category Backfill + Security Hardening (earlier this session)
 - **Security fallback** — `core/account_policy.account_category()` now returns a new `GUEST` category (workspace `/`) for users missing `account_category` instead of silently defaulting to `STAFF`. `workspace_path` gained a safe `GUEST → "/"` mapping and `require_property_writer` now emits an accurate 403 message for GUEST accounts. Verified 403 from `/api/users` for a guest-category account.
 - **Backfill migration** — new idempotent script `backend/migrations/backfill_account_categories.py`. First run: 34 users categorised, 35 statuses set, 29 profiles created. Re-runs are 0-change.
-- **Test account verified** — `advertiser.20260819.002523@example.com` (password `Password@123`) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document.
+- **Test account verified** — `advertiser.20260819.002523@example.com` (password [legacy test password removed; use environment configuration]) now has advertiser_profiles.status=VERIFIED + a VERIFIED PASSPORT identity_document.
 
 ### 2. Advertiser Workspace Scoping
 - Added `mine` filter to `PropertyFilters` and a new `get_optional_user` helper. `GET /api/properties?mine=true` now:
@@ -358,7 +358,7 @@ Build a fully-fledged Digital Real Estate Agency Platform for Papua New Guinea b
 ### P3 Integration Hardening
 - **IntegratedPropertyService._txn() topology probe** — detects standalone/replica-set/sharded MongoDB via `hello` command; falls back to sequential non-transactional writes on standalone. Result logged at startup as `MongoDB topology: STANDALONE|REPLICA_SET|SHARDED`.
 - **PropertyCreate + Property `tenure_type` validator** — `@field_validator(mode='before')` coerces `""` → `None` so the admin Add Property modal's "Not specified" option no longer throws 422.
-- **Staff credentials reset** — director/sales/leasing/marketing @trel.com.pg all logging in with `Password@123` again.
+- **Staff credentials reset** — director/sales/leasing/marketing @trel.com.pg all logging in with [legacy test password removed; use environment configuration] again.
 - **Frontend location** — React source moved to `/app/backend/frontend`; supervisor still serves via a symlink from `/app/frontend`.
 - **Playwright E2E suite** — 5/5 tests passing (`yarn test:e2e` with `PLAYWRIGHT_BASE_URL=<preview>`).
 - **Screen matrix (iter-29)** — 11/11 regression suite + 50/54 iter-28 replay (remaining 4 = 2 known backlog + 1 test artifact + legacy-count mismatch).

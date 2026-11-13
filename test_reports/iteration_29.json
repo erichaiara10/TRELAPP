@@ -3,18 +3,40 @@
   "backend_issues": {
     "critical": [],
     "minor": [
-      {"endpoint": "GET /api/properties vs GET /api/reports/summary", "issue": "HIGH-priority data inconsistency (carried over from iter-28): reports/summary reports properties_active=9 from the legacy `properties` collection while GET /api/properties reads listings+master_properties which contain 0 legacy rows. Public /buy, /rent, home Featured and the Admin Properties table are therefore empty. Needs the P2/P3 backfill migration for the 9 legacy rows (or make reports/summary read the same source)."},
-      {"endpoint": "POST /api/auth/login", "issue": "Known backlog: no brute-force lockout (6 consecutive bad passwords all return 401, no 429/423)."},
-      {"endpoint": "CORS (all endpoints)", "issue": "Known backlog: allow_origins=['*'] and no Access-Control-Allow-Credentials, while login sets an httpOnly cookie — cookie auth cannot work cross-origin."}
+      {
+        "endpoint": "GET /api/properties vs GET /api/reports/summary",
+        "issue": "HIGH-priority data inconsistency (carried over from iter-28): reports/summary reports properties_active=9 from the legacy `properties` collection while GET /api/properties reads listings+master_properties which contain 0 legacy rows. Public /buy, /rent, home Featured and the Admin Properties table are therefore empty. Needs the P2/P3 backfill migration for the 9 legacy rows (or make reports/summary read the same source)."
+      },
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "Known backlog: no brute-force lockout (6 consecutive bad passwords all return 401, no 429/423)."
+      },
+      {
+        "endpoint": "CORS (all endpoints)",
+        "issue": "Known backlog: allow_origins=['*'] and no Access-Control-Allow-Credentials, while login sets an httpOnly cookie — cookie auth cannot work cross-origin."
+      }
     ]
   },
   "frontend_issues": {
     "ui_bugs": [],
     "integration_issues": [
-      {"flow": "Admin Properties table / public browse", "issue": "No real properties render anywhere (only test-created ones) because the legacy 9 properties are not in the listing graph; Dashboard KPI simultaneously shows 'Active Properties 9' — user-visible contradiction.", "affected_selectors": ["/admin/properties table", "/buy", "/rent"]}
+      {
+        "flow": "Admin Properties table / public browse",
+        "issue": "No real properties render anywhere (only test-created ones) because the legacy 9 properties are not in the listing graph; Dashboard KPI simultaneously shows 'Active Properties 9' — user-visible contradiction.",
+        "affected_selectors": [
+          "/admin/properties table",
+          "/buy",
+          "/rent"
+        ]
+      }
     ],
     "design_issues": [
-      {"screen": "/admin/matching", "issues": ["Known backlog: React hydration warning '<span> cannot be a child of <option>' logged on load (visual-editor instrumentation wrapping option children)."]}
+      {
+        "screen": "/admin/matching",
+        "issues": [
+          "Known backlog: React hydration warning '<span> cannot be a child of <option>' logged on load (visual-editor instrumentation wrapping option children)."
+        ]
+      }
     ]
   },
   "test_report_links": [
@@ -38,11 +60,15 @@
     "/app/backend/tests/cleanup_iter29.py (new)",
     "/app/backend/tests/backend_test.py (fixed stale admin email admin@pngrealty.pg -> admin@trel.com.pg)"
   ],
-  "success_rate": {"backend": "100% on iter-29 regression suite (11/11); 93% on iter-28 matrix (50/54, remaining = 2 known backlog + 1 test artefact + legacy count mismatch)", "frontend": "100% of verified flows (admin login, 13 sidebar routes, Add Property save, Market Evidence, 9 public pages)"},
+  "success_rate": {
+    "backend": "100% on iter-29 regression suite (11/11); 93% on iter-28 matrix (50/54, remaining = 2 known backlog + 1 test artefact + legacy count mismatch)",
+    "frontend": "100% of verified flows (admin login, 13 sidebar routes, Add Property save, Market Evidence, 9 public pages)"
+  },
   "seed_data_creation": "Created and then hard-deleted all TEST_ITER29* properties (10 listings + parcels + addresses + masters removed via /app/backend/tests/cleanup_iter29.py). Also removed TEST_ITER28 leftovers. DB verified back to listings=0, properties=9. One public sell_form lead attempt was rejected by captcha so no lead data was added.",
   "should_call_test_agent_after_fix": false,
   "should_main_agent_self_test": true,
-  "test_credentials": "admin@trel.com.pg / Admin@123 (works); director|sales|leasing|marketing@trel.com.pg / Password@123 (all work now)",
+  "test_credentials": "admin@trel.com.pg / [legacy test password removed] (works); director|sales|leasing|marketing@trel.com.pg / [legacy test password removed] (all work now)",
   "context_for_next_testing_agent": "Public POST /api/public/leads and /api/public/inspections now require a captcha token ('Human verification required' 400) — legacy backend_test.py public-intake tests fail for that reason, not a regression (see test_captcha.py for the correct flow). Legacy suites test_map_coords / test_iter24 / test_iter27 fail because their property payloads predate P3 (province, owner_name, total_area_ha now required and status=active requires authority_status=VERIFIED). Full-suite baseline: 206 passed / 24 failed / 20 errors. Use payload from test_iter29_regressions.py::payload() as the canonical valid property body; remember to run cleanup_iter29.py after creating properties since DELETE only soft-withdraws them.",
-  "rca_of_the_issue": "iter-28 critical#1 fixed by @field_validator(mode='before') coercing ''->None on PropertyCreate/Property.tenure_type; critical#2 fixed by IntegratedPropertyService._detect_transaction_support() probing the `hello` command (setName / isdbgrid) and _txn() yielding no session on standalone mongod; critical#3 was a consequence of #2 and now resolves. The residual empty-listing symptom is a separate data-migration gap: the 9 pre-P3 rows still live only in the legacy `properties` collection."
+  "rca_of_the_issue": "iter-28 critical#1 fixed by @field_validator(mode='before') coercing ''->None on PropertyCreate/Property.tenure_type; critical#2 fixed by IntegratedPropertyService._detect_transaction_support() probing the `hello` command (setName / isdbgrid) and _txn() yielding no session on standalone mongod; critical#3 was a consequence of #2 and now resolves. The residual empty-listing symptom is a separate data-migration gap: the 9 pre-P3 rows still live only in the legacy `properties` collection.",
+  "_reference_cleanup_note": "Historical report: retired platform names and preview-host labels have been normalized; recorded test counts and outcomes are unchanged. This edit is not a test rerun."
 }

@@ -1,8 +1,9 @@
 # H01 Authoritative Implementation — Verification Report
 
-**Branch:** `hardening/p3-post-iter29`  
-**Applied patch:** `H01_AUTHORITATIVE_IMPLEMENTATION.patch` (via `git apply`, clean after resetting `backend/routes/auth.py` and `backend/frontend/src/pages/public/Home.jsx` to their pre-hardening tip — see notes below)  
-**Preview URL:** https://req-to-web-1.preview.emergentagent.com  
+> Historical report: retired platform names and preview-host labels have been normalized; recorded test counts and outcomes are unchanged. This edit is not a test rerun.
+**Branch:** `hardening/p3-post-iter29`
+**Applied patch:** `H01_AUTHORITATIVE_IMPLEMENTATION.patch` (via `git apply`, clean after resetting `backend/routes/auth.py` and `backend/frontend/src/pages/public/Home.jsx` to their pre-hardening tip — see notes below)
+**Preview URL:** https://retired-preview.invalid
 **Status:** Applied, built, tested. **NOT committed** and **NOT deployed** — awaiting review.
 
 ## Files touched by the patch

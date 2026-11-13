@@ -49,7 +49,11 @@ Add these only when the corresponding test feature is ready:
 - `R2_BUCKET_NAME`
 - `R2_PUBLIC_URL`
 - `R2_REGION`
-- `EMERGENT_LLM_KEY` (temporary legacy AI-price-analysis dependency)
+- `ANTHROPIC_API_KEY` (optional nearby amenities; direct Anthropic API)
+- `ANTHROPIC_MODEL` (optional; defaults to `claude-sonnet-4-5-20250929`)
+
+Price comparison uses database evidence and needs no AI key. Nearby amenities
+returns 503 when the direct provider key is not configured.
 
 Use a separate R2 test bucket. Do not reuse the production bucket.
 
@@ -68,7 +72,7 @@ both `/api/` and `/` on the test site.
 
 ## Safety gates
 
-- Deployment is manual only.
+- Deployment runs manually or on pushes to the explicitly listed test branches.
 - The Fly token is exposed only to the deploy step, never to dependency install
   or application build steps.
 - The workflow checks that `fly.test.toml` names `trelweb-test`, not `trelweb`.

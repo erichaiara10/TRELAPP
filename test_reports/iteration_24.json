@@ -1,9 +1,17 @@
 {
   "summary": "Iter-24 tested (1) backend lead-lock semantics + property legal fields and (2) frontend PhoneInput 4-4 / 1-4-4 grouping, admin Property modal conditional legal & Location Details, admin Leads locked-row treatment + LockedLeadModal, and public PropertyDetail 'Legal & location details' block. All 6 pytest tests PASS; all frontend assertions PASS after one supervisorctl restart of the frontend (recurring webpack stale-bundle issue also seen in iter-22 and iter-23). One minor precision bug found in the public detail total_area_ha rendering.",
-  "backend_issues": {"critical": [], "minor": []},
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
   "frontend_issues": {
     "ui_bugs": [
-      {"component": "PropertyDetail — Legal block", "issue": "Total area is rendered via Number(p.total_area_ha).toLocaleString() which defaults to max 3 fraction digits, so 0.0824 ha is displayed as '0.082 ha' (loss of precision). Recommend toLocaleString(undefined,{maximumFractionDigits:4}) or a dedicated small-area formatter.", "selector": "[data-testid='detail-legal-block']", "priority": "LOW"}
+      {
+        "component": "PropertyDetail — Legal block",
+        "issue": "Total area is rendered via Number(p.total_area_ha).toLocaleString() which defaults to max 3 fraction digits, so 0.0824 ha is displayed as '0.082 ha' (loss of precision). Recommend toLocaleString(undefined,{maximumFractionDigits:4}) or a dedicated small-area formatter.",
+        "selector": "[data-testid='detail-legal-block']",
+        "priority": "LOW"
+      }
     ],
     "integration_issues": [],
     "design_issues": []
@@ -41,11 +49,15 @@
     "PhoneInput useState(country) fixes the iter-23 dropdown-reset bug elegantly; the useEffect adopts a new country only when the incoming value actually starts with that dial-prefix — safe."
   ],
   "updated_files": [],
-  "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% functional; 1 LOW-priority precision issue in total_area_ha display"},
-  "test_credentials": "admin@trel.com.pg / Admin@123",
+  "success_rate": {
+    "backend": "100% (6/6 pytest)",
+    "frontend": "100% functional; 1 LOW-priority precision issue in total_area_ha display"
+  },
+  "test_credentials": "admin@trel.com.pg / [legacy test password removed]",
   "seed_data_creation": "Backend test suite creates TEST_IT24_* leads (locked) and TEST_IT24_stub / TEST_IT24_legal / TEST_IT24_legal_lp properties. Properties cleaned up in-fixture. Locked leads cannot be deleted (409) and are left in the DB — one such lead created per pytest run. Consider a mongo-level cleanup script or a system_admin override endpoint if this accumulates.",
   "retest_needed": false,
   "should_main_agent_self_test": true,
-  "context_for_next_testing_agent": "1) Frontend still exhibits webpack stale-bundle behaviour on new component additions in the emergent preview — if a data-testid you expect is missing on the first probe, run `sudo supervisorctl restart frontend` and re-check. 2) Two distinct testids on locked-lead rows share the `lead-view-` prefix (`lead-view-<id>` = View modal button, `lead-view-property-<id>` = property Link) — always filter or use exact match. 3) Locked leads accumulate in DB across test runs because DELETE returns 409 by design; use direct mongo cleanup if needed. 4) All new Feb-22 features (Lead lock backend, Property legal fields, PhoneInput 4-4 / 1-4-4 grouping, admin Property modal Legal & Location section, LockedLeadModal, PropertyDetail Legal block) are verified end-to-end.",
-  "rca of the issue": "N/A — no unresolved defects. Minor total_area_ha rounding is a two-character fix in PropertyDetail.jsx."
+  "context_for_next_testing_agent": "1) Frontend still exhibits webpack stale-bundle behaviour on new component additions in the retired platform preview — if a data-testid you expect is missing on the first probe, run `sudo supervisorctl restart frontend` and re-check. 2) Two distinct testids on locked-lead rows share the `lead-view-` prefix (`lead-view-<id>` = View modal button, `lead-view-property-<id>` = property Link) — always filter or use exact match. 3) Locked leads accumulate in DB across test runs because DELETE returns 409 by design; use direct mongo cleanup if needed. 4) All new Feb-22 features (Lead lock backend, Property legal fields, PhoneInput 4-4 / 1-4-4 grouping, admin Property modal Legal & Location section, LockedLeadModal, PropertyDetail Legal block) are verified end-to-end.",
+  "rca of the issue": "N/A — no unresolved defects. Minor total_area_ha rounding is a two-character fix in PropertyDetail.jsx.",
+  "_reference_cleanup_note": "Historical report: retired platform names and preview-host labels have been normalized; recorded test counts and outcomes are unchanged. This edit is not a test rerun."
 }
