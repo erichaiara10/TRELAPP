@@ -20,6 +20,7 @@ const server=http.createServer((req,res)=>{
  await new Promise(resolve=>server.listen(4178,'127.0.0.1',resolve));
  const browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}});const page=await context.newPage();const errors=[];let writes=0;
  page.on('pageerror',e=>errors.push(e.message));
+ page.on('dialog',dialog=>dialog.accept());
  await page.addInitScript(()=>localStorage.setItem('png_token','isolated-ui-fixture'));
  await page.route('**/api/**',route=>{
   const request=route.request();if(request.method()!=='GET'){writes++;return route.fulfill({status:400,json:{detail:'Writes are disabled in the isolated UI fixture'}});}
