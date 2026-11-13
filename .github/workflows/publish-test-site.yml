@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - codex/staff-sidebar-v14-20261113
+      - codex/staff-screens-v14-20261113
       - codex/test-deploy-seven-scoped-fixes
       - codex/aggregation-18-improvements
       - restore/private-workspace-20261111
@@ -102,6 +103,14 @@ jobs:
         env:
           CI: "false"
         run: yarn build
+
+      - name: Install browser for staff screen checks
+        working-directory: backend/frontend
+        run: yarn playwright install --with-deps chromium
+
+      - name: Check connected staff screens
+        working-directory: backend/frontend
+        run: node scripts/check-staff-workspace.cjs
 
       - name: Install Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master

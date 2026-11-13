@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import PublicLayout from "@/components/PublicLayout";
 import AdminLayout from "@/components/AdminLayout";
+import StaffWorkspace from "@/components/staff-workspace/StaffWorkspace";
 
 import Home from "@/pages/public/Home";
 import Search from "@/pages/public/Search";
@@ -115,19 +116,19 @@ export default function App() {
           <Route path="/admin/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/admin" element={<Protected categories={["STAFF"]}><AdminLayout /></Protected>}>
-            <Route index element={<Dashboard />} />
-            <Route path="properties" element={<Properties />} />
-            <Route path="customers" element={<Customers />} />
-            <Route path="leads" element={<Leads />} />
-            <Route path="requirements" element={<Requirements />} />
-            <Route path="matching" element={<Matching />} />
-            <Route path="inspections" element={<Inspections />} />
-            <Route path="tasks" element={<Tasks />} />
-            <Route path="pipeline" element={<Pipeline />} />
-            <Route path="users" element={<Users />} />
-            <Route path="locations" element={<Locations />} />
-            <Route path="content" element={<Content />} />
-            <Route path="reports" element={<Reports />} />
+            <Route index element={<StaffWorkspace parent="O01"><Dashboard /></StaffWorkspace>} />
+            <Route path="properties" element={<StaffWorkspace parent="O02"><Properties /></StaffWorkspace>} />
+            <Route path="customers" element={<StaffWorkspace parent="O03"><Customers /></StaffWorkspace>} />
+            <Route path="leads" element={<StaffWorkspace parent="O04"><Leads /></StaffWorkspace>} />
+            <Route path="requirements" element={<StaffWorkspace parent="O05"><Requirements /></StaffWorkspace>} />
+            <Route path="matching" element={<StaffWorkspace parent="O06"><Matching /></StaffWorkspace>} />
+            <Route path="inspections" element={<StaffWorkspace parent="O07"><Inspections /></StaffWorkspace>} />
+            <Route path="tasks" element={<StaffWorkspace parent="O08"><Tasks /></StaffWorkspace>} />
+            <Route path="pipeline" element={<StaffWorkspace parent="O09"><Pipeline /></StaffWorkspace>} />
+            <Route path="users" element={<StaffWorkspace parent="O10"><Users /></StaffWorkspace>} />
+            <Route path="locations" element={<StaffWorkspace parent="O11"><Locations /></StaffWorkspace>} />
+            <Route path="content" element={<StaffWorkspace parent="O12"><Content /></StaffWorkspace>} />
+            <Route path="reports" element={<StaffWorkspace parent="O13"><Reports /></StaffWorkspace>} />
             <Route path="property-advertising" element={<PropertyAdvertisingOverview />} />
             <Route path="property-advertising/advertisers" element={<PropertyAdvertisers />} />
             <Route path="property-advertising/advertisers/:advertiserId" element={<AdvertiserProfile />} />

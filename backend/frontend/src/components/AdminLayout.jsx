@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Building2, Users, Inbox, ClipboardList, Target, Calendar, ListChecks, KanbanSquare, UserCog, FileText, BarChart3, MapPin, LogOut, Database, Megaphone, UserRoundCheck, SendToBack, History, FileCheck2, ChevronDown, Gauge, Scale, TrendingUp, Globe2, CopyCheck, Calculator, ShieldAlert, Settings, ScrollText, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { StaffScreensProvider } from "@/components/staff-workspace/StaffWorkspace";
 
 const customerItems = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -108,7 +109,7 @@ export default function AdminLayout() {
           <div className="text-right leading-tight min-w-0"><div className="text-sm font-semibold break-words">{user?.name}</div><div className="text-xs text-[#6B7280]">{user?.role?.replaceAll("_", " ")}</div></div>
           <button onClick={handleLogout} data-testid="admin-logout-btn" className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-md border border-[#D1D5DB] bg-white hover:bg-[#F9FAFB] text-sm font-medium"><LogOut className="w-4 h-4" /> Sign out</button>
         </header>
-        <main className="p-4 sm:p-6 overflow-x-auto" data-testid="admin-main"><Outlet /></main>
+        <StaffScreensProvider><main className="p-4 sm:p-6 overflow-x-auto" data-testid="admin-main"><Outlet /></main></StaffScreensProvider>
       </div>
     </div>
   );
