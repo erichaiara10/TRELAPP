@@ -1,13 +1,15 @@
-"""AI endpoints — Price Analysis + Nearby Amenities (Claude Sonnet 4.5 via Emergent LLM Key)."""
+"""Deterministic price guidance and direct-provider nearby amenities."""
 import json as _json
 import logging
 import os
 import re
 
+import httpx
+
 from fastapi import APIRouter, HTTPException
 
 from core.comparable_evidence import ComparableEvidenceService
-from core.db import db, new_id
+from core.db import db
 from models import NearbyAmenitiesIn, PriceAnalysisIn
 
 router = APIRouter()
@@ -40,7 +42,7 @@ _ALLOWED_CATEGORIES = {"schools", "hospitals", "shopping", "beaches", "transport
 @router.post("/ai/nearby-amenities")
 async def ai_nearby_amenities(payload: NearbyAmenitiesIn):
     """Public endpoint — returns a curated list of nearby amenities for a property
-    location in Papua New Guinea. Uses Claude Sonnet 4.5 via Emergent LLM key."""
+    location in Papua New Guinea. Uses the direct Anthropic Messages API."""
     if not (payload.city or payload.suburb):
         raise HTTPException(400, "City or suburb is required")
 
@@ -81,24 +83,42 @@ LOCATION:
   property_type = {payload.property_type or ""}
 """
 
-    key = os.environ.get("EMERGENT_LLM_KEY")
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key:
         raise HTTPException(503, "Nearby amenities are not configured")
 
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = (LlmChat(
-            api_key=key, session_id=new_id(),
-            system_message="You are a Papua New Guinea real estate concierge that returns strict JSON only.",
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929"))
-        raw = await chat.send_message(UserMessage(text=prompt))
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                },
+                json={
+                    "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
+                    "max_tokens": 2400,
+                    "system": "You are a Papua New Guinea real estate concierge that returns strict JSON only.",
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+            if result.get("stop_reason") != "end_turn":
+                raise ValueError("Incomplete amenities response")
+            raw = "".join(
+                block.get("text", "") for block in result.get("content", [])
+                if block.get("type") == "text"
+            )
         text = (raw or "").strip()
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text)
             text = re.sub(r"\s*```\s*$", "", text)
         data = _json.loads(text)
+        if not isinstance(data, dict) or not isinstance(data.get("categories"), list):
+            raise ValueError("Invalid amenities response")
     except Exception as e:
-        logger.warning("AI nearby amenities failed: %s", e)
+        logger.warning("Nearby amenities provider failed (%s)", type(e).__name__)
         raise HTTPException(502, "Amenities service is temporarily unavailable")
 
     _url_re = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -111,11 +131,15 @@ LOCATION:
 
     safe_categories = []
     for cat in (data.get("categories") or [])[:6]:
+        if not isinstance(cat, dict):
+            continue
         ckey = str(cat.get("key", "")).lower().strip()
         if ckey not in _ALLOWED_CATEGORIES:
             continue
         items = []
-        for it in (cat.get("items") or [])[:4]:
+        for it in (cat.get("items") if isinstance(cat.get("items"), list) else [])[:4]:
+            if not isinstance(it, dict):
+                continue
             items.append({
                 "name": _clean(str(it.get("name", "")), 80),
                 "distance_hint": _clean(str(it.get("distance_hint", "")), 40),
